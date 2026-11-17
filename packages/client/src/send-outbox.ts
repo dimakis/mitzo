@@ -34,7 +34,10 @@ interface Entry {
   body: Record<string, unknown>;
   scope: number;
   uncertain?: boolean;
-  localReceipt?: { sessionId: string; state: 'reserved' | 'uncertain' | 'consumed' };
+  localReceipt?: {
+    sessionId: string;
+    state: 'reserved' | 'uncertain' | 'consumed' | 'preparing';
+  };
   localDraftId?: string;
   ordinaryDelivery?: OrdinaryCommandDelivery;
   composerDraft?: ComposerDraftReceipt;
@@ -162,7 +165,9 @@ export class SendOutbox {
           ).data;
           if (
             entry.localReceipt &&
-            (!['reserved', 'uncertain', 'consumed'].includes(entry.localReceipt.state) ||
+            (!['reserved', 'uncertain', 'consumed', 'preparing'].includes(
+              entry.localReceipt.state,
+            ) ||
               typeof entry.localReceipt.sessionId !== 'string' ||
               !entry.localReceipt.sessionId.length ||
               entry.localReceipt.sessionId.length > 200 ||
@@ -314,7 +319,12 @@ export class SendOutbox {
         entry,
         this.activeLocalEntry === entry || this.localReady.includes(entry)
           ? 'pending'
-          : 'uncertain',
+          : entry.localReceipt?.state === 'preparing'
+            ? // An early start remains preparing until its receipt or failure.
+              entry.runtimeFailure
+              ? 'retained'
+              : 'preparing'
+            : 'uncertain',
       );
     else this.config.notify({ type: '_local_command_state', state: 'idle' });
   }
@@ -801,6 +811,27 @@ export class SendOutbox {
       if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
       if (this.withdrawalOwns(entry)) return;
       const receipt = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
+      const failedStart = OrdinaryRuntimeEntryFailureSchema.safeParse(raw);
+      if (
+        response.status === 409 &&
+        entry.localReceipt?.state === 'preparing' &&
+        failedStart.success &&
+        failedStart.data.clientMsgId === entry.body.clientMsgId &&
+        failedStart.data.sessionId === entry.localReceipt.sessionId
+      ) {
+        // A start acknowledged early failed before admission. Its exact original
+        // command stays retained for an explicit Retry; nothing is resent here.
+        entry.runtimeFailure = failedStart.data.runtimeFailure;
+        attempt.stage = 'storage';
+        if (!this.persist())
+          throw new Error('Local failed start could not be retained', {
+            cause: this.persistenceCause,
+          });
+        if (this.config.storage?.flush) await this.flushLocal(attempt);
+        if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
+        this.notifyLocal(entry, 'retained', false, failedStart.data.runtimeFailure);
+        return;
+      }
       if (
         response.status !== 202 ||
         !receipt.success ||

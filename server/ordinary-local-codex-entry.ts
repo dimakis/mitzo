@@ -58,6 +58,7 @@ import {
   OrdinaryRuntimeContinuationCommandSchema,
   type AccountBinding,
   type SessionRuntimeBindingV2,
+  runtimeFailureMessage,
 } from '@mitzo/protocol';
 export { LocalCodexFirstCommandSchema, type LocalCodexFirstCommand } from '@mitzo/protocol';
 import { operatorAuthMiddleware, isAuthSessionCurrent, type AuthSession } from './auth.js';
@@ -525,6 +526,9 @@ function createOwnedCodexEntryRouter(
       return res.status(409).json({ ok: false, code: 'entry_unavailable', error: unavailable });
     }
   });
+  // In-process early starts. A durable 'preparing' row without one here was
+  // interrupted by a restart and is reported as a failed start.
+  const earlyStarts = new Map<string, Promise<void>>();
   const executeCommand =
     (
       continuation: boolean,
@@ -958,6 +962,51 @@ function createOwnedCodexEntryRouter(
           sessionId,
         });
       }
+      const retainedEarlyStart = !continuation
+        ? ctx.eventStore.ordinaryEarlyStarts.get(input.clientMsgId)
+        : undefined;
+      if (retainedEarlyStart && !ctx.eventStore.getSendCommand(input.clientMsgId)) {
+        if (
+          retainedEarlyStart.sessionId !== sessionId ||
+          retainedEarlyStart.wireFingerprint !== ordinaryWireFingerprint(parsed.data)
+        )
+          return res.status(409).json({
+            ok: false,
+            code: 'retained_command',
+            error: unavailable,
+            clientMsgId: input.clientMsgId,
+            sessionId,
+          });
+        if (earlyStarts.has(input.clientMsgId))
+          return observeOnly
+            ? res.status(409).json({
+                ok: false,
+                code: 'receipt_pending',
+                clientMsgId: input.clientMsgId,
+                sessionId,
+              })
+            : res.status(202).json({
+                ok: true,
+                clientMsgId: input.clientMsgId,
+                sessionId,
+                dispatched: false,
+                state: 'preparing',
+              });
+        if (observeOnly) {
+          const failure =
+            retainedEarlyStart.runtimeFailure ??
+            new SessionRuntimeError('runtime_unavailable').telemetry();
+          return res.status(409).json({
+            ok: false,
+            code: 'entry_unavailable',
+            error: runtimeFailureMessage(failure),
+            runtimeFailure: failure,
+            clientMsgId: input.clientMsgId,
+            sessionId,
+          });
+        }
+        // A deliberate resend of a failed start reruns the same reservation.
+      }
       // This endpoint observes exact durable acceptance only. In particular it
       // cannot reserve workspaces, bootstrap a provider or dispatch a retry.
       if (observeOnly)
@@ -1047,6 +1096,66 @@ function createOwnedCodexEntryRouter(
       let releaseStartup: (() => void) | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let preparationCheck = 'operator_authority';
+      let detached = false;
+      const describeFailure = (error: unknown) => {
+        const preparationFailure = annotateAuthorityFailure(error, preparationCheck);
+        const retainedFailure =
+          findSessionRuntimeError(preparationFailure) ??
+          new SessionRuntimeError('runtime_unavailable', { cause: preparationFailure });
+        const span = trace.getActiveSpan();
+        if (span)
+          recordRuntimeFailure(
+            span,
+            findSessionRuntimeError(preparationFailure) ? preparationFailure : retainedFailure,
+          );
+        let state: string | undefined;
+        let receiptObservationUnavailable = false;
+        try {
+          if (ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId === sessionId)
+            state = (
+              input.runOn === 'local' && input.runtime.harness === 'codex'
+                ? ctx.eventStore.getOrdinaryLocalCommandExecutionAdmission(input.clientMsgId)
+                : ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)
+            )?.state;
+        } catch {
+          receiptObservationUnavailable = true;
+        }
+        log.warn('Ordinary command preparation failed', {
+          sessionId,
+          clientMsgId: input.clientMsgId,
+          ...codexRuntimeErrorTelemetry(error instanceof Error ? error : retainedFailure),
+          ...retainedFailure.telemetry(),
+          ...runtimeFailureDiagnostics(preparationFailure),
+          state: state ?? (receiptObservationUnavailable ? 'unavailable' : 'not_admitted'),
+          ...(receiptObservationUnavailable ? { receiptObservationUnavailable: true } : {}),
+        });
+        return {
+          body: {
+            ok: false,
+            code: state ? 'retained_command' : 'entry_unavailable',
+            error: retainedFailure.publicMessage(),
+            runtimeFailure: retainedFailure.telemetry(),
+            clientMsgId: input.clientMsgId,
+            sessionId,
+            ...(state ? { state } : {}),
+          },
+        };
+      };
+
+      const cleanup = () => {
+        try {
+          if (!transport.isOpen()) {
+            const current = ctx.sessionRegistry.findBySessionId(sessionId);
+            if (current) detachChatIfCurrentTransport(current.clientId, transport);
+          }
+        } catch {
+          log.warn('Local chat attachment cleanup remains unconfirmed', { sessionId });
+        }
+        if (timer) clearTimeout(timer);
+        releaseStartup?.();
+        releaseBinding?.();
+        authority?.release();
+      };
       try {
         const captured = captureAgentLibraryAuthorization(connectionId);
         captured.assertCurrent();
@@ -1228,105 +1337,183 @@ function createOwnedCodexEntryRouter(
             return resolved.binding;
           })(),
         };
-        preparationCheck = 'workspace_reservation';
-        authority.assertCurrent();
-        if (!ordinaryInput && !continuation && input.runOn === 'local')
-          await observeLocalCodexPhase('repository_reservation', () =>
-            getRepositoryWorkspaces(true).reserveHostTask({
+        // Reservation, worktree creation and provider startup. A new Claude chat
+        // runs this behind its acknowledgement; every other command awaits it.
+        // Workspace reservation and provider startup run behind the receipt for a
+        // new Claude chat: its identity is fixed by the selected repository.
+        const earlyStart =
+          automaticLocalRepository &&
+          input.runtime.harness === 'claude-sdk' &&
+          !preparedRepository &&
+          !originalLocalWire;
+        const startupAuthority = authority;
+        const completeStartup = async (phase?: (name: 'workspace' | 'starting') => void) => {
+          phase?.('workspace');
+          preparationCheck = 'workspace_reservation';
+          startupAuthority.assertCurrent();
+          if (!ordinaryInput && !continuation && input.runOn === 'local')
+            await observeLocalCodexPhase('repository_reservation', () =>
+              getRepositoryWorkspaces(true).reserveHostTask({
+                ...reservation,
+                signal: controller.signal,
+              }),
+            );
+          else if (!ordinaryInput && !continuation)
+            await getRepositoryWorkspaces(true).reserveOrdinarySandboxTask({
               ...reservation,
               signal: controller.signal,
-            }),
-          );
-        else if (!ordinaryInput && !continuation)
-          await getRepositoryWorkspaces(true).reserveOrdinarySandboxTask({
-            ...reservation,
-            signal: controller.signal,
-          });
-        authority.assertCurrent();
-        preparationCheck = 'live_owner';
-        const live = ctx.sessionRegistry.findBySessionId(sessionId);
-        if (
-          live &&
-          !(['codex', 'claude-sdk'].includes(input.runtime.harness)
-            ? ordinaryOperatorOwnsConversation(live.session.ownedLocalAuthSessionId, auth.id)
-            : live.session.ownedLocalAuthSessionId === auth.id)
-        )
-          throw Error(unavailable);
-        ctx.connRegistry.watch(connectionId, sessionId);
-        ctx.connRegistry.setActive(connectionId, sessionId);
-        const command = {
-          clientMsgId: input.clientMsgId,
-          capabilityRevision: input.capabilityRevision,
-          runtime: input.runtime,
-          selection: input.selection,
-          payload: input.payload,
-        };
-        assertRetainedRouting();
-        const dispatchCurrentCommand = () =>
-          dispatchOwnedOrdinaryCommand({
-            transport,
-            clientId: `${connectionId}:${sessionId}`,
-            sessionId,
-            commandId: input.clientMsgId,
-            command,
-            reservation,
-            operatorConnectionId,
-            ownerConnectionId: connectionId,
-            ownerAuthSessionId: auth.id,
-            signal: controller.signal,
-            continuation,
-            recovery: recoverRetained,
-            existingOwner: Boolean(existingOwner),
-            workspaceKind: ordinaryInput && !retainedRouting ? 'ordinary' : 'repository',
-            ...(!continuation && ordinaryWorkspace
-              ? { preparationOperationId: ordinaryWorkspace.allocationOperationId }
-              : preparedRepository
-                ? { preparationOperationId: preparedRepository.allocationOperationId }
+            });
+          startupAuthority.assertCurrent();
+          preparationCheck = 'live_owner';
+          const live = ctx.sessionRegistry.findBySessionId(sessionId);
+          if (
+            live &&
+            !(['codex', 'claude-sdk'].includes(input.runtime.harness)
+              ? ordinaryOperatorOwnsConversation(live.session.ownedLocalAuthSessionId, auth.id)
+              : live.session.ownedLocalAuthSessionId === auth.id)
+          )
+            throw Error(unavailable);
+          ctx.connRegistry.watch(connectionId, sessionId);
+          ctx.connRegistry.setActive(connectionId, sessionId);
+          const command = {
+            clientMsgId: input.clientMsgId,
+            capabilityRevision: input.capabilityRevision,
+            runtime: input.runtime,
+            selection: input.selection,
+            payload: input.payload,
+          };
+          assertRetainedRouting();
+          const dispatchCurrentCommand = () =>
+            dispatchOwnedOrdinaryCommand({
+              transport,
+              clientId: `${connectionId}:${sessionId}`,
+              sessionId,
+              commandId: input.clientMsgId,
+              command,
+              reservation,
+              operatorConnectionId,
+              ownerConnectionId: connectionId,
+              ownerAuthSessionId: auth.id,
+              signal: controller.signal,
+              continuation,
+              recovery: recoverRetained,
+              existingOwner: Boolean(existingOwner),
+              workspaceKind: ordinaryInput && !retainedRouting ? 'ordinary' : 'repository',
+              ...(!continuation && ordinaryWorkspace
+                ? { preparationOperationId: ordinaryWorkspace.allocationOperationId }
+                : preparedRepository
+                  ? { preparationOperationId: preparedRepository.allocationOperationId }
+                  : {}),
+              profile,
+              ...(input.runOn === 'openshell'
+                ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()!.config.workdir }
                 : {}),
-            profile,
-            ...(input.runOn === 'openshell'
-              ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()!.config.workdir }
-              : {}),
-          });
-        preparationCheck = 'command_dispatch';
-        const resultCommand = originalLocalWire
-          ? await ctx.eventStore.withOrdinaryCommandWireAdmission(
-              {
-                sessionId,
-                commandId: input.clientMsgId,
-                wireFingerprint: ordinaryWireFingerprint(originalLocalWire),
-                ...((postAdoptionWire?.target ?? storedPostAdoptionWire?.bridge)
-                  ? { bridge: postAdoptionWire?.target ?? storedPostAdoptionWire!.bridge }
-                  : {}),
-                ...(historicalCapabilityQualified
-                  ? { historicalCapabilityRevision: originalLocalWire.capabilityRevision }
-                  : {}),
-              },
-              () => {
-                authority!.assertCurrent();
-                assertRetainedRouting();
-                postAdoptionWire?.assertCurrentSync();
-                if (
-                  historicalCapabilityQualified &&
-                  !isKnownPostAdoptionCapability(
-                    ctx.eventStore,
-                    originalLocalWire,
-                    (postAdoptionWire?.target ?? storedPostAdoptionWire!.bridge!).primaryCommandId,
+            });
+          preparationCheck = 'command_dispatch';
+          phase?.('starting');
+          const resultCommand = originalLocalWire
+            ? await ctx.eventStore.withOrdinaryCommandWireAdmission(
+                {
+                  sessionId,
+                  commandId: input.clientMsgId,
+                  wireFingerprint: ordinaryWireFingerprint(originalLocalWire),
+                  ...((postAdoptionWire?.target ?? storedPostAdoptionWire?.bridge)
+                    ? { bridge: postAdoptionWire?.target ?? storedPostAdoptionWire!.bridge }
+                    : {}),
+                  ...(historicalCapabilityQualified
+                    ? { historicalCapabilityRevision: originalLocalWire.capabilityRevision }
+                    : {}),
+                },
+                () => {
+                  startupAuthority.assertCurrent();
+                  assertRetainedRouting();
+                  postAdoptionWire?.assertCurrentSync();
+                  if (
+                    historicalCapabilityQualified &&
+                    !isKnownPostAdoptionCapability(
+                      ctx.eventStore,
+                      originalLocalWire,
+                      (postAdoptionWire?.target ?? storedPostAdoptionWire!.bridge!)
+                        .primaryCommandId,
+                    )
                   )
-                )
-                  throw Error(unavailable);
-              },
-              dispatchCurrentCommand,
-            )
-          : await dispatchCurrentCommand();
-        preparationCheck = 'command_receipt';
-        authority.assertCurrent();
-        const receipt =
-          input.runOn === 'local' && input.runtime.harness === 'codex'
-            ? ctx.eventStore.getOrdinaryLocalCommandExecutionAdmission(input.clientMsgId)
-            : ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId);
-        if (!receipt || ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId !== sessionId)
-          throw Error(unavailable);
+                    throw Error(unavailable);
+                },
+                dispatchCurrentCommand,
+              )
+            : await dispatchCurrentCommand();
+          preparationCheck = 'command_receipt';
+          startupAuthority.assertCurrent();
+          const receipt =
+            input.runOn === 'local' && input.runtime.harness === 'codex'
+              ? ctx.eventStore.getOrdinaryLocalCommandExecutionAdmission(input.clientMsgId)
+              : ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId);
+          if (!receipt || ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId !== sessionId)
+            throw Error(unavailable);
+          return { resultCommand, receipt };
+        };
+        if (earlyStart) {
+          const wire = {
+            clientMsgId: input.clientMsgId,
+            sessionId,
+            wireFingerprint: ordinaryWireFingerprint(parsed.data),
+          };
+          ctx.eventStore.ordinaryEarlyStarts.begin(wire);
+          ctx.connRegistry.watch(connectionId, sessionId);
+          ctx.connRegistry.setActive(connectionId, sessionId);
+          const progress = (event: Record<string, unknown>) => {
+            try {
+              transport.send({
+                type: 'ordinary_start_progress',
+                sessionId,
+                clientMsgId: input.clientMsgId,
+                ...event,
+              } as never);
+            } catch {
+              // The receipt endpoint retains the outcome for reconnecting clients.
+            }
+          };
+          detached = true;
+          const running = (async () => {
+            try {
+              await completeStartup((name) => progress({ phase: name }));
+              ctx.eventStore.ordinaryEarlyStarts.complete(input.clientMsgId);
+              progress({ phase: 'started' });
+            } catch (error) {
+              const failure = describeFailure(error);
+              try {
+                ctx.eventStore.ordinaryEarlyStarts.fail(
+                  input.clientMsgId,
+                  failure.body.runtimeFailure,
+                );
+              } catch (cause) {
+                log.warn('Early start failure could not be retained', {
+                  code: 'early_start_failure_unretained',
+                  sessionId,
+                  clientMsgId: input.clientMsgId,
+                  ...runtimeFailureDiagnostics(cause),
+                });
+              }
+              progress({
+                phase: 'failed',
+                error: failure.body.error,
+                runtimeFailure: failure.body.runtimeFailure,
+              });
+            } finally {
+              cleanup();
+              earlyStarts.delete(input.clientMsgId);
+            }
+          })();
+          earlyStarts.set(input.clientMsgId, running);
+          return res.status(202).json({
+            ok: true,
+            clientMsgId: input.clientMsgId,
+            sessionId,
+            dispatched: false,
+            state: 'preparing',
+          });
+        }
+        const { resultCommand, receipt } = await completeStartup();
         return res.status(202).json({
           ok: true,
           clientMsgId: input.clientMsgId,
@@ -1335,59 +1522,9 @@ function createOwnedCodexEntryRouter(
           state: receipt.state,
         });
       } catch (error) {
-        const preparationFailure = annotateAuthorityFailure(error, preparationCheck);
-        const retainedFailure =
-          findSessionRuntimeError(preparationFailure) ??
-          new SessionRuntimeError('runtime_unavailable', { cause: preparationFailure });
-        const span = trace.getActiveSpan();
-        if (span)
-          recordRuntimeFailure(
-            span,
-            findSessionRuntimeError(preparationFailure) ? preparationFailure : retainedFailure,
-          );
-        let state: string | undefined;
-        let receiptObservationUnavailable = false;
-        try {
-          if (ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId === sessionId)
-            state = (
-              input.runOn === 'local' && input.runtime.harness === 'codex'
-                ? ctx.eventStore.getOrdinaryLocalCommandExecutionAdmission(input.clientMsgId)
-                : ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)
-            )?.state;
-        } catch {
-          receiptObservationUnavailable = true;
-        }
-        log.warn('Ordinary command preparation failed', {
-          sessionId,
-          clientMsgId: input.clientMsgId,
-          ...codexRuntimeErrorTelemetry(error instanceof Error ? error : retainedFailure),
-          ...retainedFailure.telemetry(),
-          ...runtimeFailureDiagnostics(preparationFailure),
-          state: state ?? (receiptObservationUnavailable ? 'unavailable' : 'not_admitted'),
-          ...(receiptObservationUnavailable ? { receiptObservationUnavailable: true } : {}),
-        });
-        return res.status(409).json({
-          ok: false,
-          code: state ? 'retained_command' : 'entry_unavailable',
-          error: retainedFailure.publicMessage(),
-          runtimeFailure: retainedFailure.telemetry(),
-          clientMsgId: input.clientMsgId,
-          sessionId,
-          ...(state ? { state } : {}),
-        });
+        return res.status(409).json(describeFailure(error).body);
       } finally {
-        try {
-          if (!transport.isOpen()) {
-            const current = ctx.sessionRegistry.findBySessionId(sessionId);
-            if (current) detachChatIfCurrentTransport(current.clientId, transport);
-          }
-        } catch {
-          log.warn('Local chat attachment cleanup remains unconfirmed', { sessionId });
-        }
-        if (timer) clearTimeout(timer);
-        releaseStartup?.();
-        releaseBinding?.();
-        authority?.release();
+        if (!detached) cleanup();
       }
     };
   const sendCommand = (

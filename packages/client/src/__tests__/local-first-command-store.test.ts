@@ -2730,3 +2730,97 @@ it('recovers blocked storage offline and admits a new command only after reconne
   await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
   expect(fetch.mock.calls.filter(([url]) => url === '/local/send')).toHaveLength(1);
 });
+it('opens the chat on an early preparing receipt and confirms only its later exact receipt', async () => {
+  const { store, fetch, readStorage } = setup();
+  channel.id = 'live-sse';
+  let admitted = false;
+  fetch.mockImplementation(async (path: string) => {
+    const receipt = { ok: true, clientMsgId: request.clientMsgId, sessionId: 'owned-session' };
+    if (path === '/local/send')
+      return new Response(JSON.stringify({ ...receipt, dispatched: false, state: 'preparing' }), {
+        status: 202,
+      });
+    if (path === '/local/send/receipt')
+      return admitted
+        ? new Response(JSON.stringify({ ...receipt, dispatched: false, state: 'consumed' }), {
+            status: 202,
+          })
+        : new Response(JSON.stringify({ ...receipt, ok: false, code: 'receipt_pending' }), {
+            status: 409,
+          });
+    return new Response('[]');
+  });
+  const assigned = vi.fn();
+  const delivered = vi.fn();
+  store
+    .getState()
+    .sendLocalFirstCommand(request, { onSessionAssigned: assigned, onDelivery: delivered });
+  await vi.waitFor(() => expect(assigned).toHaveBeenCalledWith('owned-session'));
+  expect(store.getState().sessions.active).toBe('owned-session');
+  expect(store.getState().localCommand?.state).toBe('preparing');
+  expect(store.getState().sendStatus).toBe('Preparing workspace…');
+  expect(delivered).not.toHaveBeenCalled();
+  const progress = (phase: string) =>
+    channel.listener({
+      type: 'ordinary_start_progress',
+      sessionId: 'owned-session',
+      clientMsgId: request.clientMsgId,
+      phase,
+    });
+  progress('starting');
+  expect(store.getState().sendStatus).toBe('Starting the agent…');
+  admitted = true;
+  progress('started');
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
+  expect(store.getState().localCommand?.state).toBe('consumed');
+  expect(readStorage()).toEqual([]);
+  expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
+});
+it('shows a failed start after an early receipt and retries the same command', async () => {
+  const { store, fetch, readStorage } = setup();
+  channel.id = 'live-sse';
+  const runtimeFailure = {
+    runtimeFailureCode: 'auth_revoked',
+    diagnosticId: '5f0c1f3e-6b1d-4c0e-9a51-2d4b7f8e9a10',
+  };
+  const receipt = { clientMsgId: request.clientMsgId, sessionId: 'owned-session' };
+  fetch.mockImplementation(async (path: string) => {
+    if (path === '/local/send')
+      return new Response(
+        JSON.stringify({ ok: true, ...receipt, dispatched: false, state: 'preparing' }),
+        { status: 202 },
+      );
+    if (path === '/local/send/receipt')
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          code: 'entry_unavailable',
+          error: runtimeFailureMessage(runtimeFailure as never),
+          runtimeFailure,
+          ...receipt,
+        }),
+        { status: 409 },
+      );
+    return new Response('[]');
+  });
+  const delivered = vi.fn();
+  store.getState().sendLocalFirstCommand(request, { onDelivery: delivered });
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('preparing'));
+  channel.listener({
+    type: 'ordinary_start_progress',
+    ...receipt,
+    phase: 'failed',
+    runtimeFailure,
+  });
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('retained'));
+  expect(store.getState().sendError).toBe(runtimeFailureMessage(runtimeFailure as never));
+  expect(store.getState().sendStatus).not.toBe('Preparing workspace…');
+  expect(delivered).not.toHaveBeenCalledWith('accepted');
+  expect(readStorage()).toHaveLength(1);
+  expect(store.getState().recoverLocalCommand()).toBe(true);
+  await vi.waitFor(() =>
+    expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(2),
+  );
+  const sends = fetch.mock.calls.filter(([path]) => path === '/local/send');
+  expect(JSON.parse(sends[1][1].body)).toEqual(JSON.parse(sends[0][1].body));
+});

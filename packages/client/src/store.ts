@@ -403,6 +403,12 @@ function mergeHistory(
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
+/** Status for a new chat acknowledged before its workspace and agent start. */
+const EARLY_START_STATUS = {
+  workspace: 'Preparing workspace…',
+  starting: 'Starting the agent…',
+} as const;
+
 export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStoreState> {
   const api = new MitzoApiClient(options.transport.fetch.bind(options.transport));
   // Lifetimes belong to selected views and unresolved commands, independently
@@ -635,7 +641,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                     ? { sendError: runtimeFailureMessage(runtimeFailure.data) }
                     : deliveryDiagnostic && state === 'uncertain'
                       ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
-                      : event.receiptConfirmed === true || ['pending', 'consumed'].includes(state)
+                      : event.receiptConfirmed === true ||
+                          ['pending', 'consumed', 'preparing'].includes(state)
                         ? { sendError: null }
                         : deliveryDiagnostic
                           ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
@@ -665,7 +672,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                       : 'Preparing response…'
                     : state === 'pending'
                       ? `Sending ${locationLabel} command…`
-                      : `${locationLabel} command retained. Review before retrying.`,
+                      : state === 'preparing'
+                        ? EARLY_START_STATUS.workspace
+                        : `${locationLabel} command retained. Review before retrying.`,
               });
             }
             if (!request) return;
@@ -2466,6 +2475,22 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const eventSessionId = msg.sessionId as string | undefined;
     if (msg.type === 'session_reconnect_snapshot' && eventSessionId)
       cancelBackgroundRead(eventSessionId);
+    if (msg.type === 'ordinary_start_progress' && typeof msg.clientMsgId === 'string') {
+      // Startup behind an early receipt. Progress only labels the exact visible
+      // command; started/failed re-read its exact receipt, which alone settles it.
+      const visible = store.getState().localCommand;
+      const phase = String(msg.phase);
+      if (
+        visible?.state === 'preparing' &&
+        visible.request?.clientMsgId === msg.clientMsgId &&
+        visible.sessionId === eventSessionId &&
+        (phase === 'workspace' || phase === 'starting')
+      )
+        store.setState({ sendStatus: EARLY_START_STATUS[phase] });
+      if (phase === 'started' || phase === 'failed')
+        void localOutbox?.reconcileLocalCommand(msg.clientMsgId);
+      return true;
+    }
     if (
       eventSessionId &&
       ['message_start', 'session_end', 'ordinary_provider_dispatch_started'].includes(

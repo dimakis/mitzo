@@ -95,6 +95,7 @@ const fixtures = vi.hoisted(() => ({
   nativeBootstrapFingerprint: undefined as string | undefined,
   vertexTarget: undefined as Record<string, unknown> | undefined,
   startVertex: vi.fn(),
+  selectLocal: vi.fn(),
 }));
 vi.mock('../ordinary-local-codex-host-runtime.js', async (original) => {
   const actual = await original<typeof import('../ordinary-local-codex-host-runtime.js')>();
@@ -174,6 +175,7 @@ vi.mock('../agent-library-runtime.js', () => ({ getAgentLibrary: fixtures.librar
 vi.mock('../repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: fixtures.workspace,
   getOrdinaryWorkspaces: fixtures.ordinaryWorkspace,
+  getLocalRepositoryWorkspaces: () => ({ selectLocalRepository: fixtures.selectLocal }),
 }));
 vi.mock('../symposium-custodian-mode.js', () => ({
   custodianControllerClient: undefined,
@@ -434,16 +436,18 @@ const invoke = (
 const send = (body: unknown = input(), login: string | null = auth.id) =>
   invoke('POST', '/send', body, login);
 
-it('passes a frozen Claude HTTP selection through unchanged model refreshes and refuses changed support', async () => {
-  const config = {
-    id: 'refresh-personal-claude',
-    label: 'Offline Claude',
-    provider: 'anthropic-vertex',
-    projectId: 'project',
-    region: 'region',
-    credentialRef: '/offline/claude-adc',
-    models: [{ id: 'fixture', label: 'Offline', reasoningEfforts: ['high'] }],
-  };
+const claudeConfig = {
+  id: 'refresh-personal-claude',
+  label: 'Offline Claude',
+  provider: 'anthropic-vertex',
+  projectId: 'project',
+  region: 'region',
+  credentialRef: '/offline/claude-adc',
+  models: [{ id: 'fixture', label: 'Offline', reasoningEfforts: ['high'] }],
+};
+/** Actual HTTP capability discovery for the offline Local Claude SDK route. */
+async function claudeEntry() {
+  const config = claudeConfig;
   fixtures.profiles.mockReturnValue(new AccountProfiles([config]));
   fixtures.library.mockReturnValue({
     version: () => publishedProfile,
@@ -486,6 +490,11 @@ it('passes a frozen Claude HTTP selection through unchanged model refreshes and 
     },
     selection: { ...input().selection, thinking: 'high' },
   };
+  return { config, frozen };
+}
+
+it('passes a frozen Claude HTTP selection through unchanged model refreshes and refuses changed support', async () => {
+  const { config, frozen } = await claudeEntry();
   // End the offline consumer at the provider dispatch boundary. This checks the
   // actual HTTP catalog qualification, without creating a provider/query fixture.
   fixtures.startVertex.mockRejectedValue(new SessionRuntimeError('auth_revoked'));
@@ -569,6 +578,161 @@ it('passes a frozen Claude HTTP selection through unchanged model refreshes and 
   ).toBe(200);
   expect(fixtures.startVertex).toHaveBeenCalledOnce();
 });
+
+/** A new Claude chat with automatic repository selection, admitted by the fake provider. */
+async function earlyClaudeStart() {
+  // Model discovery is process-wide; restore support before capability discovery.
+  await refreshModels(JSON.stringify(claudeConfig), async () => claudeConfig.models, true);
+  const { config, frozen } = await claudeEntry();
+  // Automatic selection: the browser names no repository.
+  const automatic = Object.fromEntries(
+    Object.entries(frozen).filter(([key]) => key !== 'repositoryWorkspaceId'),
+  ) as Omit<typeof frozen, 'repositoryWorkspaceId'>;
+  const workspace = nativeStartupSessionId(
+    `local-repository:${auth.id}:${config.id}:${frozen.clientMsgId}`,
+  );
+  const sessionId = nativeStartupSessionId(`repository:${workspace}`);
+  const admit = async (
+    _transport: unknown,
+    _client: unknown,
+    args: {
+      reservation: { id: string; conversationId: string; runtimeBinding: never };
+      command: { clientMsgId: string; selection: unknown; payload: { text: string } };
+    },
+  ) => {
+    store.admitOrdinaryLocalVertexCommand(
+      {
+        sessionId: args.reservation.conversationId,
+        cwd: '/offline/checkout',
+        repositoryWorkspaceId: args.reservation.id,
+        accountBinding: fixtures.profiles().resolve(config.id, 'fixture'),
+      },
+      args.reservation.runtimeBinding,
+      {
+        clientMsgId: args.command.clientMsgId,
+        requestFingerprint: 'offline-early-start',
+        selection: OrdinaryLocalCommandSelectionSchema.parse(args.command.selection),
+        payload: args.command.payload,
+      },
+    );
+    return { dispatched: true, sessionId: args.reservation.conversationId };
+  };
+  fixtures.startVertex.mockImplementation(admit);
+  const transport = conns.get('entry-stream')!.transport as unknown as {
+    send: ReturnType<typeof vi.fn>;
+  };
+  const progress = () =>
+    transport.send.mock.calls
+      .map(([event]) => event as { type: string; phase?: string; clientMsgId?: string })
+      .filter((event) => event.type === 'ordinary_start_progress');
+  const preparing = {
+    status: 202,
+    body: {
+      ok: true,
+      clientMsgId: frozen.clientMsgId,
+      sessionId,
+      dispatched: false,
+      state: 'preparing',
+    },
+  };
+  return { automatic, sessionId, admit, progress, preparing };
+}
+
+it('acknowledges a new Claude chat after repository selection and starts it behind the receipt', async () => {
+  const x = await earlyClaudeStart();
+  let finishReservation!: () => void;
+  fixtures.reserve.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishReservation = () => resolve({ state: 'reserved' });
+    }),
+  );
+  expect(await send(x.automatic)).toEqual(x.preparing);
+  expect(fixtures.selectLocal).toHaveBeenCalledOnce();
+  expect(fixtures.startVertex).not.toHaveBeenCalled();
+  expect(store.ordinaryEarlyStarts.get(x.automatic.clientMsgId)).toMatchObject({
+    sessionId: x.sessionId,
+    state: 'preparing',
+  });
+  expect(conns.get('entry-stream')!.activeSession).toBe(x.sessionId);
+  // A repeated send while startup runs observes the same start; it never starts another.
+  expect(await send(x.automatic)).toEqual(x.preparing);
+  expect((await invoke('POST', '/send/receipt', x.automatic)).body).toMatchObject({
+    code: 'receipt_pending',
+  });
+  await vi.waitFor(() => expect(fixtures.reserve).toHaveBeenCalledOnce());
+  finishReservation();
+  await vi.waitFor(() => expect(x.progress().at(-1)).toMatchObject({ phase: 'started' }));
+  expect(x.progress().map((event) => event.phase)).toEqual(['workspace', 'starting', 'started']);
+  expect(x.progress()[0]).toMatchObject({
+    sessionId: x.sessionId,
+    clientMsgId: x.automatic.clientMsgId,
+  });
+  expect(fixtures.reserve).toHaveBeenCalledOnce();
+  expect(fixtures.startVertex).toHaveBeenCalledOnce();
+  expect(store.ordinaryEarlyStarts.get(x.automatic.clientMsgId)).toBeUndefined();
+});
+
+it('reports a start interrupted by a restart as failed instead of preparing forever', async () => {
+  const x = await earlyClaudeStart();
+  let finishReservation!: () => void;
+  fixtures.reserve.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishReservation = () => resolve({ state: 'reserved' });
+    }),
+  );
+  expect(await send(x.automatic)).toEqual(x.preparing);
+  // A new process has the durable row but not the in-process start.
+  router = createOwnedLocalCodexEntryRouter(
+    streams,
+    { connRegistry: conns, sessionRegistry: sessions, eventStore: store },
+    true,
+  );
+  const receipt = await invoke('POST', '/send/receipt', x.automatic);
+  expect(receipt.status).toBe(409);
+  expect(
+    OrdinaryRuntimeEntryFailureSchema.parse(receipt.body).runtimeFailure.runtimeFailureCode,
+  ).toBe('runtime_unavailable');
+  finishReservation();
+  await vi.waitFor(() => expect(x.progress().at(-1)).toMatchObject({ phase: 'started' }));
+});
+
+it.each(['reservation', 'startup'] as const)(
+  'shows a %s failure after acknowledgement as a failed start that retries the same command',
+  async (stage) => {
+    const x = await earlyClaudeStart();
+    if (stage === 'reservation')
+      fixtures.reserve.mockRejectedValueOnce(Error('PRIVATE_RESERVATION_FAILURE'));
+    else fixtures.startVertex.mockRejectedValueOnce(new SessionRuntimeError('auth_revoked'));
+    expect(await send(x.automatic)).toEqual(x.preparing);
+    await vi.waitFor(() => expect(x.progress().at(-1)).toMatchObject({ phase: 'failed' }));
+    const code = stage === 'reservation' ? 'runtime_unavailable' : 'auth_revoked';
+    expect(x.progress().at(-1)).toMatchObject({
+      runtimeFailure: { runtimeFailureCode: code },
+    });
+    expect(JSON.stringify(x.progress())).not.toContain('PRIVATE_RESERVATION_FAILURE');
+    expect(store.ordinaryEarlyStarts.get(x.automatic.clientMsgId)).toMatchObject({
+      state: 'failed',
+    });
+    const receipt = await invoke('POST', '/send/receipt', x.automatic);
+    expect(receipt.status).toBe(409);
+    expect(
+      OrdinaryRuntimeEntryFailureSchema.parse(receipt.body).runtimeFailure.runtimeFailureCode,
+    ).toBe(code);
+    // The failed start belongs to its exact frozen wire.
+    expect((await send({ ...x.automatic, payload: { text: 'A different message' } })).status).toBe(
+      409,
+    );
+    expect(await send(x.automatic)).toEqual(x.preparing);
+    await vi.waitFor(() => expect(x.progress().at(-1)).toMatchObject({ phase: 'started' }));
+    const reservations = fixtures.reserve.mock.calls.map(([call]) => call);
+    expect(reservations).toHaveLength(2);
+    expect(reservations[1]).toMatchObject({
+      conversationId: x.sessionId,
+      commandFingerprint: reservations[0].commandFingerprint,
+    });
+    expect(store.ordinaryEarlyStarts.get(x.automatic.clientMsgId)).toBeUndefined();
+  },
+);
 
 it('exposes and dispatches API billing through the actual Local Codex entry', async () => {
   const api = new AccountProfiles(
