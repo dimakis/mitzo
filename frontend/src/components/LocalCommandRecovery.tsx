@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { MitzoStoreState } from '@mitzo/client';
+import { localCommandInFlight, type MitzoStoreState } from '@mitzo/client';
 import { HomeDialog } from './HomeDialog';
 
 /** Shared recovery for both chat layouts. Reviewing never submits a message. */
@@ -39,12 +39,15 @@ export function useLocalCommandRecovery({
     'sessionId' in request &&
     typeof request.sessionId === 'string' &&
     command?.ordinaryPhase !== 'first' &&
-    !['pending', 'consumed', 'blocked'].includes(command?.state ?? '');
+    !localCommandInFlight(command?.state) &&
+    !['consumed', 'blocked'].includes(command?.state ?? '');
   const current = eligible && request.clientMsgId === reviewing;
   return {
     action: {
       label: eligible ? 'Review delivery' : 'Retry',
-      disabled: command?.state !== 'blocked' && (!connected || !request),
+      disabled:
+        localCommandInFlight(command?.state) ||
+        (command?.state !== 'blocked' && (!connected || !request)),
       onClick: () => {
         if (eligible) {
           setHasReview(true);

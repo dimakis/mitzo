@@ -12,6 +12,7 @@ export {
   CommandDeliveryDiagnosticSchema,
   commandDeliveryMessage,
   localCommandStatusMessage,
+  localCommandInFlight,
 } from './command-delivery-diagnostic.js';
 export type {
   CommandDeliveryDiagnostic,

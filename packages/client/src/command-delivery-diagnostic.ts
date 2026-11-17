@@ -63,6 +63,8 @@ export function localCommandStatusMessage(state: string): string | undefined {
       return undefined;
     case 'pending':
       return 'Sending…';
+    case 'preparing':
+      return 'Preparing workspace…';
     case 'blocked':
       return 'Saved outgoing messages are unavailable. Your drafts are kept. Retry checks device storage.';
     case 'uncertain':
@@ -72,4 +74,9 @@ export function localCommandStatusMessage(state: string): string | undefined {
     default:
       return 'Message recovery is unavailable. Your draft is kept.';
   }
+}
+
+/** The command is being sent or started; recovery controls wait for its outcome. */
+export function localCommandInFlight(state: string | undefined): boolean {
+  return state === 'pending' || state === 'preparing';
 }
