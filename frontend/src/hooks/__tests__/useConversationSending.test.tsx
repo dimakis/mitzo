@@ -952,3 +952,65 @@ it.each(['visible_text', 'revoked_during_refresh'] as const)(
     for (const observed of observations) expect(observed).toEqual(input);
   },
 );
+
+it('explains every refused send instead of settling silently', async () => {
+  const view = sharedConversationView(),
+    draft = createChatDraft();
+  saveChatDraft({ ...draft, text: 'Draft' });
+  const api = new CollaborationApiClient(vi.fn());
+  vi.spyOn(api, 'recipientReadiness').mockImplementation(async (_group, sessionId) => ({
+    collaborationId: view.collaborationId,
+    sessionId,
+    membershipRevision: view.membershipRevision,
+    policySequence: view.policySequence,
+    ready: sessionId !== 'reviewer',
+    reason: sessionId === 'reviewer' ? 'Reviewer is still joining.' : null,
+  }));
+  vi.spyOn(api, 'observeSend').mockResolvedValue({ message: null, terminal: false });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const send = vi.spyOn(api, 'send').mockImplementation(async (_group, input) => {
+    await gate;
+    return {
+      ...sharedPrompt,
+      text: input.text,
+      responders: ['architect'],
+      deliveries: [sharedPrompt.deliveries[0]],
+    };
+  });
+  const options = {
+    api,
+    view,
+    draftId: draft.id,
+    authScope: 'login',
+    getVerifiedAuthScope: () => 'login',
+    responders: { kind: 'selected' as const, sessionIds: ['architect'] },
+    refresh: async () => view,
+  };
+  const h = renderHook(() => useConversationSending(options));
+  await waitFor(() => expect(h.result.current.disabledReason).toBeUndefined());
+
+  // An explicitly addressed recipient that is not ready names the server's reason.
+  await act(async () => {
+    expect(await h.result.current.send('Hi', undefined, undefined, ['reviewer'])).toBe(false);
+  });
+  expect(h.result.current.lastRefusal()).toBe('Reviewer is still joining.');
+
+  // A repeated press while the first send is in flight is refused visibly, never duplicated.
+  let first!: Promise<boolean>;
+  act(() => {
+    first = h.result.current.send('Only once');
+  });
+  await waitFor(() => expect(send).toHaveBeenCalledOnce());
+  await act(async () => {
+    expect(await h.result.current.send('Only once')).toBe(false);
+  });
+  expect(h.result.current.lastRefusal()).toMatch(/already being sent/i);
+  release();
+  await act(async () => {
+    expect(await first).toBe(true);
+  });
+  expect(send).toHaveBeenCalledOnce();
+});

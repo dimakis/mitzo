@@ -41,6 +41,9 @@ export function useConversationSending(options: {
   } = options;
   const acceptedCallback = useRef(onAccepted);
   acceptedCallback.current = onAccepted;
+  // Why the latest send settled false without a published error. Read through
+  // lastRefusal() so callers never observe a stale render's value.
+  const refusal = useRef<string | undefined>(undefined);
   const latest = useRef(options);
   latest.current = options;
   const recipientKey = JSON.stringify(
@@ -302,34 +305,43 @@ export function useConversationSending(options: {
       replyToMessageId?: string,
       addressedRecipients?: string[],
     ) => {
+      const refuse = (reason: string) => {
+        refusal.current = reason;
+        return false;
+      };
+      refusal.current = undefined;
       const audience = addressedRecipients ? [...new Set(addressedRecipients)] : recipients;
       const selection = addressedRecipients
         ? { kind: 'selected' as const, sessionIds: audience }
         : responders;
+      if (busy.current === owner)
+        return refuse(
+          'This prompt is already being sent. Wait for its outcome before sending again.',
+        );
+      if (!addressedRecipients && disabledReason) return refuse(disabledReason);
+      if (addressedRecipients && contextDisabledReason) return refuse(contextDisabledReason);
       if (
-        (addressedRecipients
-          ? contextDisabledReason ||
-            audience.some(
-              (id) =>
-                !view?.participantSessionIds.includes(id) ||
-                view.unavailableParticipantSessionIds.includes(id),
-            )
-          : disabledReason) ||
-        !valid() ||
-        busy.current === owner ||
+        addressedRecipients &&
+        audience.some(
+          (id) =>
+            !view?.participantSessionIds.includes(id) ||
+            view.unavailableParticipantSessionIds.includes(id),
+        )
+      )
+        return refuse('Refresh Agents and choose an available participant.');
+      if (!valid() || !view || !group || !authScope)
+        return refuse('Conversation unavailable. Refresh the conversation and try again.');
+      if (!audience.length || !selection)
+        return refuse('Choose who replies with @ or enable replies by default in Agents.');
+      if (
         requests.current.some(
           (request) =>
             !request.acknowledged &&
             (!requestRecipients(request) ||
               requestRecipients(request)!.some((id) => audience.includes(id))),
-        ) ||
-        !view ||
-        !audience.length ||
-        !selection ||
-        !group ||
-        !authScope
+        )
       )
-        return false;
+        return refuse('Check the original request. Queued or uncertain work will not be resent.');
       busy.current = owner;
       const preparation = { owner, cancelled: false, recipients: audience };
       preparing.current = preparation;
@@ -351,18 +363,21 @@ export function useConversationSending(options: {
           const readiness = await Promise.all(
             audience.map((id) => api.recipientReadiness(group, id)),
           );
-          if (
-            !fresh() ||
-            readiness.some(
-              (r, i) =>
-                !r.ready ||
-                r.sessionId !== audience[i] ||
-                r.collaborationId !== group ||
-                r.membershipRevision !== view.membershipRevision ||
-                r.policySequence !== view.policySequence,
-            )
-          )
-            return false;
+          if (!fresh())
+            return refuse('The conversation changed while checking recipients. Send again.');
+          const stale = readiness.find(
+            (r, i) =>
+              r.sessionId !== audience[i] ||
+              r.collaborationId !== group ||
+              r.membershipRevision !== view.membershipRevision ||
+              r.policySequence !== view.policySequence,
+          );
+          if (stale) return refuse('Agents changed. Refresh Agents and send again.');
+          const unready = readiness.find((r) => !r.ready);
+          if (unready)
+            return refuse(
+              unready.reason ?? 'A selected agent is not ready to receive prompts yet.',
+            );
         }
         const original: Pending = {
           collaborationId: group,
@@ -382,7 +397,7 @@ export function useConversationSending(options: {
         await retain(original, fresh);
         if (!fresh()) {
           await retireUnsent(original);
-          return false;
+          return refuse('The conversation changed before sending. Your draft is kept; send again.');
         }
         if (preparation.cancelled) {
           await retireUnsent(original);
@@ -429,8 +444,13 @@ export function useConversationSending(options: {
         // pending or uncertain. Keep its independent journal for recovery;
         // restoring its text would invite a duplicate send. A wholly refused
         // audience still retains the editable draft.
-        return receipt.deliveries.some(
-          (d) => d.purpose === 'reply' && !['failed', 'unavailable'].includes(d.status),
+        return (
+          receipt.deliveries.some(
+            (d) => d.purpose === 'reply' && !['failed', 'unavailable'].includes(d.status),
+          ) ||
+          refuse(
+            'The prompt is recorded, but no selected agent could accept it. Check Agents before sending again.',
+          )
         );
       } catch (cause) {
         if (valid()) {
@@ -477,6 +497,7 @@ export function useConversationSending(options: {
       contextDisabledReason,
     ],
   );
+  const lastRefusal = useCallback(() => refusal.current, []);
   const stopOne = useCallback(
     async (original: Pending, targetIds = recipients) => {
       if (!valid() || !group) return;
@@ -562,5 +583,6 @@ export function useConversationSending(options: {
     stop,
     check,
     send,
+    lastRefusal,
   };
 }

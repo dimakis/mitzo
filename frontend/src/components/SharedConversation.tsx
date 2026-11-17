@@ -701,7 +701,17 @@ function SharedConversationBodyContent({
       },
     },
     onSend: (text, images, context, delivered, _assigned, _draft, replyTo) => {
-      if (context?.length || sending.disabledReason) return false;
+      // Every refused press names its blocker; the composer keeps the draft.
+      if (context?.length) {
+        setSendFailure(
+          'Context blocks cannot be attached to a shared prompt. Remove them and use the shared context control. Your draft is retained.',
+        );
+        return false;
+      }
+      if (sending.disabledReason) {
+        setSendFailure(sending.disabledReason);
+        return false;
+      }
       const attachments = ChatImagesSchema.safeParse(
         images?.map(({ data, mediaType }) => ({ data, mediaType })) ?? [],
       );
@@ -730,7 +740,11 @@ function SharedConversationBodyContent({
       void sending
         .send(text, attachments.data.length ? attachments.data : undefined, replySource?.messageId)
         .then(
-          (ok) => delivered?.(ok ? 'accepted' : 'failed'),
+          (ok) => {
+            const refused = ok ? undefined : sending.lastRefusal();
+            if (refused) setSendFailure(refused);
+            delivered?.(ok ? 'accepted' : 'failed');
+          },
           (cause) => {
             setSendFailure(
               cause instanceof Error

@@ -77,7 +77,7 @@ function fixture(
   }
   let failRead = false;
   let acceptSends = false;
-  let deliveryStatus: 'delivered' | 'queued' | 'pending' | 'uncertain' = 'delivered';
+  let deliveryStatus: 'delivered' | 'queued' | 'pending' | 'uncertain' | 'failed' = 'delivered';
   let releaseSend: (() => void) | undefined;
   let sendBarrier: Promise<void> | undefined;
   let delayedStatus: Promise<Response> | undefined;
@@ -805,5 +805,26 @@ it('keeps explicit routing and retained send/Stop identity when the selected par
     input: original,
     stopRequested: true,
   });
+  expect(f.sends).toHaveLength(1);
+});
+
+it('shows why a refused shared send settled instead of leaving the press silent', async () => {
+  const draft = { ...createChatDraft(), text: '' };
+  saveChatDraft(draft);
+  const f = fixture(false, draft, 'Architect');
+  const release = f.delaySend('failed');
+  render(f.tree());
+  await screen.findByRole('button', { name: 'Choose who replies' });
+  const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+  fireEvent.change(input, { target: { value: 'Nobody can take this' } });
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(f.sends).toHaveLength(1));
+  await act(async () => release());
+  expect(await screen.findByText(/no selected agent could accept it/i)).toBeTruthy();
   expect(f.sends).toHaveLength(1);
 });

@@ -620,7 +620,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ShareButton.tsx':
     '3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411',
   '../../frontend/src/components/SharedConversation.tsx':
-    '800e74ff0a0a5823269dde5cf3cbdea30fcacafc49385e947eeeafe2b4e60e87',
+    'f08979f0f1022473c636c149bfae4a3a3a784548347afb8459bdb94f62982c80',
   '../../frontend/src/components/SlashPicker.tsx':
     '419685fc94e6236f49bf54029bac52a52a479d26cd2e3a6a22f4ec9b28df169b',
   '../../frontend/src/components/SymposiumConversation.tsx':
@@ -790,7 +790,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/OpenAIAccountEnrollment.test.tsx':
     '27109f9f68f9e9ed93e3d6688d86aaca5ffdf6c77b4a4bdae5a5a30563cc3a29',
   '../../frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx':
-    'ed9b0e39aef6a9e8308ad5c13a03e60dcc38c0cbe37a5a79e85e913d74cf2fe6',
+    '92346b328ba8c18c1ffd69823bfb7e0419d023feaee3dd33aae70cb49e3f3d79',
   '../../frontend/src/components/__tests__/PdfPreview.test.tsx':
     '562983c238a0ea219d9bd2bec359531bcf35073405a362fe0e2a5ade4f2f9485',
   '../../frontend/src/components/__tests__/QueuedDraftTray.compact.test.tsx':
@@ -880,7 +880,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useConversationSending.durability.test.tsx':
     'f0c70761820bc7757e29333a5b69016bb162c0a8d24c6a7541bc50b73978181b',
   '../../frontend/src/hooks/__tests__/useConversationSending.test.tsx':
-    '105229d96a23da724fb149f668ab974f96bf530d9fba3f404b626e9889bb8c73',
+    'dab3e78a99abd35700c7169b9a7fb6427617e8ad0d78bacfad11f04b4ae49783',
   '../../frontend/src/hooks/__tests__/useDraft.test.ts':
     'a39083622c9dc49a7e16c25fdf369d8e2f936ad8801a62eeb7f4d0e0200c45d2',
   '../../frontend/src/hooks/__tests__/useExplicitLocalChat.ordinary.test.tsx':
@@ -944,7 +944,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationPromptContext.ts':
     'a4d85d48f8206594cc7f065a2df90bec4901a457dbcbf4dff391953473d61518',
   '../../frontend/src/hooks/useConversationSending.ts':
-    'e97d32781362c270148f68f21db2e3be1193977ef1c01252a4c2172f8951271a',
+    'a51f6b82a02060dcd887925b78887d03dfd95fab818f770f676bc74f018ab8c6',
   '../../frontend/src/hooks/useDraft.ts':
     '907f25dfc0f222aefdb6e0305beb39905029f656d558227be915c7fea493a8ad',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
