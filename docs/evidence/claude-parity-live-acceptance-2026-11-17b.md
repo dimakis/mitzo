@@ -16,33 +16,33 @@ The deployed build identity could not be read (no process, log or health access 
 this sandbox). Four behaviours that exist only in #1387 code were observed live, so the
 running route includes at least slices A and B:
 
-| Observation                                                                      | #1387 source          |
-| -------------------------------------------------------------------------------- | --------------------- |
-| `TaskExecution authorize` returns `repositoriesWithoutLocalRoot`                 | slice A               |
-| `TaskExecution commit` of a nested-clone file refused with the new wording       | slice A               |
-| `SymposiumConsult authorize` returns `repository_source_unassigned` with guidance | slice B               |
-| `StartSession` with a Claude account returns a Codex-only `startupBlocker`       | slice B               |
+| Observation                                                                       | #1387 source |
+| --------------------------------------------------------------------------------- | ------------ |
+| `TaskExecution authorize` returns `repositoriesWithoutLocalRoot`                  | slice A      |
+| `TaskExecution commit` of a nested-clone file refused with the new wording        | slice A      |
+| `SymposiumConsult authorize` returns `repository_source_unassigned` with guidance | slice B      |
+| `StartSession` with a Claude account returns a Codex-only `startupBlocker`        | slice B      |
 
 The 17 Nov Telos note that the running release is still `main-f986db0` is therefore out
 of date for this route. Slices C and D (cards, iOS) were not independently identified.
 
 ## Result by slice
 
-| Slice | Criterion                                                        | Live result                                                                                                           | Status |
-| ----- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------ |
-| A     | Nested-clone file is not committed into the parent                | Refused: `File belongs to nested repository .repository-tasks/mitzo; commit there with native git`. Parent HEAD unchanged (`63d8f603`), index clean | PASS (was FAIL) |
-| A     | `gh` limit in `run` disclosed                                    | `gh auth status` in `run`: not logged in. Tool description and refusals now say so                                      | PASS (by design) |
-| A     | Repositories without a local root disclosed                      | Both named repositories listed. `dimakis/mgmt` is listed although the workspace is a mgmt worktree (matched by `worktreePaths`, not by cwd) | PASS / note |
-| B     | `InspectLocalRepository` on the workspace root (linked worktree) | Full structured result: head, branch, git dirs, instructions                                                           | PASS (was FAIL) |
-| B     | `InspectLocalRepository` outside the session roots               | Named: `access-required`, `read-access-required`                                                                       | PASS (was opaque) |
-| B     | `DiscoverLocalRepository` by name and by path                    | Selected for `mitzo`, `mgmt`, `contexgin` and an explicit clone path. A nonexistent name returns a structured `ambiguous` with `timeout` reasons | PASS |
-| B     | `SymposiumConsult authorize` on an unassigned account            | `repository_source_unassigned`: pick a listed repository or ask the operator to assign the connection                  | PASS (was opaque) |
-| B     | `AgentCommunication` to a cold peer                              | `recipient_unavailable`, stage `ownership`: "Open it explicitly before sending"                                         | PASS (named) |
-| B     | `StartSession` with a Claude account                             | Proposal carries `startupBlocker`: Claude child sessions are not available yet                                         | PASS (honest, slice E open) |
-| B     | `RequestGithubPublish` with no assigned connection               | See the publication section below                                                                                      | see below |
-| C     | Reads need no card in Auto                                       | `ToolSearch`, `TelosManageItem` read, `TelosFindArtifacts`, `TelosReadArtifact` returned immediately. Card count is not observable from inside the session | UNCONFIRMED |
-| D     | Keyboard flash, first-send delay                                 | Device behaviour; not testable from a chat                                                                             | NOT TESTED |
-| E     | Fresh Personal Claude sessions                                   | Not implemented (see `StartSession` above)                                                                             | OPEN |
+| Slice | Criterion                                                        | Live result                                                                                                                                                | Status                      |
+| ----- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| A     | Nested-clone file is not committed into the parent               | Refused: `File belongs to nested repository .repository-tasks/mitzo; commit there with native git`. Parent HEAD unchanged (`63d8f603`), index clean        | PASS (was FAIL)             |
+| A     | `gh` limit in `run` disclosed                                    | `gh auth status` in `run`: not logged in. Tool description and refusals now say so                                                                         | PASS (by design)            |
+| A     | Repositories without a local root disclosed                      | Both named repositories listed. `dimakis/mgmt` is listed although the workspace is a mgmt worktree (matched by `worktreePaths`, not by cwd)                | PASS / note                 |
+| B     | `InspectLocalRepository` on the workspace root (linked worktree) | Full structured result: head, branch, git dirs, instructions                                                                                               | PASS (was FAIL)             |
+| B     | `InspectLocalRepository` outside the session roots               | Named: `access-required`, `read-access-required`                                                                                                           | PASS (was opaque)           |
+| B     | `DiscoverLocalRepository` by name and by path                    | Selected for `mitzo`, `mgmt`, `contexgin` and an explicit clone path. A nonexistent name returns a structured `ambiguous` with `timeout` reasons           | PASS                        |
+| B     | `SymposiumConsult authorize` on an unassigned account            | `repository_source_unassigned`: pick a listed repository or ask the operator to assign the connection                                                      | PASS (was opaque)           |
+| B     | `AgentCommunication` to a cold peer                              | `recipient_unavailable`, stage `ownership`: "Open it explicitly before sending"                                                                            | PASS (named)                |
+| B     | `StartSession` with a Claude account                             | Proposal carries `startupBlocker`: Claude child sessions are not available yet                                                                             | PASS (honest, slice E open) |
+| B     | `RequestGithubPublish` with no assigned connection               | See the publication section below                                                                                                                          | see below                   |
+| C     | Reads need no card in Auto                                       | `ToolSearch`, `TelosManageItem` read, `TelosFindArtifacts`, `TelosReadArtifact` returned immediately. Card count is not observable from inside the session | UNCONFIRMED                 |
+| D     | Keyboard flash, first-send delay                                 | Device behaviour; not testable from a chat                                                                                                                 | NOT TESTED                  |
+| E     | Fresh Personal Claude sessions                                   | Not implemented (see `StartSession` above)                                                                                                                 | OPEN                        |
 
 Carried-forward checks that still pass: Write, Edit and Bash write/delete in the own
 workspace; `TMPDIR` and `CLAUDE_CODE_TMPDIR` both set to the private scratch directory;
@@ -73,7 +73,7 @@ commit refusal.
    the `Read` hook denies it ("Claude sign-in and private account files are unavailable
    to agent tools") and the `Bash` hook denies the path as outside the worktrees. In
    contrast, `SymposiumConsult catalog`, `AgentCommunication list` and `ReadKnowledge
-   list` return a `tool-output-preview` with an `outputId` for `ReadToolOutput`.
+list` return a `tool-output-preview` with an `outputId` for `ReadToolOutput`.
    `projectToolOutput` is called from `server/credential-sdk-tools.ts` but not from
    `server/sdk-local-repository-tools.ts`; the web-access server's wiring was not
    checked. This is the live shape of finding 6 from the 16 Nov probe.
@@ -100,6 +100,54 @@ commit refusal.
   charged account).
 - `SaveKnowledgeDraft`, `SymposiumProposeProfile`, Home Assistant `save`, Drive/Docs/Sheets reads.
 - The OS-level write fence beneath the hook, and iOS device behaviour.
+
+## Focused regression tests for #1387 (run after the session below was lost)
+
+Run in a fresh clone at `f0a483d49` through `TaskExecution` (the sandbox itself has no
+npm network). Dependencies were installed with `npm ci --ignore-scripts`; the git
+dependency `contexgin` (`tsup`) and the native `packages/sqlite-file-owner` addon
+(`node-gyp rebuild`) were then built by hand because install scripts were skipped.
+
+| Scope                                                                                                                                                                                                      | Result                                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Slices A, B, C server and harness tests (18 files named in #1387, incl. `tool-tiers`, `task-execution-tools`, `sdk-repository-read-owner`, `session-*-tools`, `telos-sdk-tools`, `github-publishing-tool`) | 458 passed, 1 failed                                       |
+| Slice D tests (`ChatInputHost`, `HomeDialog`, `SymposiumConversation`, `local-first-command-store`)                                                                                                        | all passed (96 passed in a run with the one failure below) |
+| `sdk-user-steering`, `sdk-agent-message-runtime`, `codex-steering-routes`                                                                                                                                  | 49 passed                                                  |
+
+The one failure, `telos-coordinator-v2-native-journey` CT12, returns 503 "Telos artifact
+service unavailable" (artifact `save`, phase `read_workspace`, subprocess exit 71). It
+fails identically at the pre-#1387 commit `f986db0cc`, so it is not caused by #1387; it
+appears to be this sandbox. The subprocess cause was not investigated.
+
+## Live steering failure (first observation)
+
+While this sweep's own session was running a long `Bash` command, the operator sent a
+mid-turn correction from the phone ("Just testing a steer"). Observed in the chat UI:
+"Sending correction…", then "Correction delivery not confirmed. Retry checks the original
+correction.", a "Retry correction" button, the queued next prompt still waiting, and the
+banner "The previous API turn has an unconfirmed outcome. Its original command and
+history are retained." The session was not usable afterwards.
+
+What the code says (no server logs were readable, so the live cause is **not proven**):
+
+- `server/sdk-user-steering.ts` counts a correction as accepted only on the SDK's exact
+  user-message echo. The HTTP caller waits 1.5 s (`waitForReceipt`) and then reports
+  `uncertain`; the UI maps anything but a matching `accepted`/`rejected` receipt to
+  "not confirmed".
+- If the turn ends after stdin release without an echo, `observe` logs
+  `sdk_correction_ack_unconfirmed` and drops the pending entry but leaves the durable
+  receipt at `submitted`. Retry then re-reads that receipt and returns `uncertain` again,
+  so nothing ever resolves it. This is a possible dead end, not a confirmed cause.
+- `server/ordinary-codex-continuation-status.ts` blocks continuation with the quoted
+  banner when the session is not live and its execution phase is not `TERMINAL`. A
+  server restart or lost runtime during the correction would produce exactly this.
+- The unit tests pass but supply the acknowledgement themselves; none covers a real
+  SDK run where the echo is delayed until a tool call finishes, or never arrives.
+
+Next steps: read the server log for `sdk_correction_*` events around 19:01 UTC to find
+which of the three paths fired; add a terminal resolution for `submitted` receipts whose
+turn has ended; make "Retry correction" offer a way out (discard, or send as a new
+message) rather than re-checking forever.
 
 ## Environment
 
