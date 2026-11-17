@@ -426,6 +426,22 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
       prepared.request,
       new AbortController().signal,
     ) as Promise<{ success: boolean; contentItems: Array<{ type: string; text: string }> }>;
+    if (['TelosGetItem', 'TelosReadArtifact', 'TelosFindArtifacts'].includes(name)) {
+      // Agent/Auto reads rely on owner checks; they never raise a card.
+      const result = await pending;
+      expect(
+        streamMessages
+          .slice(before)
+          .some((m) => m.type === 'permission_request' && m.sessionId === sessionId),
+      ).toBe(false);
+      return {
+        conversationId: sessionId,
+        threadId: native.threadId,
+        turnId: native.turnId,
+        callId: prepared.request.callId,
+        result,
+      };
+    }
     await vi.waitFor(() =>
       expect(
         streamMessages
