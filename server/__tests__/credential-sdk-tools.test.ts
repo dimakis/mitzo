@@ -94,6 +94,7 @@ it.each(['AgentCommunication', 'TaskExecution'])(
       abortController: new AbortController(),
     } as never);
     const execute = vi.fn(async () => ({ content: '{}', isError: false }));
+    const peerExecute = vi.fn(async () => ({ chats: [], nextOffset: null }));
     const adapter = vi.spyOn(credentialTools, 'sessionCredentialTools').mockReturnValue({
       execute,
     } as never);
@@ -106,7 +107,7 @@ it.each(['AgentCommunication', 'TaskExecution'])(
         checkTool: () => {
           throw original;
         },
-        agentCommunication: () => ({ execute }),
+        agentCommunication: () => ({ execute: peerExecute }),
       });
       const handler = mocked.tools.find((tool) => tool.name === name)!.handler;
       const failure = await handler({
@@ -124,6 +125,7 @@ it.each(['AgentCommunication', 'TaskExecution'])(
         failedCheck: 'sdk.command_tool',
       });
       expect(execute).not.toHaveBeenCalled();
+      expect(peerExecute).not.toHaveBeenCalled();
       // A new query's independently validated authority is usable; fixing the
       // stale callback must not disable these tools for the whole session.
       createCredentialSdkServer(() => 'sdk-owned', registry.get('owned')!, registry, {
@@ -131,7 +133,7 @@ it.each(['AgentCommunication', 'TaskExecution'])(
         assertCurrent: async () => {},
         assertCurrentSync: () => {},
         checkTool: () => 'allow',
-        agentCommunication: () => ({ execute }),
+        agentCommunication: () => ({ execute: peerExecute }),
       });
       await expect(
         mocked.tools
@@ -140,7 +142,7 @@ it.each(['AgentCommunication', 'TaskExecution'])(
             operation: name === 'TaskExecution' ? 'status' : 'list',
           }),
       ).resolves.toMatchObject({ isError: false });
-      expect(execute).toHaveBeenCalledOnce();
+      expect(name === 'AgentCommunication' ? peerExecute : execute).toHaveBeenCalledOnce();
     } finally {
       adapter.mockRestore();
       registry.dispose();
