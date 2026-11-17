@@ -1,5 +1,9 @@
 import type { useConversationPromptContext } from '../hooks/useConversationPromptContext';
-import type { CollaborationPromptReviewResult } from '@mitzo/protocol';
+import type { CollaborationPromptReviewResult, CollaborationSettings } from '@mitzo/protocol';
+import {
+  ConversationShareAgentDetails,
+  ConversationShareMessageDetails,
+} from './ConversationShareDetails';
 import type { useConversationForwarding } from '../hooks/useConversationForwarding';
 import { useMotionPresence } from '../hooks/useMotionPresence';
 import { HomeDialog } from './HomeDialog';
@@ -7,6 +11,13 @@ import { UiIcon } from './UiIcon';
 import { ReviewedArtifactContents } from './ReviewedArtifactContents';
 import { ReplyQuote, REPLY_NAVIGATION_EVENT } from './ReplyQuote';
 import './ConversationAgents.css';
+
+interface ShareTarget {
+  id: string;
+  name: string;
+  unavailable?: boolean;
+  settings?: CollaborationSettings;
+}
 
 function ReviewedContextContents({
   reviewed,
@@ -93,14 +104,14 @@ export function ConversationPromptContext({
   names: Readonly<Record<string, string>>;
   disabled: boolean;
   forwarding?: ReturnType<typeof useConversationForwarding>;
-  shareTargets?: { id: string; name: string; unavailable?: boolean }[];
+  shareTargets?: ShareTarget[];
   showTrigger?: boolean;
 }) {
   const { ref, present } = useMotionPresence(flow.open, 'fade');
   const reviewed = flow.review;
   const snapshot = reviewed?.snapshot;
   const sharing = flow.form.shareRecipientIds !== undefined;
-  const targets = [
+  const targets: ShareTarget[] = [
     ...shareTargets,
     ...(flow.form.shareRecipientIds ?? [])
       .filter((id) => !shareTargets.some((target) => target.id === id))
@@ -159,6 +170,7 @@ export function ConversationPromptContext({
                     <label key={target.id}>
                       <input
                         type="checkbox"
+                        aria-label={`${target.name}${target.unavailable ? ' · Unavailable' : ''}`}
                         disabled={
                           target.unavailable && !flow.form.shareRecipientIds!.includes(target.id)
                         }
@@ -173,8 +185,9 @@ export function ConversationPromptContext({
                         }
                       />
                       <span>
-                        {target.name}
+                        <strong>{target.name}</strong>
                         {target.unavailable ? ' · Unavailable' : ''}
+                        <ConversationShareAgentDetails settings={target.settings} />
                       </span>
                     </label>
                   ))}
@@ -239,26 +252,42 @@ export function ConversationPromptContext({
                 {!flow.source && (
                   <p>Source messages are unavailable. Close and open this review to check again.</p>
                 )}
-                {flow.source?.messages.map((message) => (
-                  <label key={message.messageId}>
-                    <input
-                      type="checkbox"
-                      checked={flow.form.messageIds.includes(message.messageId)}
-                      onChange={(e) =>
-                        flow.edit({
-                          ...flow.form,
-                          messageIds: e.target.checked
-                            ? [...flow.form.messageIds, message.messageId]
-                            : flow.form.messageIds.filter((id) => id !== message.messageId),
-                        })
-                      }
-                    />
-                    <span>
-                      <small>{message.author === 'operator' ? 'You' : 'Agent'}</small>
-                      {message.blocks.map((block) => block.content).join('\n')}
-                    </span>
-                  </label>
-                ))}
+                {sharing && (
+                  <div className="conversation-share-selection-heading">
+                    <small>{flow.form.messageIds.length} selected</small>
+                    <button
+                      type="button"
+                      disabled={flow.busy || disabled}
+                      onClick={flow.selectingMessages ? flow.finishSelection : flow.chooseMessages}
+                    >
+                      {flow.selectingMessages ? 'Done selecting' : 'Change selection'}
+                    </button>
+                  </div>
+                )}
+                {flow.source?.messages
+                  .filter(
+                    (message) =>
+                      !sharing ||
+                      flow.selectingMessages ||
+                      flow.form.messageIds.includes(message.messageId),
+                  )
+                  .map((message) => (
+                    <label key={message.messageId}>
+                      <input
+                        type="checkbox"
+                        checked={flow.form.messageIds.includes(message.messageId)}
+                        onChange={(e) =>
+                          flow.edit({
+                            ...flow.form,
+                            messageIds: e.target.checked
+                              ? [...flow.form.messageIds, message.messageId]
+                              : flow.form.messageIds.filter((id) => id !== message.messageId),
+                          })
+                        }
+                      />
+                      <ConversationShareMessageDetails message={message} names={names} />
+                    </label>
+                  ))}
               </fieldset>
             ) : (
               <p className="conversation-agents-explanation">

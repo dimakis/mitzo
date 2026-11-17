@@ -43,7 +43,8 @@
   font: var(--text-sm) var(--font-ui);
   box-shadow: 0 var(--space-2) var(--space-5) var(--color-shadow);
 }
-.message-actions-date {
+.message-actions-date,
+.message-actions-unavailable {
   display: block;
   padding: var(--space-3);
   border-bottom: 1px solid var(--color-border);

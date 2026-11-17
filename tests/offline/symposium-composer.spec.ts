@@ -40,6 +40,140 @@ const bundle = build({
     '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
   },
 });
+
+for (const theme of ['dark', 'light'])
+  test(`message menu shares cached attributed selections without replacing the chat (${theme})`, async ({
+    page,
+    isMobile,
+  }, info) => {
+    const files = (await bundle).outputFiles!;
+    const view = sharedConversationView();
+    view.joinedParticipants = [{ sessionId: 'reviewer', name: 'Reviewer' }];
+    view.messages[0].text =
+      '# Expanded selection heading\n\n' + 'A long source message. '.repeat(40);
+    view.messages[0].recordedAt = Date.parse('2026-11-17T12:32:00Z');
+    view.messages[1].recordedAt = Date.parse('2026-11-17T12:33:00Z');
+    let privateSourceReads = 0;
+    const writes: string[] = [],
+      errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.route('**/*', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/api/auth/check')
+        return route.fulfill({ json: { ok: true, authSessionId: 'offline-sharing-login' } });
+      if (path === '/api/telos/work/links') return route.fulfill({ json: [] });
+      if (route.request().method() !== 'GET') writes.push(path);
+      if (path.endsWith('/source-setup'))
+        return route.fulfill({
+          json: {
+            state: 'selected',
+            sourceConversationId: 'architect',
+            collaboration: {
+              version: 1,
+              collaborationId: view.collaborationId,
+              revision: view.membershipRevision,
+              participantSessionIds: view.participantSessionIds,
+            },
+          },
+        });
+      if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+      if (path.endsWith('/progress'))
+        return route.fulfill({
+          json: {
+            collaborationId: view.collaborationId,
+            membershipRevision: view.membershipRevision,
+            replies: [],
+            refusals: [],
+          },
+        });
+      const recipient = /\/recipients\/([^/]+)$/.exec(path)?.[1];
+      if (recipient)
+        return route.fulfill({
+          json: {
+            collaborationId: view.collaborationId,
+            sessionId: recipient,
+            membershipRevision: view.membershipRevision,
+            policySequence: view.policySequence,
+            ready: true,
+            reason: null,
+          },
+        });
+      if (/\/api\/sessions\/[^/]+\/messages$/.test(path)) {
+        privateSourceReads++;
+        return route.fulfill({
+          status: 500,
+          json: { error: 'Public selections must not read another agent’s private history' },
+        });
+      }
+      if (path.startsWith('/api/')) return route.fulfill({ json: [] });
+      const file = files.find((file) => path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'));
+      if (file)
+        return route.fulfill({
+          body: file.text,
+          contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+        });
+      if (path !== '/') return route.abort();
+      return route.fulfill({
+        contentType: 'text/html',
+        body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'light' ? 'georgia' : 'system'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body,#root{margin:0;height:100%;overflow:hidden}</style><div id="root"></div><script src="/fixture.js"></script></html>`,
+      });
+    });
+    await page.setViewportSize({ width: isMobile ? 390 : 1280, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    const source = page
+      .locator('.msg-bubble--assistant')
+      .filter({ hasText: view.messages[1].text });
+    await expect(source).toBeVisible();
+    const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await input.fill('Keep this editable draft');
+    const before = await page
+      .locator('.workspace-controls')
+      .first()
+      .evaluate((el) => el.innerHTML);
+    await source.getByRole('button', { name: 'Message actions' }).click();
+    await page.getByRole('menuitem', { name: 'Select messages…' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Send selected messages' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('Type: Codex', { exact: true }).first()).toBeVisible();
+    await expect(
+      dialog.getByText('Account: same-offline-account', { exact: true }).first(),
+    ).toBeVisible();
+    const messages = dialog.getByRole('group', { name: 'Messages' });
+    await expect(messages.getByRole('checkbox')).toHaveCount(2);
+    await expect(messages.locator('time').first()).toContainText('2026');
+    await expect(messages.getByRole('heading', { name: 'Expanded selection heading' })).toHaveCount(
+      0,
+    );
+    await messages.locator('summary').filter({ hasText: 'Read full message' }).click();
+    await expect(
+      messages.getByRole('heading', { name: 'Expanded selection heading' }),
+    ).toBeVisible();
+    await messages.getByRole('checkbox').first().check();
+    await messages.getByRole('button', { name: 'Done selecting' }).click();
+    await expect(messages.getByText('2 selected', { exact: true })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(input).toHaveValue('Keep this editable draft');
+    expect(
+      await page
+        .locator('.workspace-controls')
+        .first()
+        .evaluate((el) => el.innerHTML),
+    ).toBe(before);
+    await source.getByRole('button', { name: 'Message actions' }).click();
+    await page.getByRole('menuitem', { name: 'Reply', exact: true }).click();
+    await expect(page.locator('.chat-input-reply .chat-reply-link')).toBeVisible();
+    await expect(input).toHaveValue('Keep this editable draft');
+    await expect(source.locator('time.msg-timestamp')).toContainText('2026');
+    expect(privateSourceReads).toBe(0);
+    expect(writes).toEqual([]);
+    expect(errors).toEqual([]);
+    await page.screenshot({
+      path: info.outputPath(`sharing-existing-chat-${theme}.png`),
+      fullPage: true,
+    });
+  });
+
 for (const theme of ['dark', 'light'])
   test(
     'shared observer survives singleton membership (' + theme + ')',

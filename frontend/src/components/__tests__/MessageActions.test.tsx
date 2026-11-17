@@ -69,3 +69,43 @@ it('keeps desktop drag-to-select native instead of selecting a reply', () => {
   fireEvent.pointerUp(source, { pointerType: 'mouse', clientX: 110, clientY: 10 });
   expect(reply).not.toHaveBeenCalled();
 });
+
+it('keeps blocked sharing visible with its reason and original-operation recovery', () => {
+  const forward = vi.fn();
+  const recover = vi.fn();
+  render(
+    <MessageActions
+      message={message}
+      onReply={vi.fn()}
+      onForward={forward}
+      forwardDisabledReason="A message send is retained. Review its original outcome."
+      onForwardRecovery={recover}
+    >
+      <p>{message.text}</p>
+    </MessageActions>,
+  );
+  fireEvent.contextMenu(screen.getByText(message.text));
+  const action = screen.getByRole('menuitem', { name: 'Send to agent' });
+  expect((action as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole('menu').querySelector('[role="status"]')?.textContent).toContain(
+    'Review its original outcome',
+  );
+  fireEvent.click(action);
+  expect(forward).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Review message delivery' }));
+  expect(recover).toHaveBeenCalledOnce();
+});
+
+it('offers sharing and multiple selection only inside the existing message menu', () => {
+  const select = vi.fn();
+  render(
+    <MessageActions message={message} onReply={vi.fn()} onForward={vi.fn()} onSelect={select}>
+      <p>{message.text}</p>
+    </MessageActions>,
+  );
+  expect(screen.queryByRole('menuitem')).toBeNull();
+  fireEvent.contextMenu(screen.getByText(message.text));
+  expect(screen.getByRole('menuitem', { name: 'Send to agent' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Select messages…' }));
+  expect(select).toHaveBeenCalledOnce();
+});

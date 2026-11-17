@@ -28,6 +28,21 @@ on phone/desktop, both themes and alternate appearance; see
 
 # Mitzo UI design contract
 
+## Send to agent — approved scoped extension, 17 November 2026
+
+Keep the existing header, composer, message bubbles, Reply treatment and recorded
+date/time stamps. Send to agent and Select messages belong in the existing message
+menu, without duplicate inline actions. A blocked share remains visible with the
+actual reason and, when applicable, recovery of the original retained operation.
+Use the existing review dialog, flat labelled recipient rows and shared tokens.
+Show known agent type/name/profile/model/thinking/account as recorded configuration,
+with an explicit unavailable state rather than inferred settings or readiness.
+Selection reuses the authorized cached source; short author/date excerpts are
+cheap to render and full Markdown mounts only when expanded. Changing selection
+does not fetch or render another complete transcript. Preserve exact source IDs,
+review gates, recipient intent, the unsent draft, and context-only forwarding.
+See [the scoped approval](approved/symposium/send-to-agent-approval-2026-11-17.md).
+
 ## Shared conversation controls — approved revision 3
 
 Preserve the existing Agents menu and icon-only composer. Status and recipients

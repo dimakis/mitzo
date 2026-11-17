@@ -64,6 +64,7 @@ export function useConversationPromptContext(options: {
     error?: string;
     blocked?: boolean;
     retirementFailed?: boolean;
+    selectingMessages?: boolean;
   }>({ owner });
   const valid = () =>
     current.current === owner &&
@@ -197,8 +198,8 @@ export function useConversationPromptContext(options: {
       }
     }
   };
-  const show = (id = selectedSourceId) => {
-    publish({ open: true });
+  const show = (id = selectedSourceId, selectingMessages = false) => {
+    publish({ open: true, selectingMessages });
     void perform(async (signal, fresh) => {
       if (!group || !clientId) throw Error('Context source is unavailable.');
       const [source, catalog] = await Promise.all([
@@ -372,6 +373,9 @@ export function useConversationPromptContext(options: {
       (form.shareRecipientIds === undefined && !recipients.length),
     show: () => show(),
     showSource: show,
+    selectingMessages: !!visible.selectingMessages,
+    chooseMessages: () => publish({ selectingMessages: true }),
+    finishSelection: () => publish({ selectingMessages: false }),
     edit,
     reviewContext: review,
     attach,

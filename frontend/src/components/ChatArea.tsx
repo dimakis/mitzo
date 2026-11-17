@@ -83,6 +83,9 @@ export interface ChatAreaProps {
   beforeMessages?: ReactNode;
   afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
+  onSelectMessage?: (messageId: string) => void;
+  shareDisabledReason?: string;
+  onShareRecovery?: () => void;
   canShareMessage?: (message: FinishedMessage) => boolean;
   shareInActions?: boolean;
   compactAttribution?: boolean;
@@ -222,6 +225,9 @@ export function ChatArea({
   renderMessageOutcome,
   messageSessionId,
   onShareMessage,
+  onSelectMessage,
+  shareDisabledReason,
+  onShareRecovery,
   canShareMessage,
   shareInActions = false,
   compactAttribution = false,
@@ -345,6 +351,9 @@ export function ChatArea({
           timestamp: message.timestamp,
         }}
         onReply={complete ? onReply : undefined}
+        forwardDisabledReason={shareDisabledReason}
+        onForwardRecovery={onShareRecovery}
+        onSelect={onSelectMessage ? () => onSelectMessage(message.messageId) : undefined}
         onForward={
           complete &&
           shareInActions &&
@@ -925,7 +934,7 @@ export function ChatArea({
           contextItems.length === 0 &&
           !running && <p className="chat-empty">Send a message to start</p>}
 
-        {groupActivityRows(rowsWithCompactions).map((item) =>
+        {groupActivityRows<ReactNode>(rowsWithCompactions).map((item) =>
           item.type === 'activity' ? (
             <AgentActivity
               key={item.key}

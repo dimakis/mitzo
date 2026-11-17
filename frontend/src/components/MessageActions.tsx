@@ -18,6 +18,9 @@ export function MessageActions({
   onReply,
   readAloud,
   onForward,
+  onSelect,
+  forwardDisabledReason,
+  onForwardRecovery,
   authorName,
   children,
 }: {
@@ -25,6 +28,9 @@ export function MessageActions({
   onReply?: (message: MessageReplyContext) => void;
   readAloud?: ReadAloudProps;
   onForward?: () => void;
+  onSelect?: () => void;
+  forwardDisabledReason?: string;
+  onForwardRecovery?: () => void;
   authorName?: string;
   children: ReactNode;
 }) {
@@ -228,13 +234,47 @@ export function MessageActions({
               <button
                 type="button"
                 role="menuitem"
+                disabled={!!forwardDisabledReason}
+                title={forwardDisabledReason}
                 onClick={() => {
                   close(false);
                   onForward();
                 }}
               >
                 <UiIcon name="share" size={16} />
-                Forward to agents
+                Send to agent
+              </button>
+            )}
+            {onForward && onSelect && (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!!forwardDisabledReason}
+                onClick={() => {
+                  close(false);
+                  onSelect();
+                }}
+              >
+                <UiIcon name="check" size={16} />
+                Select messages…
+              </button>
+            )}
+            {onForward && forwardDisabledReason && (
+              <p className="message-actions-unavailable" role="status">
+                {forwardDisabledReason}
+              </p>
+            )}
+            {onForward && forwardDisabledReason && onForwardRecovery && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  close(false);
+                  onForwardRecovery();
+                }}
+              >
+                <UiIcon name="share" size={16} />
+                Review message delivery
               </button>
             )}
             <button type="button" role="menuitem" onClick={() => void copy(message.text)}>

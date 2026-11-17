@@ -18,6 +18,7 @@ import {
   ChatImagesSchema,
   SessionCollaborationIdSchema,
   type CollaborationMessage,
+  type CollaborationSettings,
   type MessageReplyContext,
 } from '@mitzo/protocol';
 import {
@@ -228,6 +229,13 @@ function useSharedConversation({
     draftId,
   });
   const view = presentation.projection?.view;
+  const recordedAgentSettings = useMemo(() => {
+    const recorded: Record<string, CollaborationSettings> = {};
+    for (const join of view?.joins ?? [])
+      if (join.state === 'linked' && join.sessionId) recorded[join.sessionId] = join.settings;
+    for (const message of view?.messages ?? []) Object.assign(recorded, message.settings);
+    return recorded;
+  }, [view]);
   const refresh = presentation.refresh;
   const joiningOwner = useMemo(() => {
     if (
@@ -366,7 +374,8 @@ function useSharedConversation({
     progress,
     promptContext,
     forwarding,
-    shareMessage: (messageId: string) => {
+    recordedAgentSettings,
+    shareMessage: (messageId: string, selectMessages = false) => {
       if (promptContext.busy || promptContext.attached || forwarding.retained || sending.pending)
         return;
       const shared = [
@@ -387,7 +396,10 @@ function useSharedConversation({
         requestReply: false,
         shareRecipientIds: promptContext.form.shareRecipientIds ?? [],
       });
-      promptContext.showSource(shared ? view!.collaborationId : sourceConversationId);
+      promptContext.showSource(
+        shared ? view!.collaborationId : sourceConversationId,
+        selectMessages,
+      );
     },
     joiningOwner,
     names,
@@ -586,22 +598,18 @@ function SharedConversationBodyContent({
           },
         }
       : projection;
-  const canShare =
-    !sending.pending && !promptContext.busy && !promptContext.attached && !forwarding.retained;
+  const shareDisabledReason = sending.pending
+    ? 'A prompt is still being sent. Wait for its original outcome before sharing another message.'
+    : promptContext.busy
+      ? 'A context review is in progress. Wait for its outcome before changing the selection.'
+      : promptContext.attached
+        ? 'Reviewed context is attached. Review or remove it before sharing another message.'
+        : forwarding.retained
+          ? 'A message send is retained. Review its original outcome before sharing another message.'
+          : undefined;
   const history =
     isValidElement<ChatAreaProps>(ordinaryHistory) && ordinaryHistory.type === ChatArea
-      ? {
-          ...ordinaryHistory.props,
-          onShareMessage:
-            host.active && projection ? host.shareMessage : ordinaryHistory.props.onShareMessage,
-          canShareMessage: (message: ChatAreaProps['messages'][number]) =>
-            canShare &&
-            (ordinaryHistory.props.messages.some((m) => m.messageId === message.messageId) ||
-              [...(projection?.earlierMessages ?? []), ...(view?.messages ?? [])].some(
-                (m) => m.projectionId === message.messageId,
-              )),
-          shareInActions: true,
-        }
+      ? { ...ordinaryHistory.props }
       : {
           ...chat,
           beforeMessages: (
@@ -611,7 +619,20 @@ function SharedConversationBodyContent({
             </>
           ),
         };
-  if (host.active) history.onReply = (value) => setReply({ source: sourceConversationId, value });
+  if (host.active) {
+    history.onReply = (value) => setReply({ source: sourceConversationId, value });
+    history.onShareMessage = (id) => host.shareMessage(id);
+    history.onSelectMessage = (id) => host.shareMessage(id, true);
+    history.shareDisabledReason = shareDisabledReason;
+    history.onShareRecovery =
+      promptContext.attached || forwarding.retained ? promptContext.show : undefined;
+    history.canShareMessage = (message) =>
+      history.messages.some((m) => m.messageId === message.messageId) ||
+      [...(projection?.earlierMessages ?? []), ...(view?.messages ?? [])].some(
+        (m) => m.projectionId === message.messageId,
+      );
+    history.shareInActions = true;
+  }
   const replySourceAuthor = reply?.value
     ? [...(projection?.earlierMessages ?? []), ...(view?.messages ?? [])].find(
         (m) => m.projectionId === reply.value?.messageId,
@@ -826,6 +847,7 @@ function SharedConversationBodyContent({
         shareTargets={projection?.view.participantSessionIds.map((id) => ({
           id,
           name: names[id] ?? id,
+          settings: host.recordedAgentSettings[id],
           unavailable: projection.view.unavailableParticipantSessionIds.includes(id),
         }))}
       />

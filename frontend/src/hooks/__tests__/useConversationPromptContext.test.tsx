@@ -18,6 +18,7 @@ import {
 } from '@mitzo/protocol';
 import {
   sharedConversationView,
+  settings,
   uuid,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../../lib/api-fetch';
@@ -112,6 +113,57 @@ function fixture() {
     );
   return { api, view, source, result, draft, options, mount, edit };
 }
+
+it('shows recorded agent configuration and exact source author/date using compact selections', async () => {
+  installDialogStub();
+  const f = fixture();
+  f.source.messages[0].author = { sessionId: 'reviewer' };
+  f.source.messages[0].recordedAt = Date.parse('2026-11-17T12:33:00Z');
+  const original = drafts.getChatDraft(f.draft.id)!;
+  drafts.saveChatDraft({
+    ...original,
+    collaborationContext: {
+      collaborationId: f.view.collaborationId,
+      authScope: 'login',
+      attached: false,
+      form: {
+        mode: 'selected',
+        purpose: 'Send selected messages',
+        brief: '',
+        messageIds: ['source'],
+        shareRecipientIds: ['reviewer'],
+      },
+    },
+  });
+  function Controls() {
+    const flow = useConversationPromptContext(f.options);
+    return (
+      <ConversationPromptContext
+        flow={flow}
+        names={{ reviewer: 'Sol reviewer' }}
+        disabled={false}
+        shareTargets={[{ id: 'reviewer', name: 'Sol reviewer', settings }]}
+      />
+    );
+  }
+  render(<Controls />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review prompt context' }));
+  const dialog = await screen.findByRole('dialog');
+  await within(dialog).findByText('Private source material stays out of browser persistence');
+  const sources = within(dialog).getByRole('group', { name: 'Messages' });
+  expect(within(sources).getByText('Sol reviewer')).toBeTruthy();
+  const time = sources.querySelector('time')!;
+  expect(time.dateTime).toBe('2026-11-17T12:33:00.000Z');
+  expect(time.textContent).toContain('2026');
+  expect(within(dialog).getByText(/Type: Codex/)).toBeTruthy();
+  expect(within(dialog).getByText(/Profile: default/)).toBeTruthy();
+  expect(within(dialog).getByText(/Account: same-offline-account/)).toBeTruthy();
+  expect(within(dialog).getByText(/Thinking: Not configurable/)).toBeTruthy();
+  expect(f.api.getDurableSessionTranscript).toHaveBeenCalledTimes(1);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Change selection' }));
+  expect(f.api.getDurableSessionTranscript).toHaveBeenCalledTimes(1);
+  expect(drafts.getChatDraft(f.draft.id)?.text).toBe('Original editable prompt');
+});
 it('shares selected earlier messages only with explicit recipients regardless of automatic readers', async () => {
   const f = fixture();
   f.view.policies.forEach((policy) => {

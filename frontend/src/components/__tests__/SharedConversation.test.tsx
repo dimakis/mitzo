@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createRef } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -26,6 +26,11 @@ vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: unknown) => unknown) => select(ordinary),
 }));
 
+beforeEach(() => {
+  installDialogStub();
+  HTMLElement.prototype.scrollTo = vi.fn();
+});
+
 afterEach(() => {
   cleanup();
   localStorage.clear();
@@ -34,8 +39,6 @@ afterEach(() => {
 });
 
 it('reopens retained forwarding recovery during an actual ordinary turn even if source reads fail', async () => {
-  installDialogStub();
-  HTMLElement.prototype.scrollTo = vi.fn();
   const view = sharedConversationView();
   view.messages = [];
   const input = {
@@ -109,6 +112,21 @@ it('reopens retained forwarding recovery during an actual ordinary turn even if 
       throw Error('Source read unavailable');
     throw Error('Unexpected request: ' + url);
   });
+  const originalChat = {
+    messages: [
+      {
+        messageId: 'earlier',
+        role: 'user' as const,
+        blocks: [
+          { blockId: 'text', blockType: 'text' as const, content: 'The retained earlier plan' },
+        ],
+      },
+    ],
+    current: null,
+    running: true,
+    permission: null,
+    onPermissionRespond: () => {},
+  };
   render(
     <MemoryRouter>
       <SharedConversationHost
@@ -120,8 +138,9 @@ it('reopens retained forwarding recovery during an actual ordinary turn even if 
       >
         <SharedConversationBody
           sourceConversationId="architect"
+          ordinaryHistory={<ChatArea {...originalChat} />}
           chat={{
-            messages: [],
+            messages: originalChat.messages,
             current: {
               messageId: 'active',
               blocks: new Map([
@@ -143,7 +162,12 @@ it('reopens retained forwarding recovery during an actual ordinary turn even if 
       </SharedConversationHost>
     </MemoryRouter>,
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Review message delivery' }));
+  fireEvent.click((await screen.findAllByRole('button', { name: 'Message actions' }))[0]);
+  expect(
+    (screen.getByRole('menuitem', { name: 'Send to agent' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(screen.getByRole('menu').textContent).toContain('A message send is retained');
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Review message delivery' }));
   const dialog = await screen.findByRole('dialog', { name: 'Send selected messages' });
   expect(await within(dialog).findByText('Source read unavailable')).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Check original forward' }));
@@ -157,8 +181,6 @@ it('reopens retained forwarding recovery during an actual ordinary turn even if 
 it.each([false, true])(
   'opens targeted sharing while the original agent is running: %s',
   async (running) => {
-    installDialogStub();
-    HTMLElement.prototype.scrollTo = vi.fn();
     const view = sharedConversationView();
     view.messages = [];
     view.joinedParticipants = [{ sessionId: 'reviewer', name: 'Reviewer' }];
@@ -253,7 +275,7 @@ it.each([false, true])(
     );
     expect(readiness.ready).toBe(!running);
     fireEvent.click((await screen.findAllByRole('button', { name: 'Message actions' }))[0]);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Forward to agents' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Send to agent' }));
     const dialog = await screen.findByRole('dialog', { name: 'Send selected messages' });
     expect(await within(dialog).findByRole('checkbox', { name: /The earlier plan/ })).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Reviewer' }));
@@ -437,6 +459,9 @@ it('mounts the retained shared transcript through the production wrapper while p
   expect(scrollRef.current?.classList.contains('chat-messages')).toBe(true);
   expect(scrollRef.current?.contains(screen.getByTestId('ordinary-history'))).toBe(true);
   expect(fetch.mock.calls.some(([url]) => url.endsWith('/messages'))).toBe(false);
+  fireEvent.contextMenu(screen.getByText(view.messages[1].text));
+  expect(screen.getByRole('menuitem', { name: 'Send to agent' })).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
   rendered.rerender(surface(true));
   fireEvent.click(screen.getByRole('button', { name: /Stop .*architect|Stop .*Current agent/i }));
   expect(stop).toHaveBeenCalledOnce();
