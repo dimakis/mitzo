@@ -625,6 +625,43 @@ it('selects the connection matching the actual repository among multiple repo-sc
   ).toMatchObject({ isError: false });
   expect(f.invoke.mock.calls[0][0].connectionId).toBe('github');
 });
+it('names an unassigned or ambiguous connection with its candidates and records nothing', async () => {
+  const f = fixture('openai');
+  const runtime = mocks.runtime as { store: { list: () => unknown[] } };
+  const unassigned = { ...f.connection, label: 'GitHub (mitzo)', desiredAccountIds: ['other'] };
+  runtime.store.list = () => [unassigned];
+  const missing = await f.execute(input, new AbortController().signal, {
+    turnId: 'turn',
+    callId: 'call',
+  });
+  expect(missing.isError).toBe(true);
+  expect(JSON.parse(missing.content)).toEqual({
+    code: 'GITHUB_PUBLICATION_CONNECTION_UNASSIGNED',
+    message: expect.stringMatching(/Connections/),
+    repository: 'example/repo',
+    accountId: 'selected',
+    candidateConnections: [{ id: 'github', label: 'GitHub (mitzo)' }],
+    operationRecorded: false,
+  });
+  runtime.store.list = () => [
+    { ...f.connection, label: 'One' },
+    { ...f.connection, id: 'second', label: 'Two' },
+  ];
+  const ambiguous = await f.execute(input, new AbortController().signal, {
+    turnId: 'turn',
+    callId: 'call',
+  });
+  expect(JSON.parse(ambiguous.content)).toMatchObject({
+    code: 'GITHUB_PUBLICATION_CONNECTION_AMBIGUOUS',
+    candidateConnections: [
+      { id: 'github', label: 'One' },
+      { id: 'second', label: 'Two' },
+    ],
+    operationRecorded: false,
+  });
+  expect(f.invoke).not.toHaveBeenCalled();
+  expect(mocks.approve).not.toHaveBeenCalled();
+});
 it('asks for exactly one repository even when the connection already grants other repositories', async () => {
   const f = fixture('openai');
   f.connection.publicConfig.allowedRepositories.push('example/other');
