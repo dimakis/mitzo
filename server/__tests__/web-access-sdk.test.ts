@@ -41,9 +41,10 @@ describe('Claude SDK web access surface', () => {
             })
           ).isError,
         ).toBe(true);
-        const settling = state.callbacks.settle(new AbortController().signal);
-        if (outcome === 'completed failure') await expect(settling).resolves.toBeUndefined();
-        else await expect(settling).rejects.toMatchObject({ code: 'callbacks_failed' });
+        // Unknown and cancelled outcomes stay retained as uncertain for the
+        // terminal notice; only a completed failure is settled evidence.
+        await expect(state.callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
+        expect(state.callbacks.uncertainOutcomes).toBe(outcome === 'completed failure' ? 0 : 1);
       } finally {
         await client.close();
         await server.instance.close();

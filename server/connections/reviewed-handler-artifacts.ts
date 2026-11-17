@@ -2864,7 +2864,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/github-publication-preflight.test.ts':
     'b1419cb2f49a2b21840338cc91603222113737daa802ee207030769028b8c390',
   '../__tests__/github-publishing-tool.test.ts':
-    '5996b134abcefa73e6ca9e5a65678a244b6fde06270d8b6e472df1503c942a5e',
+    'c13e1ebb38546fdf3e19bb86ebe6e100409c8b1d735e475f193fabb86a6e73c6',
   '../__tests__/google-read-consent.test.ts':
     'feaf2bad21675aee45531d319e667d1c65a369a136603f8b627dd7cc1f0f176b',
   '../__tests__/google-workspace-read.test.ts':
@@ -3587,7 +3587,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-sdk-source.test.ts':
     'd4a46546ef2519d8e61d6a0e0ffc219b37a986d94e4f1602c133ef4e8efdc2e2',
   '../__tests__/telos-sdk-tools.test.ts':
-    '2e00fa2f5c6ca486ad1af0d4b9cd7404d91cea1209a4331eed3b09d747ef0787',
+    'ff049f5b1a2b8309c9bf0b05c379f4d79691f775b2b10e95a01d9ac08457d12e',
   '../__tests__/telos-session-coordination.test.ts':
     '7ed5aebeb6ad541a49b35f1f62d6b8a4db881012e894e562fef47b4f5be6a314',
   '../__tests__/telos-session-launch-adapters.test.ts':
