@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { TelosSourceApprovalStore } from '../telos-source-approval-store.js';
 import { createTelosSourceApprovalData } from './fixtures/telos-source-approval-data.js';
 import { executeNativeTelosArtifactOperation } from '../native-telos-artifact-operations.js';
-import { captureTelosSaveConsent } from '../telos-save-consent.js';
+import { captureTelosSaveConsent, type TelosSaveConsent } from '../telos-save-consent.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
 
 const cleanup: (() => void)[] = [];
@@ -62,10 +62,17 @@ function setup(name: 'TelosSaveArtifact' | 'TelosReadArtifact', raw: Record<stri
       controller.abort();
     },
   }) as unknown as NativeHostToolContext;
-  const approve = vi.fn(async (_name: string, input: Record<string, unknown>) => ({
-    behavior: 'allow' as const,
-    updatedInput: structuredClone(input),
-  }));
+  const approve = vi.fn(
+    async (
+      _name: string,
+      input: Record<string, unknown>,
+      _signal?: AbortSignal,
+      _consent?: { save?: TelosSaveConsent },
+    ) => ({
+      behavior: 'allow' as const,
+      updatedInput: structuredClone(input),
+    }),
+  );
   const owners = {
     context,
     artifacts: f.artifacts,
