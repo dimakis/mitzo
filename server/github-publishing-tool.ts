@@ -1,7 +1,10 @@
 import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
 import { retainCallbackOutcome } from './turn-callbacks.js';
 import { isAuthSessionCurrent } from './auth.js';
-import { githubRepositoryConnections } from './github-repository-connections.js';
+import {
+  githubRepositoryConnections,
+  githubRepositoryScopedConnections,
+} from './github-repository-connections.js';
 import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from './github-publication-approval.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { toolFailure, toolFailureAction } from '@mitzo/protocol';
@@ -388,12 +391,37 @@ export function createGithubPublishingTool(
         account.accountId,
         repository,
       );
-      if (connections.length !== 1)
+      if (connections.length !== 1) {
+        // Name the fix without choosing for the operator: unassigned lists
+        // repository-scoped connections the account could be given.
+        const unassigned = connections.length === 0;
+        const candidates = unassigned
+          ? githubRepositoryScopedConnections(runtime.store.list('operator'), repository)
+          : connections;
+        const code = unassigned
+          ? 'GITHUB_PUBLICATION_CONNECTION_UNASSIGNED'
+          : 'GITHUB_PUBLICATION_CONNECTION_AMBIGUOUS';
+        publicationLog.info('GitHub publication connection not selectable', {
+          requestId,
+          code,
+          repository,
+          accountId: account.accountId,
+          candidateConnectionIds: candidates.map((candidate) => candidate.id),
+        });
         return {
-          content:
-            'Assign one active managed GitHub connection scoped to this repository and AI account in Connections before publishing. Local changes are preserved.',
+          content: JSON.stringify({
+            code,
+            message: unassigned
+              ? 'No active managed GitHub connection scoped to this repository is assigned to this AI account. Ask the operator to assign one in Connections, then retry. Local changes are preserved.'
+              : 'More than one active managed GitHub connection is assigned to this AI account for this repository. Ask the operator to leave exactly one assigned in Connections, then retry. Local changes are preserved.',
+            repository,
+            accountId: account.accountId,
+            candidateConnections: candidates.map(({ id, label }) => ({ id, label })),
+            operationRecorded: false,
+          }),
           isError: true,
         };
+      }
       const connection = connections[0]!;
       stage = 'publisher_identity';
       if (

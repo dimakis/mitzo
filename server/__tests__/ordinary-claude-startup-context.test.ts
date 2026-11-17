@@ -527,3 +527,35 @@ it.each([false, true])(
   },
   20_000,
 );
+
+it('revalidates workspace authority only at startup boundaries before creating the SDK', async () => {
+  const x = await fixture(false, true);
+  const beforeProvider: number[] = [];
+  const effect = x.owner.assertEffect.bind(x.owner);
+  vi.spyOn(x.owner, 'assertEffect').mockImplementation(async (id) => {
+    if (!x.calls.length) beforeProvider.push(1);
+    await effect(id);
+  });
+  await x.owner.admit(x.f.request);
+  await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
+  // Dispatch, chat start, after the context reads, after context and Tool
+  // Library discovery, after source cleanup (was 7: two adjacent duplicates).
+  // Each check reruns workspace reservation, credential and checkout checks.
+  expect(beforeProvider).toHaveLength(5);
+}, 20_000);
+
+it('prepares startup context while Tool Library discovery is still pending', async () => {
+  const x = await fixture(false, true);
+  const library = await import('../tool-library-sdk.js');
+  let finishDiscovery!: () => void;
+  const discovery = new Promise<undefined>((resolve) => {
+    finishDiscovery = () => resolve(undefined);
+  });
+  vi.spyOn(library, 'createSdkToolLibrary').mockReturnValue(discovery);
+  const admitted = x.owner.admit(x.f.request);
+  await vi.waitFor(() => expect(x.reconcile).toHaveBeenCalled());
+  expect(x.calls).toHaveLength(0);
+  finishDiscovery();
+  await admitted;
+  await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
+}, 20_000);

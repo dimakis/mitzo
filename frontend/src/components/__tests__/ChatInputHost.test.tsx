@@ -184,6 +184,38 @@ it('cannot expose another conversation draft while the next page is qualifying',
   expect(screen.getByText('Checking new conversation')).toBeTruthy();
 });
 
+it('keeps the focused new-chat input mounted when its own send assigns the conversation', async () => {
+  const send = vi.fn<import('react').ComponentProps<typeof ChatInput>['onSend']>(
+    (_text, _images, _context, _delivery, assigned) => {
+      assigned?.('assigned');
+      return true;
+    },
+  );
+  const tree = (sessionId?: string) => (
+    <MemoryRouter>
+      <ChatInputHost sessionId={sessionId}>
+        {sessionId ? (
+          <RetainedChatInputSlot sessionId={sessionId}>
+            <textarea aria-label="Pending placeholder" disabled />
+          </RetainedChatInputSlot>
+        ) : (
+          <ChatInput sessionId={undefined} running={false} onSend={send} onStop={() => {}} />
+        )}
+      </ChatInputHost>
+    </MemoryRouter>
+  );
+  const { rerender } = render(tree());
+  const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: 'First message' } });
+  input.focus();
+  fireEvent.keyDown(input, { key: 'Enter' });
+  await waitFor(() => expect(send).toHaveBeenCalledOnce());
+  rerender(tree('assigned'));
+  expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
+  expect(document.activeElement).toBe(input);
+  expect(screen.queryByLabelText('Pending placeholder')).toBeNull();
+});
+
 it.each(['send', 'steer'] as const)(
   'retires an old %s awaiting durable preparation when navigating to a qualifying conversation',
   async (kind) => {

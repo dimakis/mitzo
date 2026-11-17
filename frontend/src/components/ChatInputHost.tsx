@@ -91,13 +91,17 @@ export function ChatInputHost({
       recordAssignment(from: string | undefined, to: string, current: () => boolean) {
         if (contentSessionId === from && to && current()) assignment = { from, to, current };
       },
+      /** Transfer ownership on the exact current send's assignment. The live
+       * input now belongs to `to`, so a qualifying page can reattach it instead
+       * of unmounting the focused textarea (which dismisses the iOS keyboard). */
       acceptsAssignment(from: string | undefined, to: string | undefined) {
-        return (
+        const accepted =
           assignment !== null &&
           assignment.from === from &&
           assignment.to === to &&
-          assignment.current()
-        );
+          assignment.current();
+        if (accepted) contentSessionId = to;
+        return accepted;
       },
       getSnapshot: () => snapshot,
       subscribe(listener: () => void) {

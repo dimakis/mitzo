@@ -1,3 +1,4 @@
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 import {
   OrdinaryLocalWorkspaceOwner,
   type LocalWorkspaceKind,
@@ -475,7 +476,10 @@ export class OrdinaryLocalCodexSelectionOwner {
   async assertCurrent(expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>): Promise<void> {
     this.assertCurrentSync(expected);
     try {
-      await (this.preparedPrimary()?.workspace ?? this.#workspace).revalidate(this.owners.signal);
+      const workspace = this.preparedPrimary()?.workspace ?? this.#workspace;
+      await observeLocalCodexPhase('workspace_revalidation', () =>
+        workspace.revalidate(this.owners.signal),
+      );
       this.assertCurrentSync(expected);
     } catch (error) {
       throw annotateAuthorityFailure(

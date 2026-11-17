@@ -14,6 +14,12 @@ describe('tool-tiers', () => {
       expect(shouldAutoAllow('GitHubRead', 'ask')).toBe(true);
     });
 
+    it('treats the SDK ToolSearch schema loader as a safe read in every mode', () => {
+      expect(getToolTier('ToolSearch')).toBe('safe');
+      for (const mode of ['ask', 'agent', 'auto'] as const)
+        expect(shouldAutoAllow('ToolSearch', mode)).toBe(true);
+    });
+
     it('returns standard for Write', () => {
       expect(getToolTier('Write')).toBe('standard');
     });

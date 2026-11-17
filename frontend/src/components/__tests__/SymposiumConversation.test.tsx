@@ -655,6 +655,20 @@ describe('SymposiumConversation', () => {
     expect(screen.queryByText('Loading Symposium…')).toBeNull();
   });
 
+  it('keeps the ordinary composer for a conversation its own send just assigned', () => {
+    vi.mocked(apiFetch).mockReturnValue(new Promise(() => {}));
+    render(
+      <SymposiumConversation
+        sessionId="session"
+        chat={chat}
+        ordinaryComposer={<button>Ordinary send</button>}
+        ordinaryAssigned
+      />,
+    );
+    expect(screen.getByText('Ordinary send')).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Message Mitzo' })).toBeNull();
+  });
+
   it('reviews a fake agent tool proposal in an ordinary existing conversation before saving', async () => {
     const proposal = {
       proposalId: 'proposal-1',

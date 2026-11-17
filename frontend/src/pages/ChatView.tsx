@@ -1,5 +1,5 @@
 import { useLocalCommandRecovery } from '../components/LocalCommandRecovery';
-import { localCommandStatusMessage } from '@mitzo/client';
+import { localCommandInFlight, localCommandStatusMessage } from '@mitzo/client';
 import type { MessageReplyContext } from '@mitzo/protocol';
 import { SessionLaunchConfigSchema, supportsUserTurnSteering } from '@mitzo/protocol';
 import { SessionLaunchDefaultsControl } from '../components/SessionLaunchDefaultsControl';
@@ -1729,7 +1729,7 @@ function ChatViewContent() {
                 !connected ||
                 localCommand.state === 'consumed' ||
                 localCommand.state === 'blocked' ||
-                localCommand.state === 'pending'
+                localCommandInFlight(localCommand.state)
               }
               onClick={() => recoverLocalCommand()}
             >
@@ -1943,6 +1943,9 @@ function ChatViewContent() {
           ordinaryConfirmed={
             (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
           }
+          ordinaryAssigned={
+            (!sessionId || sessionId === activeSessionId) && !isSymposium && localBound
+          }
           ordinaryExcluded={isSymposium}
           ordinaryProfileProposalReview={
             localRuntime.bound &&
@@ -2073,7 +2076,9 @@ function ChatViewContent() {
                     : sendStatus
                 }
                 deliveryError={sendError}
-                deliveryBusy={localCommand ? localCommand.state === 'pending' : messages.running}
+                deliveryBusy={
+                  localCommand ? localCommandInFlight(localCommand.state) : messages.running
+                }
               />
               {invalidRoleSetup && (
                 <p role="alert">
@@ -2259,7 +2264,9 @@ function ChatViewContent() {
                           : undefined
                   }
                   sendDisabledAction={
-                    localCommand && !['pending', 'consumed'].includes(localCommand.state)
+                    localCommand &&
+                    !localCommandInFlight(localCommand.state) &&
+                    localCommand.state !== 'consumed'
                       ? deliveryRecovery.action
                       : undefined
                   }

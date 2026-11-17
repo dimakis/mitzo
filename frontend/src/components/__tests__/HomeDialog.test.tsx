@@ -317,3 +317,27 @@ it('restores focus beyond a concealed settings editor when its summary is concea
   expect(document.activeElement).toBe(buttons[0]);
   outer.remove();
 });
+
+it('offers Retry for a failed early start but not while it is still preparing', () => {
+  const recover = vi.fn(() => true);
+  function Host({ state }: { state: string }) {
+    const recovery = useLocalCommandRecovery({
+      command: { state, request: localFirstCommandFixture } as never,
+      connected: true,
+      recover,
+      withdraw: vi.fn(async () => false),
+      refresh: vi.fn(),
+      scope: 'new-chat',
+    });
+    return (
+      <button disabled={recovery.action.disabled} onClick={recovery.action.onClick}>
+        {recovery.action.label}
+      </button>
+    );
+  }
+  const { rerender } = render(<Host state="preparing" />);
+  expect(screen.getByRole('button', { name: 'Retry' })).toHaveProperty('disabled', true);
+  rerender(<Host state="retained" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(recover).toHaveBeenCalledOnce();
+});

@@ -14,6 +14,10 @@ import {
   localRepositoryToolDefinitions,
 } from './session-local-repository-tools.js';
 import {
+  localRepositoryReadFailure,
+  localRepositoryReadHooks,
+} from './local-repository-read-hooks.js';
+import {
   inputSchema,
   parseLocalRepositoryPreparationInput,
 } from './local-repository-preparation-input.js';
@@ -131,20 +135,43 @@ export function registerSdkLocalRepositoryTools(
                 signal,
                 revalidateReadAccess: current,
                 assertReadAccess: async () => assertSdkRepositoryReadOwner(owner),
+                ...localRepositoryReadHooks({
+                  current: () => assertSdkRepositoryReadOwner(owner),
+                  exclusions: () => heldReader.deniedRoots,
+                  anchor: (path) => heldReader.captureReadAnchor(path),
+                }),
+              };
+              // A code-owned read refusal is a result, not an internal failure;
+              // facts are withheld when the original owner is no longer current.
+              const refuse = async (error: unknown) => {
+                const refusal = localRepositoryReadFailure(error);
+                if (!refusal) throw error;
+                await current();
+                return retainCallbackOutcome(
+                  {
+                    content: [{ type: 'text' as const, text: JSON.stringify(refusal) }],
+                    isError: true,
+                  },
+                  'settled',
+                );
               };
               const native = <T extends object>(value: T) =>
                 Object.defineProperty(value, 'nativeReader', { value: heldReader });
               let value: unknown;
               if (name === 'DiscoverLocalRepository') {
                 const parsed = localRepositoryToolSchemas.DiscoverLocalRepository.parse(input);
-                value = await discoverLocalRepository(
-                  native({
-                    ...request,
-                    ...configuredLocalRepositoryDiscovery(owner.cwd),
-                    query: parsed.query,
-                    explicitPath: parsed.path,
-                  }),
-                );
+                try {
+                  value = await discoverLocalRepository(
+                    native({
+                      ...request,
+                      ...configuredLocalRepositoryDiscovery(owner.cwd),
+                      query: parsed.query,
+                      explicitPath: parsed.path,
+                    }),
+                  );
+                } catch (error) {
+                  return await refuse(error);
+                }
               } else {
                 const parsed =
                   name === 'PrepareLocalRepository'
@@ -169,7 +196,12 @@ export function registerSdkLocalRepositoryTools(
                 const path =
                   source?.path ??
                   localRepositoryToolSchemas.InspectLocalRepository.parse(input).path;
-                const inspected = await inspectLocalRepository(native({ ...request, path }));
+                let inspected: Awaited<ReturnType<typeof inspectLocalRepository>>;
+                try {
+                  inspected = await inspectLocalRepository(native({ ...request, path }));
+                } catch (error) {
+                  return await refuse(error);
+                }
                 if (!parsed) value = inspected;
                 else {
                   if (

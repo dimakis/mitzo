@@ -17,6 +17,7 @@ import type { ProfileToolCall } from './session-profile-tools.js';
 import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { publicSessionLaunchRecord } from './session-launch-store.js';
 import { SessionLaunchError } from './session-launch-store.js';
+import { sessionLaunchStartupBlocker } from './session-launch-runtime.js';
 import type { SessionLaunchAuthority } from './session-launch-service.js';
 import {
   telosSessionLaunchDefinition,
@@ -27,7 +28,7 @@ export const sessionLaunchDefinitions = [
   {
     name: 'StartSession',
     description:
-      'Propose a new ordinary Mitzo chat using saved defaults and optional overrides. Put the complete self-contained handover in prompt; do not rely on a temporary file path. The retained request provides handoverDownloadUrl for exact Markdown download, even before startup. The user reviews and edits configuration, title and handoff before Approve & start. A pending proposal has not allocated or started a chat. Reuse the exact requestId and arguments after uncertainty. Supports independent Local Mac Codex sessions and additional tools already exposed by the selected agent profile; selection grants no permissions. Unsupported context/workspace choices return startupBlocker and remain editable in review.',
+      'Propose a new ordinary Mitzo chat using saved defaults and optional overrides. Put the complete self-contained handover in prompt; do not rely on a temporary file path. The retained request provides handoverDownloadUrl for exact Markdown download, even before startup. The user reviews and edits configuration, title and handoff before Approve & start. A pending proposal has not allocated or started a chat. Reuse the exact requestId and arguments after uncertainty. Starts only independent Local Mac Codex sessions: a Claude or other non-Codex account returns startupBlocker at proposal and cannot be approved until a Codex account is chosen. Additional tools must already be exposed by the selected agent profile; selection grants no permissions. Unsupported account, context or workspace choices return startupBlocker and remain editable in review.',
     input_schema: z.toJSONSchema(StartSessionInputSchema),
   },
   telosSessionLaunchDefinition,
@@ -198,7 +199,7 @@ export function sessionLaunchTools(options: {
       current();
       captured.assertCurrent();
       controller.changed(options.sessionId);
-      const startupBlocker = sessionLaunchConfigurationReason(record.configuration);
+      const startupBlocker = sessionLaunchStartupBlocker(record.configuration);
       return {
         ...publicSessionLaunchRecord(record),
         handoverDownloadUrl: sessionLaunchHandoverUrl(record.proposalId),
