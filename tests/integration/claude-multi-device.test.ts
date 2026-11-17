@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   sdkFixtureBoundary,
   sdkQueryPeer,
+  sdkInputReplay,
 } from '../../server/__tests__/fixtures/sdk-query-peer.js';
 import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Server } from 'node:http';
@@ -117,7 +118,7 @@ it.each([
           SDKUserMessage & { mitzoMessageId: string }
         >) {
           inputs.push(input.mitzoMessageId);
-          yield { ...input, uuid: `input-${input.mitzoMessageId}`, session_id: sessionId };
+          yield sdkInputReplay(input, sessionId);
           if (hold)
             await new Promise<void>((resolve) => {
               finish = resolve;

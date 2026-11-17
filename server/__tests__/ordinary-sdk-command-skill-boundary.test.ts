@@ -13,6 +13,7 @@ import { buildSessionPermissionHooks } from '../session-permission-policy.js';
 import { OrdinarySdkTurnEvidence } from '../ordinary-sdk-turn-evidence.js';
 import { ordinarySdkRetryCommandId } from '../ordinary-local-vertex-queue.js';
 import { freezeOrdinarySkillCommand } from '../ordinary-composer-skills.js';
+import { runQueryLoop } from '../query-loop.js';
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
@@ -30,7 +31,12 @@ afterEach(() => {
 });
 
 function fixture(
-  options: { gate?: () => Promise<void>; wireCommandId?: string; acceptPeerInput?: boolean } = {},
+  options: {
+    gate?: () => Promise<void>;
+    wireCommandId?: string;
+    acceptPeerInput?: boolean;
+    trackTurnEvidence?: boolean;
+  } = {},
 ) {
   const store = new EventStore(':memory:');
   const registry = new SessionRegistry();
@@ -110,6 +116,7 @@ function fixture(
   const states: SdkCallbackState[] = [];
   const onUnsent = vi.fn();
   const current = vi.fn();
+  const observePeer = vi.fn(() => false);
   const sdk = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: {
       hooks: buildSessionPermissionHooks(
@@ -148,7 +155,7 @@ function fixture(
     peerMessages: () => ({
       beforeInput: (message) =>
         message.uuid === peerInputId ? options.acceptPeerInput === true : undefined,
-      observe: () => false,
+      observe: observePeer,
     }),
     mcpServers: (state) => {
       states.push(state);
@@ -161,6 +168,9 @@ function fixture(
     assertCurrent: current,
     assertCurrentSync: current,
     ownsClaim: (id) => store.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed',
+    turnEvidence: options.trackTurnEvidence
+      ? new OrdinarySdkTurnEvidence(store, 'session', 'session')
+      : undefined,
     settings: () => ({ model: 'model', thinkingTokens: null }),
     query: {
       applySettings: sdk.apply,
@@ -200,6 +210,7 @@ function fixture(
   return {
     store,
     registry,
+    controller,
     owner,
     sdk,
     requests,
@@ -211,8 +222,84 @@ function fixture(
     permission,
     current,
     onUnsent,
+    observePeer,
   };
 }
+
+it.each([true, false])(
+  'settles the ordinary result only with the submitted input echo (%s)',
+  async (echoed) => {
+    const f = fixture({ trackTurnEvidence: true });
+    f.admit('first');
+    await f.owner.enqueue('first');
+    f.admit('second');
+    await f.owner.enqueue('second');
+    const { input, events } = f.requests[0];
+    const submitted = (await input[Symbol.asyncIterator]().next()).value as SDKUserMessage;
+    const ack = {
+      type: 'user',
+      session_id: 'session',
+      parent_tool_use_id: null,
+      isReplay: true,
+      message: { role: 'user', content: 'first' },
+    };
+    if (!echoed) {
+      // Neither the same text under another UUID nor an unacknowledged copy
+      // under the submitted UUID can settle this command.
+      events.push({ ...ack, uuid: peerInputId });
+      events.push({ ...ack, uuid: submitted.uuid, isReplay: false });
+    }
+    // A resumed process can report an empty result before reading its prompt.
+    // Even a replay under another UUID leaves that housekeeping result unowned.
+    const housekeepingResult = {
+      type: 'result',
+      session_id: 'session',
+      subtype: 'success',
+      num_turns: 0,
+    };
+    events.push(housekeepingResult);
+    if (echoed) events.push({ ...ack, uuid: submitted.uuid });
+    events.push({
+      type: 'stream_event',
+      event: { type: 'message_start', message: { id: 'reply' } },
+    });
+    events.push({
+      type: 'user',
+      session_id: 'session',
+      parent_tool_use_id: null,
+      uuid: 'task-notification',
+      message: { role: 'user', content: '<task-notification>Task completed</task-notification>' },
+    });
+    if (echoed) events.push({ ...ack, uuid: submitted.uuid });
+    events.push({ type: 'result', session_id: 'session', is_error: false, num_turns: 1 });
+    const observeInput = vi.spyOn(f.owner, 'inputObserved');
+    const onResult = vi.fn((_client: string, result: { is_error?: boolean }, id?: string) =>
+      f.owner.resultObserved(id, result.is_error === true, { dispatchSuccessor: false }),
+    );
+    await runQueryLoop(f.sdk.query, 'client', f.registry, f.controller, f.store, undefined, {
+      isCommandInputEcho: f.sdk.isCommandInputEcho,
+      onUserInput: (_client, id) => f.owner.inputObserved(id),
+      onResult,
+      onResultDelivered: async () => {
+        await f.owner.dispatchQueued();
+        f.controller.abort();
+      },
+    });
+    expect(submitted.uuid).toMatch(/^[0-9a-f-]{36}$/);
+    expect(observeInput.mock.calls).toEqual(echoed ? [[submitted.uuid]] : []);
+    expect(f.observePeer).not.toHaveBeenCalledWith(housekeepingResult, expect.anything(), true);
+    expect(onResult).toHaveBeenCalledExactlyOnceWith(
+      'client',
+      expect.objectContaining({ num_turns: 1 }),
+      echoed ? submitted.uuid : undefined,
+    );
+    expect(f.requests).toHaveLength(echoed ? 2 : 1);
+    expect(f.owner.activeCommandId()).toBe(echoed ? 'second' : 'first');
+    expect(f.store.getOrdinaryProviderTurnTerminal('session', 'first')).toBe(
+      echoed ? 'completed' : undefined,
+    );
+  },
+);
 
 it('enforces the frozen ceiling through real SDK hooks/callbacks and retires it before an unrestricted FIFO successor', async () => {
   const f = fixture();
