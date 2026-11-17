@@ -2704,7 +2704,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/connections-credential-readiness.test.ts':
     '9fd63b18aa4c451c051711e3ad1f6602dccb8f01359af84969901de1babb2971',
   '../__tests__/conversation-transcript.test.ts':
-    '17ec777261eb900b270835199522ca2f2304702faf1079d5d57b378c2c0f0793',
+    '0740f6d550fc00ed79fe547f6ea9c090537b7732b0f2613510e5df11be686303',
   '../__tests__/credential-sdk-boundary-spawn.test.ts':
     '0d1281aa737cd78f4530f35b14467d6adfa2e05925ff5b36c4c42fac1ef91bde',
   '../__tests__/credential-sdk-boundary.test.ts':
@@ -3886,7 +3886,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../context-pack-runtime.ts': 'b88bf80b58cdb8bf95dfd950626f75d6e055d2ee5ffb3ac3637e90f85e7bafd8',
   '../context-pack-store.ts': '7e7fce4a09496f735b3ffc9da5aaf9c841a544d1d52513203f2ccdd30e2f837f',
   '../conversation-transcript.ts':
-    '3d68e68efabc86c8aaf0259a0ded52f57092e5745ca2010bd38724460c195ffe',
+    '393c0a48c4e9168bf1ea1af39d40f05ab383336223cd2ed7b415fe49de7a6319',
   '../credential-connection-schema.ts':
     '3489ff131cd0bc28de23d85e1ed7cd4749fcb12f062bdc76407bedc0efe28f47',
   '../credential-connection-tools.ts':

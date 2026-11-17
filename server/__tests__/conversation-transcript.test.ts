@@ -174,12 +174,14 @@ for (const [name, project] of [
   });
 }
 
-it('restores legacy ordinary messages whose millisecond ids collided, keeping each tool result', () => {
+it('restores legacy ordinary messages whose millisecond ids collided, keeping tool results and commands', () => {
   // Pre-#1373 query loops minted ordinary ids from Date.now(); parallel tool
   // calls emitted in one millisecond were stored under one messageId.
   const events: StoredEvent[] = [];
   const add = (type: string, payload: Record<string, unknown>) =>
     events.push({ type, payload, seq: events.length + 1, sessionId: 's', createdAt: 1 });
+  // As stored: one reply source for the colliding id, recorded before the first copy.
+  add('ordinary_reply_source', { version: 2, commandId: 'command', messageId: 'msg-1' });
   for (const [blockId, toolId] of [
     ['b2', 'first'],
     ['b3', 'second'],
@@ -193,8 +195,10 @@ it('restores legacy ordinary messages whose millisecond ids collided, keeping ea
   add('tool_result', { messageId: 'msg-1', toolId: 'second', result: 'two' });
   const { messages } = replayEventsToTranscript(events);
   const assistants = messages.filter((message) => message.role === 'assistant');
-  expect(assistants.map((message) => message.messageId)).toEqual(['msg-1', 'msg-1~5']);
+  expect(assistants.map((message) => message.messageId)).toEqual(['msg-1', 'msg-1~6']);
   expect(assistants.map((message) => message.blocks[0]?.toolResult)).toEqual(['one', 'two']);
+  // Attribution matches the stored id, so a renamed copy keeps its command.
+  expect(assistants.map((message) => message.replyToMessageId)).toEqual(['command', 'command']);
 });
 
 it('still refuses a duplicate identity within one Symposium seat', () => {
