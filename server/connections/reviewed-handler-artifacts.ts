@@ -2710,7 +2710,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-boundary.test.ts':
     '3bac4bc0290ddc4091f3f1f9054caf2f7afe6f03752952c1cdad07baa1602961',
   '../__tests__/credential-sdk-runtime-authority.test.ts':
-    '454e373e96015cc50827c64363e3e28039a7074c5cd2f40c323411e7d3823714',
+    '3979d8c1a16fe58b5e2ad0bbd2bdbb55eaadef46f75ec3671ccbcb46285a8dca',
   '../__tests__/credential-sdk-tools.test.ts':
     '8f436bac035e3df38b6ada818d809dcb25ff6b19996eead9417c79b3339b38be',
   '../__tests__/credential-setup-application.test.ts':
