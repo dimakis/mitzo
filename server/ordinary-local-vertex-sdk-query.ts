@@ -115,6 +115,22 @@ export function createSdkCallbackState(): SdkCallbackState {
   };
   return state;
 }
+/** The native acknowledgement of an input this process read from stdin. */
+function isTopLevelInputEcho(event: Readonly<Record<string, unknown>>): boolean {
+  return event.type === 'user' && event.isReplay === true && !event.parent_tool_use_id;
+}
+/** Observed with the bundled CLI (SDK 0.3.322): resuming a session whose previous
+ * process still had a background task emits `task_notification` (stopped), then
+ * `result` {subtype: 'success', num_turns: 0} before the first queued input is read.
+ * An error or a result that ran a turn is never classified here. */
+function isResumeHousekeepingResult(event: Readonly<Record<string, unknown>>): boolean {
+  return (
+    event.type === 'result' &&
+    event.subtype === 'success' &&
+    event.is_error !== true &&
+    event.num_turns === 0
+  );
+}
 /** The same effect/settlement boundary for owned and continuous SDK histories. */
 export function sdkCallbackOptions(
   options: Options,
@@ -485,6 +501,9 @@ export function createOrdinaryLocalVertexSdkQuery<
   const events = async function* () {
     for await (const run of runs) {
       let terminal = false;
+      // Every Mitzo input to this native process is echoed (replay-user-messages)
+      // before the turn that runs it can produce a result.
+      let inputEchoed = false;
       try {
         for await (const event of owners.adapt(run)) {
           const state = states.get(run)!;
@@ -507,6 +526,22 @@ export function createOrdinaryLocalVertexSdkQuery<
           if (state.retired || state.completing || terminal) continue;
           if (event.session_id !== undefined && event.session_id !== owners.sdkSessionId)
             throw Error('Original SDK thread identity changed');
+          if (isTopLevelInputEcho(event)) inputEchoed = true;
+          if (!inputEchoed && isResumeHousekeepingResult(event)) {
+            // A resumed CLI first reports background tasks the previous process
+            // left running, then emits an empty zero-turn result before reading
+            // stdin. It ran no Mitzo input, so it cannot settle the active command;
+            // the queued input is echoed and answered by the next turn.
+            log.warn('Ignored SDK result emitted before any input was processed', {
+              code: 'sdk_unowned_result_ignored',
+              stage: 'provider_terminal',
+              sdkSessionId: owners.sdkSessionId,
+              commandId: state.commandId(),
+              subtype: event.subtype,
+              durationMs: event.duration_ms,
+            });
+            continue;
+          }
           const queryState = states.get(run)!;
           if (owners.peerMessages?.()?.observe(event, queryState, !queryState.retired)) continue;
           if (event.type === 'result') {
