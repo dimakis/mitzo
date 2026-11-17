@@ -116,6 +116,7 @@ function fixture(
   const states: SdkCallbackState[] = [];
   const onUnsent = vi.fn();
   const current = vi.fn();
+  const observePeer = vi.fn(() => false);
   const sdk = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: {
       hooks: buildSessionPermissionHooks(
@@ -154,7 +155,7 @@ function fixture(
     peerMessages: () => ({
       beforeInput: (message) =>
         message.uuid === peerInputId ? options.acceptPeerInput === true : undefined,
-      observe: () => false,
+      observe: observePeer,
     }),
     mcpServers: (state) => {
       states.push(state);
@@ -221,6 +222,7 @@ function fixture(
     permission,
     current,
     onUnsent,
+    observePeer,
   };
 }
 
@@ -241,14 +243,22 @@ it.each([true, false])(
       isReplay: true,
       message: { role: 'user', content: 'first' },
     };
-    if (echoed) {
-      events.push({ ...ack, uuid: submitted.uuid });
-    } else {
+    if (!echoed) {
       // Neither the same text under another UUID nor an unacknowledged copy
       // under the submitted UUID can settle this command.
       events.push({ ...ack, uuid: peerInputId });
       events.push({ ...ack, uuid: submitted.uuid, isReplay: false });
     }
+    // A resumed process can report an empty result before reading its prompt.
+    // Even a replay under another UUID leaves that housekeeping result unowned.
+    const housekeepingResult = {
+      type: 'result',
+      session_id: 'session',
+      subtype: 'success',
+      num_turns: 0,
+    };
+    events.push(housekeepingResult);
+    if (echoed) events.push({ ...ack, uuid: submitted.uuid });
     events.push({
       type: 'stream_event',
       event: { type: 'message_start', message: { id: 'reply' } },
@@ -261,14 +271,15 @@ it.each([true, false])(
       message: { role: 'user', content: '<task-notification>Task completed</task-notification>' },
     });
     if (echoed) events.push({ ...ack, uuid: submitted.uuid });
-    events.push({ type: 'result', session_id: 'session', is_error: false });
+    events.push({ type: 'result', session_id: 'session', is_error: false, num_turns: 1 });
     const observeInput = vi.spyOn(f.owner, 'inputObserved');
-    const observeResult = vi.spyOn(f.owner, 'resultObserved');
+    const onResult = vi.fn((_client: string, result: { is_error?: boolean }, id?: string) =>
+      f.owner.resultObserved(id, result.is_error === true, { dispatchSuccessor: false }),
+    );
     await runQueryLoop(f.sdk.query, 'client', f.registry, f.controller, f.store, undefined, {
       isCommandInputEcho: f.sdk.isCommandInputEcho,
       onUserInput: (_client, id) => f.owner.inputObserved(id),
-      onResult: (_client, result, id) =>
-        f.owner.resultObserved(id, result.is_error === true, { dispatchSuccessor: false }),
+      onResult,
       onResultDelivered: async () => {
         await f.owner.dispatchQueued();
         f.controller.abort();
@@ -276,10 +287,11 @@ it.each([true, false])(
     });
     expect(submitted.uuid).toMatch(/^[0-9a-f-]{36}$/);
     expect(observeInput.mock.calls).toEqual(echoed ? [[submitted.uuid]] : []);
-    expect(observeResult).toHaveBeenCalledExactlyOnceWith(
+    expect(f.observePeer).not.toHaveBeenCalledWith(housekeepingResult, expect.anything(), true);
+    expect(onResult).toHaveBeenCalledExactlyOnceWith(
+      'client',
+      expect.objectContaining({ num_turns: 1 }),
       echoed ? submitted.uuid : undefined,
-      false,
-      { dispatchSuccessor: false },
     );
     expect(f.requests).toHaveLength(echoed ? 2 : 1);
     expect(f.owner.activeCommandId()).toBe(echoed ? 'second' : 'first');
