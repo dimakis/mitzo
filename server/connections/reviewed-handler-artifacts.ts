@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1245-claude-steering-unconfirmed';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1246-claude-steering-and-notice';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3655,7 +3655,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/trusted-native-operation.test.ts':
     'f8c1da52d604967fea89d90064acfa0e4660f6bd7a4946c596c81096cf5d1e67',
   '../__tests__/turn-callbacks.test.ts':
-    'e82d115ac5cee05e9d3750ffe225bb59d372e975abd482eddcf367948d91f33b',
+    '9bd9467485be14c6d6d0a46875e8442f9727139357c8c731afd6485e4a4b4205',
   '../__tests__/unified-inbox-routes.test.ts':
     '88a0b4cec1c4257e1a24005ed965b86e05f5f98b202ad756ebc2b46d948e2d1a',
   '../__tests__/unselected-headless-session.test.ts':
@@ -4274,7 +4274,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-sdk-process.ts':
     'fb9323a7fe3a55d6998dd70e0b6e16ff5f008ecb763bc8da9777b7f24514a30e',
   '../ordinary-local-vertex-sdk-query.ts':
-    '929963e5e9fd67a4c22fd14b3d9f0095bf76ad5d8c1d29465b640512379f033c',
+    'a248744bb49e1886ab258c79f82b9dbe5fd5a49c37cca60dfc1e4d245ecf4042',
   '../ordinary-local-workspace-owner.ts':
     '877d3056b325d2770f1565cd82cd15650d34ad99e641a28d4bfa00c5fdc56fe4',
   '../ordinary-openshell-codex-entry-owner.ts':
@@ -4440,7 +4440,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6838964a993463471387f0e0e45b593ae3330449503ae907c520d53734fe7ea7',
   '../sdk-query-retirement.ts': 'a4f82c8f91373d89da95cf52c7e107914118b0cc755116c9817365b71d9b1bc9',
   '../sdk-query-usage.ts': '1ad2216cc6bb6ec92ecd05a508f6abbe9af0ee86a52fceafaca2d91347d55af2',
-  '../sdk-turn-query.ts': '6470332b3fcd93ff4abec454ed036c92bce74e590d20757fcaeaeb3729d4c6e6',
+  '../sdk-turn-query.ts': '7ed8479729a12187aa36015beead3ba4bc5e82f4d2d4df1694cfa8cef500f007',
   '../sdk-user-steering.ts': '0228f0231f050b73f050374efc9bf61724725e88738def19c8610485f47ab6e8',
   '../secret-relay-browser-driver.ts':
     'd70e2fd59291afadcfb3c8e94a0c103a27e94fab88d1618d9fa6b8d271543f1d',
@@ -4826,7 +4826,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
   '../trusted-native-operation.ts':
     '0c96fb2b120d78176e41e27764401b9d74155c10f709dfd9c8544a21153bf410',
-  '../turn-callbacks.ts': 'ca42470d656e5c4a0468c151e44e6c64d53253549e2da6fea6043096cfac16a8',
+  '../turn-callbacks.ts': '88e4efd195098dff2c7727de11c5ecb14934cf9e96127b98ba4cdf0db67e5fa7',
   '../unified-inbox-routes.ts': '6413398c77b9f1c62fbb1c597d5cf7c857b65338b23592ce9751cf6755e271d4',
   '../unified-inbox.ts': '6ca474e1069e33341bfe53f87b3022372645e250beffa0d7082b138bf90911df',
   '../unselected-headless-session.ts':

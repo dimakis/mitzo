@@ -10,6 +10,7 @@ import {
 import { AsyncQueue } from './async-queue.js';
 import {
   TurnCallbacks,
+  observeAssistantFollowUp,
   withUncertainOutcomeNotice,
   type TurnCallbackRunner,
 } from './turn-callbacks.js';
@@ -521,6 +522,7 @@ export function createOrdinaryLocalVertexSdkQuery<
             yield withUncertainOutcomeNotice(event, state.callbacks);
             continue;
           }
+          observeAssistantFollowUp(event, state.callbacks);
           yield event;
         }
       } catch (error) {

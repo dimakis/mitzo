@@ -4,6 +4,8 @@ import {
   retainCallbackOutcome,
   callbackOutcome,
   assertTurnCallbackEffects,
+  observeAssistantFollowUp,
+  withUncertainOutcomeNotice,
 } from '../turn-callbacks.js';
 it('does not accept cloned or structural data as original effect evidence', () => {
   const result = retainCallbackOutcome(
@@ -80,6 +82,44 @@ it('retains SDK outcomes the provider already received as uncertain without fail
   expect(callbacks.uncertainOutcomes).toBe(2);
   await expect(callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
   expect(callbacks.uncertainOutcomes).toBe(2);
+});
+const assistant = (content: unknown[], extra: Record<string, unknown> = {}) => ({
+  type: 'assistant',
+  message: { content },
+  ...extra,
+});
+it('does not raise the uncertain-outcome notice once the agent follows up in text', async () => {
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  await callbacks.track(async () => ({ isError: true, content: 'Command timed out' }));
+  expect(callbacks.uncertainOutcomes).toBe(1);
+  observeAssistantFollowUp(
+    assistant([{ type: 'text', text: 'That timed out; inspecting.' }]),
+    callbacks,
+  );
+  expect(callbacks.uncertainOutcomes).toBe(0);
+  expect(withUncertainOutcomeNotice({ type: 'result' }, callbacks)).toEqual({ type: 'result' });
+});
+it('still raises the notice for an outcome that follows the last text or has no follow-up', async () => {
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  await callbacks.track(async () => ({ isError: true, content: 'first' }));
+  observeAssistantFollowUp(assistant([{ type: 'text', text: 'Handled the first.' }]), callbacks);
+  await callbacks.track(async () => ({ isError: true, content: 'second' }));
+  expect(callbacks.uncertainOutcomes).toBe(1);
+  expect(withUncertainOutcomeNotice({ type: 'result' }, callbacks)).toMatchObject({
+    tool_failure_notice: true,
+  });
+});
+it.each([
+  ['a tool-only message', assistant([{ type: 'tool_use', id: 't', name: 'Bash', input: {} }])],
+  ['thinking', assistant([{ type: 'thinking', thinking: 'hmm' }])],
+  ['blank text', assistant([{ type: 'text', text: '  ' }])],
+  ['a sub-agent message', assistant([{ type: 'text', text: 'sub' }], { parent_tool_use_id: 'x' })],
+  ['a user message', { type: 'user', message: { content: [{ type: 'text', text: 'hi' }] } }],
+])('does not treat %s as a follow-up', async (_name, event) => {
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  await callbacks.track(async () => ({ isError: true, content: 'timed out' }));
+  observeAssistantFollowUp(event, callbacks);
+  expect(callbacks.uncertainOutcomes).toBe(1);
 });
 it('still fails an SDK turn whose callback settles unknown only after the result sealed it', async () => {
   const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
