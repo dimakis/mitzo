@@ -20,6 +20,7 @@ import { assembleReplyText, captureMessageReply } from './message-reply-context.
 import { sessionLocalServiceTools } from './session-local-service-tools.js';
 import { sessionGoogleWorkspaceTools } from './session-google-workspace-tools.js';
 import { captureTelosProgressConsent } from './telos-progress-consent.js';
+import { decideTelosApproval } from './telos-approval-policy.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import type { CodexToolResult } from './codex-tool-result.js';
@@ -4338,32 +4339,31 @@ async function openCodexChatBound(
                 assertProgressConsent: progressConsent,
                 approve: async (toolName, parsedInput, permissionSignal) => {
                   await owners.context.assertCurrent();
-                  const result = await buildPermissionHandler(context.clientId, options.registry, {
-                    onDemandCreate: options.onDemandCreate,
-                  })(toolName, parsedInput, {
-                    signal: permissionSignal,
-                    toolUseID:
-                      'native:' +
-                      createHash('sha256')
-                        .update(JSON.stringify([context.turnId, context.callId, toolName]))
-                        .digest('hex'),
-                    forcePrompt: true,
-                    allowSessionGrant: !!progressConsent,
-                    ...(progressConsent
-                      ? {
-                          sessionGrantKey: `telos-progress:${progressConsent.grantId}`,
-                          isRetainedSessionGrantCurrent: () => {
-                            progressConsent();
-                            return true;
-                          },
-                        }
-                      : {}),
-                    approvalScope: 'request',
-                    title:
-                      toolName === 'TelosGetItem'
-                        ? 'Read this Telos item?'
-                        : 'Update this exact Telos item?',
-                  });
+                  const result = await decideTelosApproval(
+                    options.session,
+                    toolName,
+                    parsedInput,
+                    (scope) =>
+                      buildPermissionHandler(context.clientId, options.registry, {
+                        onDemandCreate: options.onDemandCreate,
+                      })(toolName, parsedInput, {
+                        signal: permissionSignal,
+                        toolUseID:
+                          'native:' +
+                          createHash('sha256')
+                            .update(JSON.stringify([context.turnId, context.callId, toolName]))
+                            .digest('hex'),
+                        forcePrompt: true,
+                        allowSessionGrant: false,
+                        approvalScope: 'request',
+                        title:
+                          toolName === 'TelosGetItem'
+                            ? 'Read this Telos item?'
+                            : 'Update this exact Telos item?',
+                        ...scope,
+                      }),
+                    { progress: progressConsent },
+                  );
                   owners.context.assertCurrentSync();
                   return result;
                 },
@@ -4427,25 +4427,33 @@ async function openCodexChatBound(
             executeNativeTelosArtifactOperation(
               {
                 ...owners,
-                approve: async (toolName, parsedInput, permissionSignal) => {
+                approve: async (toolName, parsedInput, permissionSignal, consent) => {
                   await owners.context.assertCurrent();
-                  const result = await buildPermissionHandler(context.clientId, options.registry, {
-                    onDemandCreate: options.onDemandCreate,
-                  })(toolName, parsedInput, {
-                    signal: permissionSignal,
-                    toolUseID:
-                      'native:' +
-                      createHash('sha256')
-                        .update(JSON.stringify([context.turnId, context.callId, toolName]))
-                        .digest('hex'),
-                    forcePrompt: true,
-                    allowSessionGrant: false,
-                    approvalScope: 'request',
-                    title:
-                      toolName === 'TelosSaveArtifact'
-                        ? 'Save this document in Telos?'
-                        : 'Read this exact Telos document revision?',
-                  });
+                  const result = await decideTelosApproval(
+                    options.session,
+                    toolName,
+                    parsedInput,
+                    (scope) =>
+                      buildPermissionHandler(context.clientId, options.registry, {
+                        onDemandCreate: options.onDemandCreate,
+                      })(toolName, parsedInput, {
+                        signal: permissionSignal,
+                        toolUseID:
+                          'native:' +
+                          createHash('sha256')
+                            .update(JSON.stringify([context.turnId, context.callId, toolName]))
+                            .digest('hex'),
+                        forcePrompt: true,
+                        allowSessionGrant: false,
+                        approvalScope: 'request',
+                        title:
+                          toolName === 'TelosSaveArtifact'
+                            ? 'Save this document in Telos?'
+                            : 'Read this exact Telos document revision?',
+                        ...scope,
+                      }),
+                    consent,
+                  );
                   owners.context.assertCurrentSync();
                   return result;
                 },

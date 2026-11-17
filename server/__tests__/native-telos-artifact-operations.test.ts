@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { TelosSourceApprovalStore } from '../telos-source-approval-store.js';
 import { createTelosSourceApprovalData } from './fixtures/telos-source-approval-data.js';
 import { executeNativeTelosArtifactOperation } from '../native-telos-artifact-operations.js';
+import { captureTelosSaveConsent } from '../telos-save-consent.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
 
 const cleanup: (() => void)[] = [];
@@ -137,6 +138,75 @@ it('recovers the same exact receipt before a changed/deleted file or another per
   expect(
     a.f.artifacts.list({ itemId: 'studio' }).find((x) => x.filename === 'report.md')?.revision,
   ).toBe(1);
+});
+
+function assignRole(a: ReturnType<typeof setup>, expectedAssignmentRevision = 0) {
+  const { work, actor } = a.f;
+  if (!expectedAssignmentRevision)
+    work.execute(
+      {
+        operation: 'classify',
+        itemId: 'studio',
+        requestId: 'kind',
+        expectedRevision: work.read('studio', actor).revision,
+        kind: 'outcome',
+      },
+      actor,
+    );
+  work.execute(
+    {
+      operation: expectedAssignmentRevision ? 'assign' : 'setup_role',
+      itemId: 'studio',
+      requestId: `lead-${expectedAssignmentRevision}`,
+      expectedRevision: work.read('studio', actor).revision,
+      expectedAssignmentRevision,
+      role: 'lead',
+      conversationId: 'planning',
+    } as never,
+    actor,
+  );
+  Object.assign(a.role, { role: 'lead' });
+}
+
+it('offers an item and assignment scoped save grant only to the assigned role', async () => {
+  const unassigned = setup('TelosSaveArtifact', save());
+  expect((await unassigned.run()).isError).toBe(false);
+  expect(unassigned.approve.mock.calls[0][3]?.save).toBeUndefined();
+
+  const a = setup('TelosSaveArtifact', save());
+  assignRole(a);
+  expect((await a.run()).isError).toBe(false);
+  const consent = a.approve.mock.calls[0][3]!.save!;
+  expect(consent.key).toMatch(/^telos-save:[a-f0-9]{64}$/);
+  expect(() => consent.assertCurrent()).not.toThrow();
+  // Reassignment (a new assignment revision) ends the retained consent.
+  assignRole(a, 1);
+  expect(() => consent.assertCurrent()).toThrow();
+  const renewed = captureTelosSaveConsent(
+    a.f.work,
+    a.role as never,
+    'planning',
+    'studio',
+    a.f.actor,
+  );
+  expect(renewed!.key).not.toBe(consent.key);
+  // Another item never shares the grant.
+  expect(
+    captureTelosSaveConsent(a.f.work, a.role as never, 'planning', 'other', a.f.actor),
+  ).toBeUndefined();
+});
+
+it('revalidates the save grant assignment before the commit', async () => {
+  const a = setup('TelosSaveArtifact', save());
+  assignRole(a);
+  a.approve.mockImplementation(async () => {
+    assignRole(a, 1);
+    return { behavior: 'allow', updatedInput: save() };
+  });
+  expect((await a.run()).isError).toBe(true);
+  expect(a.f.artifacts.list({ itemId: 'studio' }).some((x) => x.filename === 'report.md')).toBe(
+    false,
+  );
 });
 
 it.each(['deny', 'input', 'retired', 'file'] as const)(

@@ -31,6 +31,7 @@ import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { retainedCallbackOutcome } from '../turn-callbacks.js';
 import { telosBacklogFailureCause } from '../telos-backlog-tools.js';
 import { createHash } from 'node:crypto';
+import { SessionCapabilityGrants } from '../session-capability-grants.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<typeof import('@anthropic-ai/claude-agent-sdk')>()),
   query: vi.fn(),
@@ -54,6 +55,8 @@ async function fixture(
   const registry = new SessionRegistry();
   cleanup.push(() => registry.dispose());
   let approved = true;
+  let always = false;
+  const cards: string[] = [];
   let expire = false;
   let beforeApproval = () => {};
   let afterCurrent = () => {};
@@ -68,13 +71,14 @@ async function fixture(
       send(event) {
         if (event.type === 'permission_request' && typeof event.permId === 'string') {
           const permId = event.permId;
+          cards.push(String(event.toolName));
           queueMicrotask(() => {
             beforeApproval();
             const clock = expire
               ? vi.spyOn(Date, 'now').mockReturnValue(Number(event.expiresAt) + 1)
               : undefined;
             try {
-              resolvePending(permId, approved ? 'once' : 'deny');
+              resolvePending(permId, approved ? (always ? 'always' : 'once') : 'deny');
             } finally {
               clock?.mockRestore();
             }
@@ -152,6 +156,10 @@ async function fixture(
     assert,
     revoke,
     outcome: () => outcome,
+    cards,
+    approveForSession: () => {
+      always = true;
+    },
     expireApproval: () => {
       expire = true;
     },
@@ -887,6 +895,96 @@ it.each([false, true])(
   },
 );
 
+it.each(['agent', 'auto'] as const)(
+  'reads assigned Telos work without a card in %s while mutations and Ask keep theirs',
+  async (mode) => {
+    const f = await fixture();
+    assignLead(f);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ ok: true, artifacts: [f.material] }))),
+    );
+    f.session.mode = mode;
+    const read = f.value(await f.call('TelosGetItem', { itemId: 'studio' }));
+    expect(read).toHaveProperty('item');
+    expect((await f.call('TelosFindArtifacts', { itemId: 'studio' })).isError).toBe(false);
+    expect(f.cards).toEqual([]);
+    const update = {
+      itemId: 'studio',
+      requestId: 'carded-progress',
+      expectedRevision: read.item.revision,
+      note: 'Fixture evidence',
+    };
+    expect((await f.call('TelosUpdateItem', update)).isError).toBe(false);
+    expect(f.cards).toEqual(['mcp__telos__TelosUpdateItem']);
+    f.session.mode = 'ask';
+    expect((await f.call('TelosGetItem', { itemId: 'studio' })).isError).toBe(false);
+    expect(f.cards).toEqual(['mcp__telos__TelosUpdateItem', 'mcp__telos__TelosGetItem']);
+    const denied = await f.call('TelosUpdateItem', { ...update, requestId: 'ask-progress' });
+    expect(denied.isError).toBe(true);
+    expect(f.cards).toHaveLength(2);
+  },
+);
+
+it('reuses an operator progress grant for assigned-lead updates, as the Codex route does', async () => {
+  const f = await fixture();
+  assignLead(f);
+  f.session.ownedLocalAuthSessionId = f.actor.id;
+  f.session.accountBinding = f.events.getSession('planning')!.accountBinding!;
+  const grants = new SessionCapabilityGrants(f.registry);
+  const grant = grants.create(f.actor.id, {
+    sessionIds: ['planning'],
+    capability: { kind: 'telos-progress', itemId: 'studio' },
+    durationMinutes: 5,
+  });
+  const progress = async (requestId: string) => {
+    const read = f.value(await f.call('TelosGetItem', { itemId: 'studio' }));
+    return f.call('TelosUpdateItem', {
+      itemId: 'studio',
+      requestId,
+      expectedRevision: read.item.revision,
+      note: `Evidence ${requestId}`,
+    });
+  };
+  expect((await progress('first')).isError).toBe(false);
+  expect((await progress('second')).isError).toBe(false);
+  expect(f.cards).toEqual([]);
+  await grants.revoke(f.actor.id, 'planning', grant.id);
+  expect((await progress('after-revoke')).isError).toBe(false);
+  expect(f.cards).toEqual(['mcp__telos__TelosUpdateItem']);
+});
+
+it('grants further saves to the assigned item after one card, until the role is reassigned', async () => {
+  const f = await fixture();
+  assignLead(f);
+  f.approveForSession();
+  const save = (requestId: string) =>
+    f.call('TelosSaveArtifact', {
+      itemId: 'studio',
+      requestId,
+      filename: `${requestId}.md`,
+      title: `Draft ${requestId}`,
+      content: `Exact bytes ${requestId}`,
+    });
+  expect((await save('first')).isError).toBe(false);
+  expect((await save('second')).isError).toBe(false);
+  expect(f.cards).toEqual(['mcp__telos__TelosSaveArtifact']);
+  f.work.execute(
+    {
+      operation: 'assign',
+      itemId: 'studio',
+      requestId: 'reassigned-lead',
+      expectedRevision: f.work.read('studio', f.actor).revision,
+      expectedAssignmentRevision: 1,
+      role: 'lead',
+      conversationId: 'planning',
+    },
+    f.actor,
+  );
+  expect((await save('third')).isError).toBe(false);
+  expect(f.cards).toEqual(['mcp__telos__TelosSaveArtifact', 'mcp__telos__TelosSaveArtifact']);
+});
+
 it('saves through the guarded canonical owner and finds/reads through the existing HTTP handler', async () => {
   const f = await fixture();
   const app = express();
@@ -936,6 +1034,8 @@ it('saves through the guarded canonical owner and finds/reads through the existi
   expect(found.artifacts.some((a: { id: string }) => a.id === saved.artifact.id)).toBe(true);
   const read = f.value(await f.call('TelosReadArtifact', { id: saved.artifact.id, revision: 1 }));
   expect(read.artifact.content).toBe(input.content);
+  // Only the save carded; Agent-mode find and read rely on their owners' checks.
+  expect(f.cards).toEqual(['mcp__telos__TelosSaveArtifact']);
   expect(readFile).not.toHaveBeenCalled();
   retireRead = true;
   const revoked = await f.call('TelosReadArtifact', { id: saved.artifact.id, revision: 1 });
