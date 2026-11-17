@@ -1,6 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { SessionLaunchConfig, SymposiumProfileDefinition } from '@mitzo/protocol';
-import { createSessionLaunchPort, prepareTelosSessionSettings } from '../session-launch-runtime.js';
+import {
+  createSessionLaunchPort,
+  prepareTelosSessionSettings,
+  SESSION_LAUNCH_CODEX_ONLY,
+  sessionLaunchStartupBlocker,
+} from '../session-launch-runtime.js';
 import type { RetainedSessionLaunch } from '../session-launch-store.js';
 const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
@@ -235,6 +240,25 @@ it.each(['openshell', 'claude'] as const)(
     expect(mocks.prepareSession).not.toHaveBeenCalled();
   },
 );
+it('surfaces the Codex-only limit at proposal for a non-Codex account', async () => {
+  expect(sessionLaunchStartupBlocker(configuration)).toBeNull();
+  const claude = structuredClone(configuration);
+  claude.runtime.accountReference = {
+    accountId: 'claude',
+    provider: 'anthropic-claude',
+    profileRevision: 'v1',
+  } as never;
+  expect(sessionLaunchStartupBlocker(claude)).toBe(SESSION_LAUNCH_CODEX_ONLY);
+  mocks.binding = { ...mocks.binding, provider: 'anthropic-claude' as never };
+  try {
+    await expect(prepareTelosSessionSettings(configuration, authority)).rejects.toThrow(
+      SESSION_LAUNCH_CODEX_ONLY,
+    );
+  } finally {
+    mocks.binding = { ...mocks.binding, provider: 'openai-codex' };
+  }
+  expect(mocks.prepare).not.toHaveBeenCalled();
+});
 it('starts with the coordinator tools exposed by the selected default profile', async () => {
   const selected = {
     ...record,
