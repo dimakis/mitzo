@@ -2006,7 +2006,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/symposium-application-review-recovery.test.tsx':
     '25489f287500e19ebaa054e00011fc030cba261820f65028e3f9a38e3b584985',
   '../../tests/integration/telos-s5b/native-role-composition.contract.ts':
-    '3463fc1cc1396866ca3e0c71176e12384dc4c8c552f25f367b6df416fcf19af3',
+    'dabb2c45d09c708ea4c2b1ea5fca08231ecad2b3101927dcdf824a7416338bd1',
   '../../tests/integration/telos-s5b/vitest.native-role-composition.config.ts':
     'c374e77ec8ab38eae6f3c1942f2afa350bc50c994660bc13516d98dfcaf9c830',
   '../../tests/integration/telos-s9/coherent-final-preparation/CONTRACTS.json':
@@ -2124,11 +2124,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-callbacks.test.ts':
     '63242462b5b95d64947a7dc8ed542a7ecf7b35f1486f8ad34397fd96556cb81b',
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-non-git.contract.ts':
-    'e22686272420bc2a23fddd885729d9de90bb31c654eca8308e4a94815737c3ad',
+    '37b1c98b68a38c6808f46f5f150980bfc1f34abe7abee491d1b0c115419211d7',
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-repository.contract.ts':
-    '9823ce47db7c2d50e719901f7ce205c64549d24e5a0cf9e1993c47ce7f2a2646',
+    '01b4e3e0a04bfbf745c651fc305e7bebe45367aea4504a5684c723b89de90e74',
   '../../tests/integration/telos-s9/integrated-candidate/native-complete-support.ts':
-    '969a4600241a54428ef8a0d7da262f6ca4c0b1bb2b011cb25c4cc39ebc997d69',
+    '46c18bc2f0505611c10fbddefc9b9929fd24b2427b3f95daf155b1903107f2ca',
   '../../tests/integration/telos-s9/integrated-candidate/navigated-control-inbox.test.ts':
     'e090588097a3a84efab09124b0db98cac0347c665aeded61e1f3bff094c1a698',
   '../../tests/integration/telos-s9/integrated-candidate/navigated-control-inbox.ts':
@@ -3537,7 +3537,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-collection.test.ts':
     '9dc01915218ff65320bf027783cdc04fdbc3899f464928ce4f5a59b238583e81',
   '../__tests__/telos-coordinator-v2-native-journey.test.ts':
-    '5c0f54abcf7391159298d720b591d847d480345f4ccf36b7112c9f83f97724d5',
+    '44475389b3164c2f791dbbb33f5608ba7cbe17c6a872f6ae145a19e4985d376c',
   '../__tests__/telos-create-child.test.ts':
     '410806b35335d8800470e16fcc5d235cd9f50881f9baad7d43b31771828a06eb',
   '../__tests__/telos-crud-routes.test.ts':
