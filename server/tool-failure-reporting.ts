@@ -24,6 +24,24 @@ export function qualifyToolResult<T extends CodexToolResult>(
   return result;
 }
 
+/** Class names and errno codes only: messages may carry paths or upstream payloads. */
+function causeChain(error: unknown): Array<{ name: string; code?: string }> {
+  const chain: Array<{ name: string; code?: string }> = [];
+  for (let current = error, depth = 0; current !== undefined && depth < 4; depth++) {
+    if (!(current instanceof Error)) {
+      chain.push({ name: typeof current });
+      break;
+    }
+    const code = (current as NodeJS.ErrnoException).code;
+    chain.push({
+      name: current.name,
+      ...(typeof code === 'string' && /^[A-Za-z_]{1,64}$/.test(code) ? { code } : {}),
+    });
+    current = current.cause;
+  }
+  return chain;
+}
+
 /** Exceptions become model-visible failures, with fixed diagnostics rather than
  * upstream payloads. Reporting does not authorize retries or settle unknown work. */
 export function reportToolFailure(
@@ -39,6 +57,7 @@ export function reportToolFailure(
     diagnosticId: detail.diagnosticId,
     code: detail.error,
     diagnostic: detail.diagnostic,
+    causes: causeChain(error),
   });
   return retainCallbackOutcome(
     result,

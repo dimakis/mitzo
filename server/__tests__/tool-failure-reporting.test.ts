@@ -1,4 +1,14 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+
+const logged = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock('../logger.js', () => ({
+  createLogger: () => ({
+    warn: (_message: string, fields: Record<string, unknown>) => logged.push(fields),
+    info: () => {},
+    debug: () => {},
+    error: () => {},
+  }),
+}));
 import { isIntrinsicRecoveryRead } from '../builtin-tool-behavior.js';
 import { qualifyToolResult, reportToolFailure } from '../tool-failure-reporting.js';
 import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
@@ -62,4 +72,19 @@ it('reports safe reasons without serializing the upstream payload or granting re
   });
   expect(result.content).not.toContain('private');
   expect(callbackOutcome(result)).toBe('unknown');
+});
+
+it('logs the cause chain by class and errno only, so unknown failures stay diagnosable', () => {
+  logged.length = 0;
+  const cause = Object.assign(Error('/Users/private/repo denied'), { code: 'EPERM' });
+  reportToolFailure(Error('Local repository native reads unavailable', { cause }), {
+    sessionId: 'session',
+    tool: 'DiscoverLocalRepository',
+    signal: new AbortController().signal,
+  });
+  expect(logged.at(-1)).toMatchObject({
+    tool: 'DiscoverLocalRepository',
+    causes: [{ name: 'Error' }, { name: 'Error', code: 'EPERM' }],
+  });
+  expect(JSON.stringify(logged.at(-1))).not.toContain('/Users/private');
 });

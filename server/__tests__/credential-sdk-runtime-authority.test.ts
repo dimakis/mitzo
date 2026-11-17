@@ -575,6 +575,7 @@ it('retains runtime-only project credentials and custom endpoint behavior while 
     ...env,
     GIT_TEMPLATE_DIR: expect.any(String),
     TMPDIR: expect.any(String),
+    CLAUDE_CODE_TMPDIR: expect.any(String),
     XDG_CACHE_HOME: expect.any(String),
     npm_config_cache: expect.any(String),
     PIP_CACHE_DIR: expect.any(String),
@@ -588,6 +589,7 @@ it('retains runtime-only project credentials and custom endpoint behavior while 
   expect(credentialPayload.env).toEqual({
     GIT_TEMPLATE_DIR: expect.any(String),
     TMPDIR: expect.any(String),
+    CLAUDE_CODE_TMPDIR: expect.any(String),
     XDG_CACHE_HOME: expect.any(String),
     npm_config_cache: expect.any(String),
     PIP_CACHE_DIR: expect.any(String),

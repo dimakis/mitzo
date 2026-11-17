@@ -54,6 +54,7 @@ import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { useDraft, type DraftSessionAssignment } from '../hooks/useDraft';
 import { useQueuedMessages } from '../hooks/useQueuedMessages';
+import { useEnterSteers } from '../hooks/useEnterSteers';
 import {
   type ChatDraft,
   chatDraftStorageKey,
@@ -377,6 +378,7 @@ function ChatInputContent({
     removeSubmitted,
     remove: removeQueued,
   } = useQueuedMessages(sessionId, 32, assignment);
+  const [enterSteers] = useEnterSteers();
   useEffect(() => ensureDispatchIds(), [sessionId, queuedMessages, ensureDispatchIds]);
   useEffect(() => {
     for (const row of queuedMessages) {
@@ -1143,7 +1145,10 @@ function ChatInputContent({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (running && guardedConversation) handleQueue();
+      // Guarded turns queue on Enter unless the device opted into Enter-to-steer;
+      // then Cmd/Ctrl+Enter queues, and Enter still queues when steering is refused.
+      const steer = enterSteers && steerOnEnter && !e.metaKey && !e.ctrlKey;
+      if (running && guardedConversation && !steer) handleQueue();
       else if (running && onInterrupt) handleInterrupt();
       else handleSend();
     }
@@ -1468,6 +1473,12 @@ function ChatInputContent({
     (interruptLabel === 'Steer current turn' && activeContextBlocks.length
       ? 'Queue context changes as a new message. Corrections keep the active turn’s context.'
       : undefined);
+  const steerOnEnter =
+    interruptLabel === 'Steer current turn' &&
+    !!onInterrupt &&
+    !correctionReason &&
+    (!boundedFirstCommand || targetedSteering) &&
+    (targetedSteering || !sendDisabledReason);
 
   function handleInterrupt() {
     if (importPending.current?.scope === composerScope) return;

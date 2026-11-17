@@ -10,6 +10,7 @@ import { observeOrdinarySdkProcessClose } from './ordinary-local-vertex-sdk-proc
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import type { ProtectedSdkProcess } from './credential-sdk-boundary.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
+import { withUncertainOutcomeNotice } from './turn-callbacks.js';
 import { SdkQueryUsage } from './sdk-query-usage.js';
 import { sdkQueryRetiredEvent } from './sdk-query-retirement.js';
 import { createLogger } from './logger.js';
@@ -169,7 +170,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
           terminal = true;
           terminalFailed = event.is_error === true;
           idle = true;
-          yield usage.include(event);
+          yield withUncertainOutcomeNotice(usage.include(event), current.state.callbacks);
           break;
         }
         if (closed) break;

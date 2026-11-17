@@ -323,7 +323,8 @@ it.each(['cancelled', 'retired', 'uncertain'] as const)(
         : Error('SECRET_UPSTREAM');
     });
     expect((await f.read()).isError).toBe(true);
-    await expect(f.callbacks.settle(new AbortController().signal)).rejects.toThrow();
+    await expect(f.callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
+    expect(f.callbacks.uncertainOutcomes).toBe(1);
   },
 );
 it.each(['cancelled', 'retired', 'uncertain'] as const)(
@@ -344,7 +345,8 @@ it.each(['cancelled', 'retired', 'uncertain'] as const)(
       });
     expect((await f.read()).isError).toBe(true);
     expect(f.google.readRequest).not.toHaveBeenCalled();
-    await expect(f.callbacks.settle(new AbortController().signal)).rejects.toThrow();
+    await expect(f.callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
+    expect(f.callbacks.uncertainOutcomes).toBe(1);
   },
 );
 it('uses the existing web handler for explicitly selected SDK web profiles', () => {
