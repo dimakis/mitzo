@@ -27,10 +27,6 @@ const output = build({
 async function correct(page: Page) {
   await page.getByRole('button', { name: 'Steer current turn' }).click();
 }
-// Enter steers a running turn when steering is available; queueing is explicit.
-async function queueDraft(page: Page) {
-  await page.getByRole('button', { name: 'Queue message', exact: true }).click();
-}
 for (const theme of ['dark', 'light'])
   test(`queue and steer remain distinct with an icon-only composer (${theme})`, async ({
     page,
@@ -85,7 +81,7 @@ for (const theme of ['dark', 'light'])
       .click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Reply', exact: true }).click();
     await input.fill('Please also check the previous quarter.');
-    await queueDraft(page);
+    await input.press('Enter');
     await expect(input).toHaveValue('');
     await reviewQueue(page);
     const inlineQueue = page.getByRole('region', { name: 'Up next' });
@@ -214,7 +210,7 @@ for (const theme of ['dark', 'light'])
     expect(stopped).toHaveLength(0);
     expect(queued).toHaveLength(0);
     await input.fill('Check dates next.');
-    await queueDraft(page);
+    await input.press('Enter');
     await expect(input).toHaveValue('');
     status = 'stale_target';
     await input.fill('A later correction');
@@ -227,7 +223,7 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByRole('alert')).toContainText('delivery not confirmed');
     await expect(input).toHaveValue('An unconfirmed correction');
     await input.fill('A separate queued task');
-    await queueDraft(page);
+    await input.press('Enter');
     await expect(input).toHaveValue('');
     expect(queued).toHaveLength(0);
     await reviewQueue(page);

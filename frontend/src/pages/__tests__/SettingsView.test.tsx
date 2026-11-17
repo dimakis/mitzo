@@ -88,3 +88,18 @@ it('owns the Today context switch under Appearance and persists the device choic
   fireEvent.click(checkbox);
   expect(localStorage.getItem('mitzo-today-tokens')).toBe('false');
 });
+
+it('keeps Enter queueing by default and saves the Enter-to-steer choice on this device', () => {
+  localStorage.clear();
+  render(
+    <MemoryRouter>
+      <SettingsView />
+    </MemoryRouter>,
+  );
+  const toggle = screen.getByRole('checkbox', { name: 'Enter steers a running turn' });
+  expect((toggle as HTMLInputElement).checked).toBe(false);
+  expect(screen.getByText(/Enter queues your message/)).toBeDefined();
+  fireEvent.click(toggle);
+  expect(localStorage.getItem('mitzo-enter-steers')).toBe('true');
+  expect(screen.getByText(/Ctrl\+Enter queues instead/)).toBeDefined();
+});

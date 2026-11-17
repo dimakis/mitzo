@@ -7,11 +7,14 @@ import { ACCENTS, FONTS, useAppearance } from '../hooks/useAppearance';
 import { HomeDisplaySettings } from '../components/HomeDisplaySettings';
 import { MinionNameSettings } from '../components/MinionNameSettings';
 import { useMitzoUpdates } from '../hooks/useMitzoUpdates';
+import { useEnterSteers } from '../hooks/useEnterSteers';
+import { layoutStorageNotice } from '../hooks/useLayoutPreference';
 export function SettingsView() {
   const { preference, setTheme } = useTheme();
   const appearance = useAppearance();
   const sessionDisplay = useSessionDisplay();
   const updates = useMitzoUpdates();
+  const [enterSteers, setEnterSteers, enterSteersUnsaved] = useEnterSteers();
   return (
     <main className="workspace-page settings-page">
       <WorkspacePageHeading title="Settings" description="Your preferences and data protection." />
@@ -32,6 +35,24 @@ export function SettingsView() {
           </span>
           <UiIcon name="forward" size={16} />
         </Link>
+      </section>
+      <section className="today-section">
+        <h2>Chat</h2>
+        <label className="workspace-setting">
+          <span>Enter steers a running turn</span>
+          <input
+            type="checkbox"
+            checked={enterSteers}
+            onChange={(event) => setEnterSteers(event.target.checked)}
+          />
+        </label>
+        <p className="workspace-muted">
+          {enterSteers
+            ? 'Enter steers the running turn when steering is available. ⌘/Ctrl+Enter queues instead.'
+            : 'Enter queues your message for after the running turn. Steer with the lightning button.'}{' '}
+          Saved on this device.
+        </p>
+        {enterSteersUnsaved && <p role="status">{layoutStorageNotice}</p>}
       </section>
       <HomeDisplaySettings />
       <MinionNameSettings />

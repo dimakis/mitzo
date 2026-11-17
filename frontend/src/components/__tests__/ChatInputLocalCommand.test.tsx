@@ -184,7 +184,7 @@ it('keeps guarded queued drafts unsent, retains their reply and drains one after
   expect(send.mock.calls[0][6]).toEqual(reply);
 });
 
-it('steers the running turn on Enter when native steering is available', () => {
+it('queues Enter during a guarded running turn and leaves steering as an explicit action', async () => {
   const onSend = vi.fn(() => true),
     onInterrupt = vi.fn();
   render(
@@ -193,30 +193,6 @@ it('steers the running turn on Enter when native steering is available', () => {
       onStop={() => {}}
       onInterrupt={onInterrupt}
       interruptLabel="Steer current turn"
-      guardedConversation
-      running
-      sessionId="steer-enter"
-    />,
-  );
-  const input = screen.getByRole('textbox');
-  fireEvent.change(input, { target: { value: 'Change direction' } });
-  fireEvent.keyDown(input, { key: 'Enter' });
-  expect(onInterrupt).toHaveBeenCalledOnce();
-  expect(onInterrupt.mock.calls[0][0]).toBe('Change direction');
-  expect(onSend).not.toHaveBeenCalled();
-  expect(localStorage.getItem('mitzo-queue-steer-enter')).toBeNull();
-});
-
-it('queues Enter during a guarded running turn when steering is unavailable', async () => {
-  const onSend = vi.fn(() => true),
-    onInterrupt = vi.fn();
-  render(
-    <ChatInput
-      onSend={onSend}
-      onStop={() => {}}
-      onInterrupt={onInterrupt}
-      interruptLabel="Steer current turn"
-      interruptDisabledReason="The running turn is not confirmed yet"
       guardedConversation
       running
       sessionId="queue-enter"
@@ -224,10 +200,62 @@ it('queues Enter during a guarded running turn when steering is unavailable', as
   );
   const input = screen.getByRole('textbox');
   fireEvent.change(input, { target: { value: 'Next task' } });
+  expect(screen.getByRole('button', { name: 'Steer current turn' })).toBeDefined();
   fireEvent.keyDown(input, { key: 'Enter' });
   await waitFor(() => expect(input).toHaveValue(''));
   expect(onSend).not.toHaveBeenCalled();
   expect(onInterrupt).not.toHaveBeenCalled();
+});
+
+function renderGuardedTurn(sessionId: string, interruptDisabledReason?: string) {
+  localStorage.setItem('mitzo-enter-steers', 'true');
+  const onSend = vi.fn(() => true),
+    onInterrupt = vi.fn();
+  render(
+    <ChatInput
+      onSend={onSend}
+      onStop={() => {}}
+      onInterrupt={onInterrupt}
+      interruptLabel="Steer current turn"
+      interruptDisabledReason={interruptDisabledReason}
+      guardedConversation
+      running
+      sessionId={sessionId}
+    />,
+  );
+  const input = screen.getByRole('textbox');
+  fireEvent.change(input, { target: { value: 'Change direction' } });
+  return { input, onSend, onInterrupt };
+}
+
+it('steers on Enter when the device opted into Enter-to-steer', () => {
+  const { input, onSend, onInterrupt } = renderGuardedTurn('steer-enter');
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(onInterrupt).toHaveBeenCalledOnce();
+  expect(onInterrupt.mock.calls[0][0]).toBe('Change direction');
+  expect(onSend).not.toHaveBeenCalled();
+});
+
+it.each([{ metaKey: true }, { ctrlKey: true }])(
+  'queues on %o + Enter when Enter steers',
+  async (modifier) => {
+    const { input, onSend, onInterrupt } = renderGuardedTurn('steer-enter-queue');
+    fireEvent.keyDown(input, { key: 'Enter', ...modifier });
+    await waitFor(() => expect(input).toHaveValue(''));
+    expect(onInterrupt).not.toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+  },
+);
+
+it('still queues Enter when steering is unavailable even if Enter steers', async () => {
+  const { input, onSend, onInterrupt } = renderGuardedTurn(
+    'steer-enter-unavailable',
+    'The running turn is not confirmed yet',
+  );
+  fireEvent.keyDown(input, { key: 'Enter' });
+  await waitFor(() => expect(input).toHaveValue(''));
+  expect(onInterrupt).not.toHaveBeenCalled();
+  expect(onSend).not.toHaveBeenCalled();
 });
 
 it('allows a distinct queued draft after uncertain steering without resending the correction', async () => {

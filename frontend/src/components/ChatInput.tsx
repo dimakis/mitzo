@@ -54,6 +54,7 @@ import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { useDraft, type DraftSessionAssignment } from '../hooks/useDraft';
 import { useQueuedMessages } from '../hooks/useQueuedMessages';
+import { useEnterSteers } from '../hooks/useEnterSteers';
 import {
   type ChatDraft,
   chatDraftStorageKey,
@@ -377,6 +378,7 @@ function ChatInputContent({
     removeSubmitted,
     remove: removeQueued,
   } = useQueuedMessages(sessionId, 32, assignment);
+  const [enterSteers] = useEnterSteers();
   useEffect(() => ensureDispatchIds(), [sessionId, queuedMessages, ensureDispatchIds]);
   useEffect(() => {
     for (const row of queuedMessages) {
@@ -1143,9 +1145,10 @@ function ChatInputContent({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      // Native steering takes Enter whenever its own button would accept it;
-      // otherwise a guarded turn keeps the message queued for after completion.
-      if (running && guardedConversation && !steerOnEnter) handleQueue();
+      // Guarded turns queue on Enter unless the device opted into Enter-to-steer;
+      // then Cmd/Ctrl+Enter queues, and Enter still queues when steering is refused.
+      const steer = enterSteers && steerOnEnter && !e.metaKey && !e.ctrlKey;
+      if (running && guardedConversation && !steer) handleQueue();
       else if (running && onInterrupt) handleInterrupt();
       else handleSend();
     }
