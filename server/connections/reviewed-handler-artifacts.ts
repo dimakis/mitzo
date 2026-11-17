@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1245-sdk-command-authority';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1246-chat-status-freshness';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/offline/chat-status-freshness.spec.ts':
+    '7a5572da530b785993e34d4d3ac2dd7903277006f865d588d98d6165869acf3a',
   '../__tests__/sdk-repository-base.test.ts':
     '8e9924196da2a387446da3a44ebc6c45d7d24e94fb72765ed77aca71706d5067',
   '../sdk-repository-base.ts': '31dead013b75c84f332dbecff869ac26890dc6f3ed66da4f5f221261741f6748',
@@ -476,7 +478,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ComposerStatus.css':
     'bcb403d769ebe0f23e20b713d50dfd00bc6ba2ea29ba67b82db8749510a96995',
   '../../frontend/src/components/ComposerStatus.tsx':
-    '7a97b4eeffbc5d7ee7af716a95d74b81980e1fa20c6c14953eb3d78bdea0db1d',
+    'da4fc2df254abdfbe88dad54b44e302927425fd1dece845b9cea7672fd780d3f',
   '../../frontend/src/components/ComposerTools.tsx':
     '4d12ffa29195b6f3b60277e5e76e87120ec18da8bed6080b49a4813c052a2e6d',
   '../../frontend/src/components/ConnectionSetupCard.tsx':
@@ -748,7 +750,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/CollaborationTranscript.test.tsx':
     'f66a5bd974fe57b98c18ab447107681e2e5f76b8bed51c6d024dac00bd0e7e60',
   '../../frontend/src/components/__tests__/ComposerActivity.lifecycle.test.tsx':
-    '2503ac79d17fd29f8adf5e13b81381df532425285f9661935035a1009820e9b9',
+    '78f1471cb6b2a0770636b1d9379665daa2bb3267e027c41373c8b44519e9cabf',
   '../../frontend/src/components/__tests__/ComposerActivity.test.tsx':
     '14250f63ee593371674d6569d62eede154c997fb1f131b54ee6953246b2fb3f2',
   '../../frontend/src/components/__tests__/ComposerResponders.test.tsx':
@@ -1980,7 +1982,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/session-launch.tsx':
     '1ea202b9699db810cbeec0d85508b7b3ca7beec3920fad2f3240141858b530c1',
   '../../tests/fixtures/session-library.tsx':
-    'c87b55941ffe91d0c4ddc20a0532f37763f3f0e3d439050dc4e03987a66c2093',
+    '99dd87f3a513d7ad724369dcd61b997fc92c94ed5e56d9e96f3b03eb0ec8926a',
   '../../tests/fixtures/session-timers.tsx':
     'a402981a71637d97cbdb786c24011b236c5183ad9f6ffd44363ae188009cb415',
   '../../tests/fixtures/symposium-composer.tsx':
