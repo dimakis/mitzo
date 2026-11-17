@@ -77,7 +77,7 @@ it('requires exact real-stdin acknowledgement and retries only the original rece
   const f = fixture();
   expect(await f.runtime.steer(f.input, f.authorize)).toEqual({ status: 'uncertain' });
   const message = f.submitted();
-  expect(message).toMatchObject({ priority: 'now', message: { content: f.input.text } });
+  expect(message).toMatchObject({ priority: 'next', message: { content: f.input.text } });
   expect(f.runtime.observe({ ...message })).toBe(true);
   expect(await f.runtime.steer(f.input, f.authorize)).toEqual({ status: 'uncertain' });
   expect(f.runtime.beforeInput(message, true)).toBe(true);

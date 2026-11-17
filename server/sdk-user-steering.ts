@@ -15,8 +15,15 @@ type Pending = {
   attempted: boolean;
   rejected?: boolean;
   query?: object;
+  /** This input already kept one terminal result open for its follow-up turn. */
+  heldTurn?: boolean;
   waiters: Set<(status: Outcome) => void>;
 };
+/** Claude Code aborts the running turn for a `now` input. A `next` input folds
+ * into the running turn at its next model request, or runs as an immediate
+ * follow-up turn when it arrives during the final request. Verified live against
+ * the bundled CLI on 17 November 2026 (claude-haiku-5-5). */
+export const SDK_STEER_PRIORITY = 'next' as const;
 function sameContent(actual: unknown, expected: unknown) {
   const text = (value: unknown) =>
     typeof value === 'string'
@@ -91,7 +98,7 @@ export class SdkUserSteering {
       type: 'user',
       uuid: retained.uuid as SDKUserMessage['uuid'],
       parent_tool_use_id: null,
-      priority: 'now',
+      priority: SDK_STEER_PRIORITY,
       message: { role: 'user', content: retained.content as SDKUserMessage['message']['content'] },
     };
     this.inputs.set(message, pending);
@@ -193,7 +200,40 @@ export class SdkUserSteering {
     events.userSteering.transition(sessionId, operator, pending.input, 'submitted');
     pending.attempted = true;
     pending.query = query;
+    log.info('SDK correction released to provider stdin', {
+      code: 'sdk_correction_submitted',
+      stage: 'stdin',
+      sessionId,
+      requestId: pending.input.requestId,
+      targetCommandId: pending.input.targetCommandId,
+    });
     return true;
+  }
+  /** A correction released to stdin during the final model request is echoed by
+   * the follow-up turn that the CLI starts right after this result. Claim that
+   * result once so the same command can own the follow-up turn. */
+  holdTurnForLateEcho(query: object): string | undefined {
+    const target = this.owner.ordinaryCommandId
+      ? this.owner.ordinaryCommandId()
+      : this.owner.activeCommandId();
+    for (const pending of this.pending.values()) {
+      if (
+        pending.attempted &&
+        !pending.heldTurn &&
+        pending.query === query &&
+        pending.input.targetCommandId === target
+      ) {
+        pending.heldTurn = true;
+        return pending.input.requestId;
+      }
+    }
+    return undefined;
+  }
+  /** True while a held correction still awaits its provider echo. */
+  awaitingLateEcho(query: object): boolean {
+    for (const pending of this.pending.values())
+      if (pending.heldTurn && pending.attempted && pending.query === query) return true;
+    return false;
   }
   observe(
     event: Readonly<Record<string, unknown>>,
@@ -263,6 +303,13 @@ export class SdkUserSteering {
       return true;
     }
     events.userSteering.transition(sessionId, operator, retained.input, 'accepted');
+    log.info('SDK correction acknowledged by provider', {
+      code: 'sdk_correction_accepted',
+      stage: 'provider_ack',
+      sessionId,
+      requestId: retained.input.requestId,
+      followUpTurn: pending.heldTurn === true,
+    });
     for (const finish of pending.waiters) finish('accepted');
     this.pending.delete(event.uuid);
     return true;

@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { SessionRegistry } from '@mitzo/harness';
@@ -20,10 +20,18 @@ import * as nativeHistory from '../ordinary-local-vertex-native-history.js';
 import express from 'express';
 import request from 'supertest';
 import { createCodexQueueRouter } from '../codex-queue-routes.js';
+import { lateSteerHold } from '../sdk-late-steer-hold.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
 
 const cleanup: Array<() => void> = [];
+const defaultEchoTimeout = lateSteerHold.echoTimeoutMs;
+beforeEach(() => {
+  // A result with an un-echoed steer is held for the CLI's follow-up turn.
+  // Keep that bound short so tests of the no-follow-up path stay fast.
+  lateSteerHold.echoTimeoutMs = 50;
+});
 afterEach(() => {
+  lateSteerHold.echoTimeoutMs = defaultEchoTimeout;
   for (const close of cleanup.splice(0).reverse()) close();
 });
 
@@ -434,7 +442,7 @@ it('consumes a user correction ACK before the ordinary owner and releases its su
   };
   expect(await f.runtime.steerUser(correction, f.assertCurrent)).toEqual({ status: 'uncertain' });
   const input = (await f.inputs.next()).value!;
-  expect(input).toMatchObject({ priority: 'now', message: { content: correction.text } });
+  expect(input).toMatchObject({ priority: 'next', message: { content: correction.text } });
   f.stream.push({ type: 'user', session_id: 'worker', uuid: input.uuid, message: input.message });
   f.stream.push({
     type: 'assistant',
@@ -451,6 +459,40 @@ it('consumes a user correction ACK before the ordinary owner and releases its su
   f.stream.push({ type: 'result', session_id: 'worker', uuid: 'original-result', is_error: false });
   await vi.waitFor(() => expect(f.resultIds).toEqual([originalInputId]));
   expect(await f.settlements[0]).toBe('completed');
+  expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original', 'successor']);
+  expect(f.abort).not.toHaveBeenCalled();
+  await f.finish();
+});
+
+it('runs a late correction as a follow-up turn of the same command when the CLI echoes it after the result', async () => {
+  const f = await composedFixture();
+  lateSteerHold.echoTimeoutMs = 10_000;
+  const correction = {
+    requestId: randomUUID(),
+    targetCommandId: 'original',
+    text: 'Also mention the follow-up in your reply.',
+  };
+  await f.runtime.steerUser(correction, f.assertCurrent);
+  const input = (await f.inputs.next()).value!;
+  // The final model request was already in flight: the CLI ends that turn first.
+  f.stream.push({ type: 'result', session_id: 'worker', uuid: 'first-result', is_error: false });
+  f.stream.push({ type: 'system', subtype: 'init', session_id: 'worker' });
+  f.stream.push({ type: 'user', session_id: 'worker', uuid: input.uuid, message: input.message });
+  f.stream.push({
+    type: 'assistant',
+    session_id: 'worker',
+    message: { id: 'follow-up-assistant', content: [] },
+  });
+  await vi.waitFor(() => expect(f.afterAssistant).toHaveBeenCalledOnce());
+  expect(await f.runtime.steerUser(correction, f.assertCurrent)).toEqual({ status: 'accepted' });
+  // The held result never completed the command, so its tools stayed live.
+  expect(f.resultIds).toEqual([]);
+  expect(f.state().completing).toBe(false);
+  expect(f.commands.activeCommandId()).toBe('original');
+  f.stream.push({ type: 'result', session_id: 'worker', uuid: 'final-result', is_error: false });
+  await vi.waitFor(() => expect(f.resultIds).toEqual([originalInputId]));
+  expect(await f.settlements[0]).toBe('completed');
+  expect(f.observedInputs.mock.calls).toEqual([[originalInputId]]);
   expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original', 'successor']);
   expect(f.abort).not.toHaveBeenCalled();
   await f.finish();
@@ -615,14 +657,14 @@ it('keeps the original command unsettled and never replays it when recipient aut
   expect(f.push).toHaveBeenCalledOnce();
   expect(f.abort).toHaveBeenCalledOnce();
 });
-it('uses priority-now stdin input, and accepts only its exact replay ACK without consuming the original command input or result', async () => {
+it('uses priority-next stdin input (now would abort the running turn), and accepts only its exact replay ACK without consuming the original command input or result', async () => {
   const f = fixture();
   const runtime = f.create();
   expect(await runtime.steer(f.message, () => {}, new AbortController().signal)).toBe('uncertain');
   const input = f.push.mock.calls[0][0];
   expect(input).toMatchObject({
     uuid: f.message.messageId,
-    priority: 'now',
+    priority: 'next',
     message: { content: agentMessagePrompt(f.message) },
   });
   expect(runtime.beforeInput(input)).toBe(true);

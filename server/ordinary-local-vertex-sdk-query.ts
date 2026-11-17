@@ -28,6 +28,7 @@ import {
   runtimeFailureDiagnostics,
 } from './runtime-failure-diagnostics.js';
 import { sdkQueryRetiredEvent } from './sdk-query-retirement.js';
+import { holdResultForLateSteer } from './sdk-late-steer-hold.js';
 import { sdkPersistenceDiagnostic } from './sdk-persistence-diagnostics.js';
 import { createSdkRepositoryCallbacks } from './sdk-repository-callback.js';
 const log = createLogger('owned-sdk-query');
@@ -116,6 +117,27 @@ export function createSdkCallbackState(): SdkCallbackState {
   };
   return state;
 }
+/** A completed query's process can still start a turn on its own: a background
+ * task notification, or a steer that missed its turn. The hook refuses it, which
+ * the CLI records only in its native transcript. Report it with the input kind
+ * (never the prompt text) so a lost wakeup is visible in the server log. */
+function reportRetiredQueryPrompt(data: { hook_event_name?: unknown }, state: SdkCallbackState) {
+  if (data.hook_event_name !== 'UserPromptSubmit') return;
+  const prompt = (data as { prompt?: unknown }).prompt;
+  const kind =
+    typeof prompt !== 'string'
+      ? 'unknown'
+      : prompt.trimStart().startsWith('<task-notification>')
+        ? 'task_notification'
+        : 'prompt';
+  log.warn('Retired SDK query refused a turn the CLI started', {
+    code: 'sdk_retired_query_prompt_refused',
+    stage: 'user_prompt_submit',
+    commandId: state.commandId(),
+    inputKind: kind,
+  });
+}
+
 /** The same effect/settlement boundary for owned and continuous SDK histories. */
 export function sdkCallbackOptions(
   options: Options,
@@ -138,7 +160,10 @@ export function sdkCallbackOptions(
                 continue: false,
                 stopReason: 'This completed SDK query has been retired.',
               });
-              if (state.retired || state.completing) return refusal();
+              if (state.retired || state.completing) {
+                reportRetiredQueryPrompt(data, state);
+                return refusal();
+              }
               return state.runCallback(async () => {
                 try {
                   const allowed = () =>
@@ -276,7 +301,9 @@ export function createOrdinaryLocalVertexSdkQuery<
   onUnsent(message: SDKUserMessage, error: SessionRuntimeError): void;
   peerMessages?():
     | (Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> &
-        Partial<Pick<SdkAgentMessageRuntime, 'cancelInput'>>)
+        Partial<
+          Pick<SdkAgentMessageRuntime, 'cancelInput' | 'holdTurnForLateEcho' | 'awaitingLateEcho'>
+        >)
     | undefined;
   mcpServers?(state: SdkCallbackState): Options['mcpServers'];
 }) {
@@ -487,7 +514,17 @@ export function createOrdinaryLocalVertexSdkQuery<
     for await (const run of runs) {
       let terminal = false;
       try {
-        for await (const event of owners.adapt(run)) {
+        const steerState = states.get(run)!;
+        const stream = holdResultForLateSteer(owners.adapt(run), {
+          hold: () =>
+            steerState.retired || steerState.completing
+              ? undefined
+              : owners.peerMessages?.()?.holdTurnForLateEcho?.(steerState),
+          awaiting: () => !!owners.peerMessages?.()?.awaitingLateEcho?.(steerState),
+          signal: owners.controller.signal,
+          sessionId: owners.sdkSessionId,
+        });
+        for await (const event of stream) {
           const state = states.get(run)!;
           // The consumer correlates input echoes and message starts with its
           // current FIFO command. A terminal/retired query cannot contribute

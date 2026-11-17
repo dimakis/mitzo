@@ -43,8 +43,14 @@ and retain the queued prompt. Ordering remains available through the shared queu
 
 Claude corrections retain independent SQLite receipts, an opaque provider input
 UUID, complete text/images and frozen reply context. They enter the original
-query at priority now, with original-operator and active-command checks repeated
-immediately before stdin. Only an exact ACK from the same non-retired native
+query at priority `next`, with original-operator and active-command checks repeated
+immediately before stdin. Claude Code aborts the running turn for a `now` input,
+so `now` would end the turn the correction targets. A `next` input folds into the
+running turn at its next model request. If it arrives during the final request,
+the CLI emits that turn's result and immediately runs the correction as a
+follow-up turn. The owner holds that one result (bounded at 10 s) so the
+follow-up turn stays under the same command; its own result ends the command.
+Only an exact ACK from the same non-retired native
 query confirms delivery; its ACK is consumed before ordinary result correlation.
 The first HTTP action waits briefly for this ACK. Silence remains uncertain;
 checks read the original receipt and never resubmit after restart or turnover.
