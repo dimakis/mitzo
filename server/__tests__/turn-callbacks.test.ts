@@ -64,3 +64,35 @@ it.each(['reject', 'error result'])(
     await blocked;
   },
 );
+it('retains SDK outcomes the provider already received as uncertain without failing the turn', async () => {
+  // The SDK emits its result only after every tool result reached the model, so an
+  // unknown effect that finished before seal is advisory evidence, not a stuck turn.
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  await callbacks.track(async () => ({ isError: true, content: 'Command timed out' }));
+  await callbacks
+    .track(async () => {
+      throw Error('private failure after effects');
+    })
+    .catch(() => {});
+  await callbacks.track(async () =>
+    retainCallbackOutcome({ isError: true, content: 'Refused before execution' }, 'settled'),
+  );
+  expect(callbacks.uncertainOutcomes).toBe(2);
+  await expect(callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
+  expect(callbacks.uncertainOutcomes).toBe(2);
+});
+it('still fails an SDK turn whose callback settles unknown only after the result sealed it', async () => {
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  let finish!: () => void;
+  const work = callbacks.track(async () => {
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    return { isError: true, content: 'Unknown external result' };
+  });
+  const settling = callbacks.settle(new AbortController().signal);
+  const blocked = expect(settling).rejects.toMatchObject({ code: 'callbacks_failed' });
+  finish();
+  await work;
+  await blocked;
+});

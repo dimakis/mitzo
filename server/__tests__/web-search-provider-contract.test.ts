@@ -136,6 +136,32 @@ it('rejects an SDK success subtype whose final provider request failed', async (
   expect(result.content).toContain('rate or quota');
   expect(result.content).not.toContain('private-body');
 });
+it('accepts the native SDK success result, which reports api_error_status as null', async () => {
+  const sdk = vi.fn(() =>
+    (async function* () {
+      yield {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name: 'WebSearch', id: 'search' }] },
+      };
+      yield {
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'search', is_error: false }] },
+      };
+      // Shape emitted by the bundled Claude Code CLI on a successful turn.
+      yield {
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        api_error_status: null,
+        stop_reason: null,
+        result: 'Answer https://example.com',
+      };
+    })(),
+  );
+  const result = await run((query, signal) => searchSdk(query, signal, sdkRoute, sdk));
+  expect(result.isError).toBe(false);
+  expect(result.content).toContain('https://example.com');
+});
 
 it('refuses SDK search before child startup after original owner authority is withdrawn', async () => {
   const sdk = vi.fn();

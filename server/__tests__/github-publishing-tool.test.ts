@@ -82,11 +82,13 @@ it.each(['missing connection', 'denied approval', 'dispatched failure', 'cancell
       expect(
         (await client.callTool({ name: 'RequestGithubPublish', arguments: input })).isError,
       ).toBe(true);
-      const settling = state.callbacks.settle(new AbortController().signal);
+      // Refusals settle; a dispatched or cancelled publication is retained as
+      // uncertain for the terminal notice rather than failing the whole turn.
+      await expect(state.callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
       if (outcome === 'missing connection' || outcome === 'denied approval') {
-        await expect(settling).resolves.toBeUndefined();
         expect(f.invoke).not.toHaveBeenCalled();
-      } else await expect(settling).rejects.toMatchObject({ code: 'callbacks_failed' });
+        expect(state.callbacks.uncertainOutcomes).toBe(0);
+      } else expect(state.callbacks.uncertainOutcomes).toBe(1);
     } finally {
       await client.close();
       await server.instance.close();

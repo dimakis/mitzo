@@ -499,11 +499,25 @@ it.each([
   if (refusal === 'unknown') {
     expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toHaveLength(before.length + 1);
     expect(TelosItemStore.prototype.createFeatureGuarded).toHaveBeenCalledTimes(1);
-    await expect(sdk.terminal()).rejects.toMatchObject({ code: 'callbacks_failed' });
+    // The model already saw the failure: the turn completes with the uncertainty surfaced.
+    await expect(sdk.terminal()).resolves.toMatchObject({
+      value: {
+        type: 'result',
+        tool_failure_notice: true,
+        tool_failure: { effectStatus: 'unknown' },
+      },
+    });
   } else if (refusal === 'rolled-back-write') {
     expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(before);
     expect(TelosItemStore.prototype.createFeatureGuarded).toHaveBeenCalledTimes(1);
-    await expect(sdk.terminal()).rejects.toMatchObject({ code: 'callbacks_failed' });
+    // The model already saw the failure: the turn completes with the uncertainty surfaced.
+    await expect(sdk.terminal()).resolves.toMatchObject({
+      value: {
+        type: 'result',
+        tool_failure_notice: true,
+        tool_failure: { effectStatus: 'unknown' },
+      },
+    });
   } else {
     expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(before);
     await expect(sdk.terminal()).resolves.toMatchObject({ value: { type: 'result' } });

@@ -114,6 +114,43 @@ describe('Subagent Event Emission', () => {
     });
   });
 
+  it('gives parallel subagent messages without provider ids distinct identities in one millisecond', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1794778824037);
+    const agent = (index: number, id: string) => [
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_start',
+          index,
+          content_block: { type: 'tool_use', id, name: 'Agent' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index } },
+    ];
+    const child = (parent: string) => ({
+      type: 'stream_event',
+      event: { type: 'message_start', message: { usage: { input_tokens: 1 } } },
+      parent_tool_use_id: parent,
+    });
+    async function* gen() {
+      yield { type: 'assistant', session_id: 'test-session' };
+      yield {
+        type: 'stream_event',
+        event: { type: 'message_start', message: { id: 'msg-parent', usage: {} } },
+        parent_tool_use_id: null,
+      };
+      yield* [...agent(0, 'agent-a'), ...agent(1, 'agent-b'), child('agent-a'), child('agent-b')];
+      yield { type: 'result', session_id: 'test-session', usage: {} };
+    }
+    await runQueryLoop(gen(), 'test-client', mockRegistry, abortController);
+    const ids = sentEvents
+      .filter((e) => e.type === 'subagent_start')
+      .map((e) => e.subagentMessageId);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    vi.restoreAllMocks();
+  });
+
   it('wraps subagent content blocks in subagent_block_* events', async () => {
     const events = [
       {

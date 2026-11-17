@@ -1303,7 +1303,7 @@ async function _runQueryLoopInner(
               if (terminalSubagents.has(parentToolUseId)) continue;
               const parentBlockId = toolIdToBlockId.get(parentToolUseId);
               const apiMsg = evt.message as Record<string, unknown> | undefined;
-              const subagentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
+              const subagentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${randomUUID()}`;
 
               if (parentBlockId && agentToolIds.has(parentToolUseId)) {
                 const parentMessageId = toolIdToMessageId.get(parentToolUseId);

@@ -818,18 +818,40 @@ export function replayEventsToTranscript(
   groupRetainedReplayErrors(messages, events);
   currents.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
   const ids = new Set<string>();
-  for (const message of [...messages, ...currents]) {
-    const id = JSON.stringify([
+  const identity = (message: RestoredMessage | RestoredCurrentMessage) =>
+    JSON.stringify([
       message.symposiumProvenance?.seatId ?? null,
       message.symposiumProvenance?.membershipGeneration ?? null,
       message.messageId,
     ]);
+  const completed = new Set<object>(messages);
+  const renamed: Array<[RestoredMessage, string]> = [];
+  for (const message of [...messages, ...currents]) {
+    let id = identity(message);
+    if (
+      ids.has(id) &&
+      'role' in message &&
+      message.role === 'assistant' &&
+      !message.symposiumProvenance &&
+      completed.has(message) &&
+      message.startedSeq !== undefined
+    ) {
+      // Pre-#1373 query loops minted ordinary ids from Date.now(), so SDK
+      // messages emitted in one millisecond share an id. Each is a distinct
+      // stored message (own seq, blocks and tool results were already bound by
+      // block/tool id), so give the later completed one a stable unique id.
+      const projected = `${message.messageId}~${message.startedSeq}`;
+      renamed.push([message, projected]);
+      id = identity({ ...message, messageId: projected });
+    }
     if (ids.has(id))
       throw new Error('Ambiguous duplicate Symposium message identity in stored transcript');
     ids.add(id);
   }
   attributeCommands(ordinary, messages, base.current ? [base.current] : []);
   includeAgentMessages(ordinary, messages);
+  // Stored reply sources name the original id; attribute before projecting.
+  for (const [message, projected] of renamed) message.messageId = projected;
   return {
     messages,
     current: base.current,

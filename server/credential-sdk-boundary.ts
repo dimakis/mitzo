@@ -1,6 +1,14 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { isIP } from 'node:net';
@@ -75,13 +83,28 @@ function selectorWritePattern(entry: string): string {
   return join(parent, name.slice(0, index) + '[' + name[index] + ']' + name.slice(index + 1));
 }
 
+/** Canonical private paths are physical; a missing path keeps file protection. */
+function isDirectory(path: string): boolean {
+  try {
+    return lstatSync(path).isDirectory();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
 function runtimeFilesystemProtection() {
   const storageRoots = telosPrivateStorageRoots().map(canonical);
   const authorityFiles = workspaceRuntimePrivateFiles().map(canonical);
   const privateFiles = [...new Set([...authorityFiles, ...storageRoots])];
   const sourceRoots = workspaceRuntimeAuthorityPaths().map(canonical);
   const selectors = workspaceRuntimeSelectorEntries();
-  const writeRoots = [...new Set([...authorityFiles.map(dirname), ...sourceRoots])];
+  // A private file's parent entry is frozen so the file cannot be swapped in
+  // place. A private directory is already denied as a whole subtree (including
+  // its own entry); freezing its parent would make the enclosing workspace,
+  // e.g. REPO_PATH holding REPO_PATH/.mitzo, read-only to the provider.
+  const fileParents = authorityFiles.filter((path) => !isDirectory(path)).map(dirname);
+  const writeRoots = [...new Set([...fileParents, ...sourceRoots])];
   [...privateFiles, ...writeRoots].forEach(validatePath);
   return { privateFiles, writeRoots, selectors, patterns: selectors.map(selectorWritePattern) };
 }
@@ -307,6 +330,8 @@ function createSdkBoundary(
         ...(!runtimeOnly
           ? {
               TMPDIR: scratch,
+              // Claude Code's native Bash allocates claude-<uid> here, not under TMPDIR.
+              CLAUDE_CODE_TMPDIR: scratch,
               XDG_CACHE_HOME: join(scratch, 'cache'),
               npm_config_cache: join(scratch, 'npm'),
               PIP_CACHE_DIR: join(scratch, 'pip'),
