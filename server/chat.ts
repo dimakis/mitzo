@@ -28,6 +28,7 @@ import { createSdkTurnQuery } from './sdk-turn-query.js';
 import { reportClaudeChildDiagnostic } from './claude-child-diagnostics.js';
 import { claudePersonalToolPermission } from './claude-personal-policy.js';
 import { createClaudeStartupContext } from './claude-startup-context.js';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 import { repositoryWorkspacePrompt } from './repository-workspace-prompt.js';
 import { SDK_REPOSITORY_INSTRUCTIONS } from './sdk-local-repository-tools.js';
 import {
@@ -2949,19 +2950,27 @@ async function _startChatInner(
             : {}),
         }),
       );
-      const sdkToolLibrary = options.ordinarySdkAuthority
-        ? await createSdkToolLibrary({
-            sessionId: session.sessionId!,
-            session,
-            registry,
-            refs: agentProfile?.definition.tools,
-            defaultMcpServers: mcpServers,
-            cwd,
-            env: nativeExecutionEnv(),
-            assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
-            assertCurrentSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
-          })
+      // Tool discovery launches configured MCP servers. It is read-only, so it
+      // overlaps startup context preparation; failures surface at its await.
+      const sdkToolLibraryPending = options.ordinarySdkAuthority
+        ? observeLocalCodexPhase('sdk_tool_discovery', () =>
+            createSdkToolLibrary({
+              sessionId: session.sessionId!,
+              session,
+              registry,
+              refs: agentProfile?.definition.tools,
+              defaultMcpServers: mcpServers,
+              cwd,
+              env: nativeExecutionEnv(),
+              assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
+              assertCurrentSync: (signal) =>
+                options.ordinarySdkAuthority!.assertCurrentSync(signal),
+            }),
+          )
         : undefined;
+      sdkToolLibraryPending?.catch(() => {
+        /* Awaited below with the startup context; this only marks it handled. */
+      });
       const sdkAgentCommunication = options.ordinarySdkAuthority
         ? (assertToolCurrent?: () => void) =>
             sessionAgentCommunicationTools({
@@ -3283,13 +3292,19 @@ async function _startChatInner(
         );
       };
       const webAccess = createSdkWebAccess();
-      await authorizeSdkContext(abortController.signal);
       const prepareSdkStartupContext = async (signal: AbortSignal) => {
         sdkStartupContextPrepared = false;
-        await sdkStartupContext?.prepare(signal);
+        if (sdkStartupContext)
+          await observeLocalCodexPhase('sdk_startup_context', () =>
+            sdkStartupContext.prepare(signal),
+          );
         sdkStartupContextPrepared = !!sdkStartupContext;
       };
+      // Preparation is read-only and checks authority after its reads; the
+      // check below covers both it and Tool Library discovery before use.
+      if (!sdkStartupContext) await authorizeSdkContext(abortController.signal);
       await prepareSdkStartupContext(abortController.signal);
+      const sdkToolLibrary = await sdkToolLibraryPending;
       await authorizeSdkContext(abortController.signal);
       const sdkOptions: NonNullable<Parameters<typeof query>[0]['options']> = {
         cwd,
