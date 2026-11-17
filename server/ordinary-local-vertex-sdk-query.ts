@@ -1,4 +1,5 @@
 import { observeOrdinarySdkProcessClose } from './ordinary-local-vertex-sdk-process.js';
+import { randomUUID } from 'node:crypto';
 import type { ProtectedSdkProcess } from './credential-sdk-boundary.js';
 import {
   query,
@@ -283,10 +284,12 @@ export function createOrdinaryLocalVertexSdkQuery<
   let hasHistory = !!owners.options.resume;
   const runs = new AsyncQueue<Query>();
   type State = SdkCallbackState & {
+    commandInputUuid?: string;
     processClose?: ReturnType<typeof observeOrdinarySdkProcessClose>;
     postTerminalFailure?: unknown;
   };
   const states = new WeakMap<Query, State>();
+  const commandInputEchoes = new WeakSet<object>();
   const restoreApiPermissionMode = !!owners.options.env?.MITZO_ANTHROPIC_API_CUSTODY;
   let permissionMode = owners.options.permissionMode ?? 'default';
   const refuseInput = (message: SDKUserMessage, cause: unknown, stage: string): never => {
@@ -382,20 +385,21 @@ export function createOrdinaryLocalVertexSdkQuery<
         const peers = owners.peerMessages?.();
         const commandId = (message as SDKUserMessage & { mitzoMessageId?: unknown }).mitzoMessageId;
         const ordinary = typeof commandId === 'string' && /^\S{1,200}$/.test(commandId);
-        if (owners.beforeInput) {
-          if (ordinary) {
-            if (state?.commandId() !== undefined && commandId !== state.commandId())
-              throw Error('Original SDK command tool authority does not match input');
-            const allowed = owners.beforeInput!(commandId);
-            assertOrdinarySynchronousFence(commandId, () =>
-              typeof allowed === 'boolean' ? undefined : allowed,
-            );
-            if (allowed === false) {
-              // Stop's positive cancellation settles the ordinary input before
-              // the peer guard observes the now-paused recipient. No stdin ran.
-              peers?.cancelInput?.(message);
-              continue;
-            }
+        if (owners.beforeInput && ordinary) {
+          if (!state || state.commandInputUuid)
+            throw Error('Original SDK query input already assigned or unavailable');
+          const boundCommand = state.commandId();
+          if (boundCommand !== undefined && commandId !== boundCommand)
+            throw Error('Original SDK command tool authority does not match input');
+          const allowed = owners.beforeInput(commandId);
+          assertOrdinarySynchronousFence(commandId, () =>
+            typeof allowed === 'boolean' ? undefined : allowed,
+          );
+          if (allowed === false) {
+            // Stop's positive cancellation settles the ordinary input before
+            // the peer guard observes the now-paused recipient. No stdin ran.
+            peers?.cancelInput?.(message);
+            continue;
           }
         }
         const peerInput = peers?.beforeInput(
@@ -406,6 +410,10 @@ export function createOrdinaryLocalVertexSdkQuery<
         if (peerInput === false) continue;
         if (owners.beforeInput && !ordinary && peerInput !== true)
           throw Error('Original SDK input command identity unavailable');
+        // Idle peer delivery can supply its own UUID. Record the final wire
+        // identity only after both input guards have accepted the submission.
+        if (owners.beforeInput && ordinary && state)
+          state.commandInputUuid = message.uuid ??= randomUUID();
       } catch (error) {
         refuseInput(message, error, 'ordinary_input_authority');
       }
@@ -507,8 +515,16 @@ export function createOrdinaryLocalVertexSdkQuery<
           if (state.retired || state.completing || terminal) continue;
           if (event.session_id !== undefined && event.session_id !== owners.sdkSessionId)
             throw Error('Original SDK thread identity changed');
-          const queryState = states.get(run)!;
-          if (owners.peerMessages?.()?.observe(event, queryState, !queryState.retired)) continue;
+          if (owners.peerMessages?.()?.observe(event, state, !state.retired)) continue;
+          // Native task notifications and other internal user envelopes can
+          // carry their own UUIDs. Only this run's stdin replay owns the input.
+          if (
+            state.commandInputUuid &&
+            event.type === 'user' &&
+            event.isReplay === true &&
+            event.uuid === state.commandInputUuid
+          )
+            commandInputEchoes.add(event);
           if (event.type === 'result') {
             state.completing = true;
             state.callbacks.seal();
@@ -607,6 +623,7 @@ export function createOrdinaryLocalVertexSdkQuery<
     push(message: SDKUserMessage) {
       input.push(message);
     },
+    isCommandInputEcho: (event: object) => commandInputEchoes.has(event),
     bindCommandToolAuthority(authority: OrdinarySdkCommandToolAuthority) {
       owners.controller.signal.throwIfAborted();
       assertOrdinarySynchronousFence(authority.commandId, () =>
