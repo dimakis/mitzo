@@ -983,6 +983,7 @@ it.each([
                 expect(args.options?.allowedTools).toContain('mcp__fixture__*');
                 expect(args.options?.env?.WORKSPACE_RUNTIME_FIXTURE_ENV).toBe('preserved');
               }
+              expect(args.options?.env?.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe('1');
               const prompt = args.prompt as AsyncIterable<unknown>;
               await prompt[Symbol.asyncIterator]().next();
               providerRequests++;
