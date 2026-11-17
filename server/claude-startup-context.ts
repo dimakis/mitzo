@@ -14,7 +14,9 @@ export function createClaudeStartupContext(owners: {
     async prepare(signal: AbortSignal) {
       prepared = undefined;
       signal.throwIfAborted();
-      await owners.assertCurrent(signal);
+      // Preparation only reads. Authority is checked after the reads, before
+      // the context can be used; each check reruns workspace reservation and
+      // checkout validation, so a second check before the reads is not repeated.
       const knowledge = await prepareHostKnowledge(owners.session, owners.preserveProfile, signal);
       const project = owners.preserveProfile
         ? undefined

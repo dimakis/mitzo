@@ -29,7 +29,10 @@ type Phase =
   | 'host_tool_execution'
   | 'credential_check'
   | 'workspace_check'
-  | 'model_qualification';
+  | 'model_qualification'
+  | 'sdk_tool_discovery'
+  | 'sdk_startup_context'
+  | 'workspace_revalidation';
 const log = createLogger('local-codex-dispatch');
 function beginPhase(phase: Phase) {
   const observation = beginOperationObservation(`local_codex.${phase}`),
