@@ -64,6 +64,11 @@ export function specialistDiagnostic(cause: unknown) {
       'Bounded specialists cannot recruit other specialists. Return the request to the accountable lead.',
     ],
     [
+      /^Repository source is not configured/,
+      'repository_source_missing',
+      'This specialist account has no configured repository source for the requested repository. Add that repository source to the account, or choose an eligible account. No other account or model was substituted.',
+    ],
+    [
       /^Ask mode cannot/,
       'ask_mode',
       'Ask mode cannot authorize, request or recover specialist model work.',

@@ -4552,7 +4552,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../specialist-consultation-contract.ts':
     'fcc05e0c3d561cf997a87b8185aafb785b88ab95ddab7876684b0b355170e2e5',
   '../specialist-consultation-diagnostics.ts':
-    'cc9927a2e3501bc199d1542d4fedb59c40b3484fcebbbe449ff3ecb1868a442a',
+    '126fc417416d5c830661b41b7cbb64e0878d6e1021bbb7ac5e739b0c012deeab',
   '../specialist-consultation-runtime.ts':
     'a3548f7815907ecbe6eaafea1d795673bf0abc1be14dd06e96dd5d209d5278a1',
   '../specialist-consultation-store.ts':
