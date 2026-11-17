@@ -147,9 +147,8 @@ it('keeps original uncertainty blocked before native item delegation', async () 
   );
   expect(result.isError).toBe(true);
   expect(f.approve).not.toHaveBeenCalled();
-  await expect(callbacks.settle(new AbortController().signal)).rejects.toMatchObject({
-    code: 'callbacks_failed',
-  });
+  await expect(callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
+  expect(callbacks.uncertainOutcomes).toBe(1);
 });
 
 it('rechecks inherited progress consent inside the canonical mutation guard', async () => {

@@ -46,6 +46,12 @@ shared-message action gap. Focused checks then passed:
   implementation files; this is not a full-project compilation.
 - Affected ESLint/Prettier and registered source fingerprint checks passed.
 
+Accepted main `f986db0cc3794147c2ac95f10d35965769c8efba` was integrated into
+the isolated feature branch. Only the runtime revision marker conflicted; all
+registered source keys from both parents were retained and source fingerprints
+verified. Seven integration suites then passed all 105 tests, covering the changed
+sharing consumers, transcript adapter and accepted Claude composer/steering changes.
+
 Offline browser coverage was added to the actual shared-composer fixture for phone
 and desktop, dark/light and alternate appearance. It checks menu selection, agent
 details, recorded dates, on-demand Markdown, unchanged header/draft, native Reply,
@@ -66,6 +72,10 @@ The live-discovery refresh problem and support for legal steered-turn ordering r
 separately bounded repairs. This increment does not delete transcript validation,
 change frozen source/audience contracts or replay uncertain delivery. It does not
 resolve all 24 findings in Telos feature `0e7adf5e27292950`.
+
+PR #1379 is now draft and held behind #1387. Preserve that dependency hold. After
+#1387 lands, reconcile its repository-source diagnostic with this branch's earlier
+diagnostic, retain the sharing and generic interleaving fixes, and regenerate pins.
 
 Source commits, publication, current-head CI/Centaur review, merge and production
 activation remain separate. The previous PR head's CI was failing; its prior Centaur

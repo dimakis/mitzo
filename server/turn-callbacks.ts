@@ -1,6 +1,9 @@
 import { SessionRuntimeError } from './session-runtime-error.js';
 import { assertToolGuardCurrent } from '@mitzo/harness';
+import { toolFailure } from '@mitzo/protocol';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { createLogger } from './logger.js';
+const log = createLogger('turn-callbacks');
 export type TurnCallbackRunner = <T>(operation: () => Promise<T>) => Promise<T>;
 const effectOwners = new AsyncLocalStorage<() => void>();
 /** A fresh effect check in an original callback cannot borrow a later turn. */
@@ -48,15 +51,43 @@ export async function retainReadOnlyCallbackOutcome<T extends object | undefined
   return result;
 }
 
+/** Surface a settled turn's uncertain tool effects on its terminal result, the
+ * same notice the Codex route shows. A provider failure keeps its own message. */
+export function withUncertainOutcomeNotice<T extends object>(
+  result: T,
+  callbacks: TurnCallbacks,
+): T {
+  if (!callbacks.uncertainOutcomes || 'provider_failure' in result) return result;
+  log.warn('SDK turn completed with uncertain tool outcomes', {
+    code: 'sdk_uncertain_tool_outcomes',
+    stage: 'turn_settlement',
+    uncertainOutcomes: callbacks.uncertainOutcomes,
+  });
+  return {
+    ...result,
+    tool_failure_notice: true,
+    tool_failure: toolFailure('internal_failure', 'execution', 'unknown'),
+  };
+}
+
 /** Original in-memory callbacks only. A reconstructed owner cannot manufacture
  * settlement, replay a tool, or treat a missing durable result as success. */
 export class TurnCallbacks {
+  /** `retainUnknownOutcomes` (SDK owners): the provider emits its result only
+   * after every tool result reached the model, so an unknown outcome or failure
+   * that finished before seal is retained as uncertain evidence for the result
+   * notice instead of failing the turn. Anything settling after seal still fails. */
   constructor(private readonly options: { retainUnknownOutcomes?: boolean } = {}) {}
   private pending = new Set<Promise<unknown>>();
   private sealed = false;
   private failure?: { cause: unknown };
+  private uncertain = 0;
   get size() {
     return this.pending.size;
+  }
+  /** Callbacks whose effects the model saw as failed or unknown in this turn. */
+  get uncertainOutcomes() {
+    return this.uncertain;
   }
   get needsSettlement() {
     return this.pending.size > 0 || !!this.failure;
@@ -76,15 +107,15 @@ export class TurnCallbacks {
     const observation = work.then(
       (result) => {
         this.pending.delete(observation);
-        if (
-          (this.sealed || this.options.retainUnknownOutcomes) &&
-          callbackOutcome(result) === 'unknown'
-        )
-          this.failure ??= { cause: new SessionRuntimeError('callbacks_failed') };
+        if (callbackOutcome(result) !== 'unknown') return;
+        if (this.sealed) this.failure ??= { cause: new SessionRuntimeError('callbacks_failed') };
+        else if (this.options.retainUnknownOutcomes) this.uncertain++;
       },
       (cause: unknown) => {
         this.pending.delete(observation);
-        if (!knownCancellation?.(cause)) this.failure ??= { cause };
+        if (knownCancellation?.(cause)) return;
+        if (!this.sealed && this.options.retainUnknownOutcomes) this.uncertain++;
+        else this.failure ??= { cause };
       },
     );
     this.pending.add(observation);

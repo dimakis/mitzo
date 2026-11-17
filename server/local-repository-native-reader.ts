@@ -42,7 +42,8 @@ import {
 import { preparedTopologyInput } from './native-repository-topology.js';
 import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 
-const unavailable = () => Error('Local repository native reads unavailable');
+const unavailable = (cause?: unknown) =>
+  Error('Local repository native reads unavailable', cause === undefined ? undefined : { cause });
 type NativeReaderPathAuthorization = Readonly<{
   reader: LocalRepositoryReadAuthority;
   assertReadable: LocalRepositoryReadAuthority['assertReadable'];
@@ -197,9 +198,9 @@ export async function captureLocalRepositoryReader(
     if (deniedRoots.some((root) => contains(root, scratch!))) throw unavailable();
     custody.capture(scratch);
     custody.verify();
-  } catch {
+  } catch (cause) {
     if (scratch) await rm(scratch, { recursive: true, force: true });
-    throw unavailable();
+    throw unavailable(cause);
   }
   const directory = scratch;
   const pending = new Set<Promise<unknown>>();

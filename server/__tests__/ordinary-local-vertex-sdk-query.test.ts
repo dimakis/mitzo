@@ -368,10 +368,17 @@ it.each(['settled', 'unknown'] as const)(
     await tool(async () => retainCallbackOutcome({ isError: true }, outcome));
     await new Promise<void>((resolve) => setImmediate(resolve));
     events.push({ type: 'result', session_id: 'original' });
-    const next = owner.query[Symbol.asyncIterator]().next();
+    // The model already received the tool result, so the turn completes; an
+    // unknown effect is surfaced on the result instead of bricking the chat.
+    const result = (await owner.query[Symbol.asyncIterator]().next()).value;
+    expect(result).toMatchObject({ type: 'result' });
+    expect(result.is_error).toBeUndefined();
     if (outcome === 'unknown')
-      await expect(next).rejects.toMatchObject({ code: 'callbacks_failed' });
-    else expect((await next).value).toMatchObject({ type: 'result' });
+      expect(result).toMatchObject({
+        tool_failure_notice: true,
+        tool_failure: { effectStatus: 'unknown', recovery: 'inspect_operation' },
+      });
+    else expect(result).not.toHaveProperty('tool_failure_notice');
     controller.abort();
     events.close();
   },

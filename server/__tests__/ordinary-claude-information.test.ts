@@ -438,7 +438,7 @@ it('keeps original runtime refusal private through the real SDK error serializer
   const result = await f.call('ReadPastSession', { conversationId: 'visible' });
   expect(result.isError).toBe(true);
   expect(result.text).not.toContain('PRIVATE_REVOKED_DETAIL');
-  expect(f.callbacks.needsSettlement).toBe(true);
+  expect(f.callbacks.uncertainOutcomes).toBe(1);
 });
 
 it.each(['SaveKnowledgeDraft', 'AgentProposeTask'] as const)(
@@ -485,7 +485,7 @@ it.each(['SaveKnowledgeDraft', 'AgentProposeTask'] as const)(
     const result = await f.call(name, args);
     expect(seen).toBe(checks);
     expect(result.isError).toBe(true);
-    expect(f.callbacks.needsSettlement).toBe(true);
+    expect(f.callbacks.uncertainOutcomes).toBe(1);
     if (name === 'SaveKnowledgeDraft') expect(f.drafts.list()).toHaveLength(1);
     else {
       const proposals = new SymposiumProfileProposalStore(join(f.root, '.mitzo/events.db'));

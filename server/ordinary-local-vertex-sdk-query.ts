@@ -8,7 +8,11 @@ import {
   type HookCallback,
 } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from './async-queue.js';
-import { TurnCallbacks, type TurnCallbackRunner } from './turn-callbacks.js';
+import {
+  TurnCallbacks,
+  withUncertainOutcomeNotice,
+  type TurnCallbackRunner,
+} from './turn-callbacks.js';
 import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import { assertClaudeSubscriptionAccount } from './claude-subscription-custody.js';
@@ -514,6 +518,8 @@ export function createOrdinaryLocalVertexSdkQuery<
             if (state.retired || owners.controller.signal.aborted)
               throw new Error('Completed SDK query retired during callback settlement');
             terminal = true;
+            yield withUncertainOutcomeNotice(event, state.callbacks);
+            continue;
           }
           yield event;
         }
