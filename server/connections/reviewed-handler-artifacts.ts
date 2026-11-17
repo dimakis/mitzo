@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1245-claude-resume-housekeeping-result';
+  'v1.0.1245-claude-background-task-interim';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2518,7 +2518,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-account-startup.test.ts':
     'cf29e2544af5d255a9e142b1094e4c6f306ab538ed325582409fe1ae14686901',
   '../__tests__/chat-agent-context-startup.test.ts':
-    '8dceb77955aac1d2ba1b1e676e81804983be2619b40fafa2bf31cf67fa8ff71e',
+    '6390742492c75db3b1d05ff00638504815eb66094168e9ec031fbf2727878164',
   '../__tests__/chat-command-json.test.ts':
     '568924d45734f15e499a6f22e86921c05d596edfd62e32bafbd2fd51c3b36b81',
   '../__tests__/chat-contributor-route-admission.test.ts':
@@ -3755,7 +3755,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': '64d22a48c5fa35e46c6757e0fbf47e7062257391b7f57df7d769490a84aa1e0b',
+  '../chat.ts': '1fa210efca6334ee7c3797ec9b958e748b6cc859466b8311e29d6422f7727d0e',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',

@@ -2433,6 +2433,13 @@ async function _startChatInner(
     assertStartupCurrent();
     sessionEnv.MITZO_SESSION_ID = wtId;
     sessionEnv.MITZO_AGENT_NAME = agentName;
+    // Claude Code background tasks belong to the CLI process, but Mitzo resumes a
+    // new process for each later command and refuses turns the CLI starts itself.
+    // A task outliving its turn is killed and its resume result has bricked chats.
+    // The bundled CLI then removes Bash run_in_background, never auto-backgrounds
+    // long commands, and runs background sub-agents within the turn. Remove when
+    // Telos feature f17237f34acbcd0a adds proper support.
+    sessionEnv.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = '1';
     for (const [name, { path }] of repoWorktrees) {
       sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
     }
