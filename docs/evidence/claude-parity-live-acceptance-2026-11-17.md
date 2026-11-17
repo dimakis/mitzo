@@ -10,7 +10,7 @@ Scope: live tool calls only. No deployment, merge or acceptance is claimed. The
 running route's exact build was not read; the changed behaviour below (a set
 `CLAUDE_CODE_TMPDIR`, working search) is only possible from #1378 code.
 
-## Result: headline criteria pass; four gaps remain
+## Result: headline criteria pass; five gaps remain
 
 | Area                                          | Live result                                                                                                                             | Status                 |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
@@ -55,7 +55,14 @@ running route's exact build was not read; the changed behaviour below (a set
    catalog lists the `dimakis/mitzo` connection for three other accounts. The
    authorize failure in the table is consistent with this but is not proven:
    the message should name the missing connection.
-4. **Steering and peer send remain unproven.** Every listed peer chat was
+4. **`TaskExecution` `commit` misroutes files in a nested clone.** Given an
+   absolute path to a file inside a clone under `.repository-tasks/`, it
+   committed that file to the parent workspace repository's branch instead of
+   the clone (the 16 November sweep saw a refusal here, not a misroute). The
+   commit was local and unpublished, and was reset by the operator chat. Next:
+   resolve the target repository from the file's own repository root, or
+   refuse nested clones explicitly; add a regression with a nested clone.
+5. **Steering and peer send remain unproven.** Every listed peer chat was
    `unavailable` and self-send is refused by design, so mid-turn steering from
    a user or peer needs a second live participant.
 
