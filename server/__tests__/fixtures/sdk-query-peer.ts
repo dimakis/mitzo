@@ -22,6 +22,20 @@ export function sdkFixtureBoundary() {
 export async function sdkFixtureHistory(sessionId: string, options?: { dir?: string }) {
   return { sessionId, cwd: options?.dir };
 }
+
+/** Echo the submitted wire identity as the replay-user-messages protocol does. */
+export function sdkInputReplay(input: { uuid?: unknown; message: unknown }, sessionId: string) {
+  if (typeof input.uuid !== 'string') throw Error('Fixture received SDK input without a UUID');
+  return {
+    type: 'user',
+    uuid: input.uuid,
+    session_id: sessionId,
+    parent_tool_use_id: null,
+    message: input.message,
+    isReplay: true,
+  };
+}
+
 export function sdkQueryPeer(
   request: Parameters<typeof query>[0],
   events: AsyncGenerator<unknown>,
