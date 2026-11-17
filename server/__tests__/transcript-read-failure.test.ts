@@ -10,6 +10,17 @@ it('reports a steered-turn refusal as its own history failure reason', () => {
   expect(failure.telemetry().reason).toBe('steered_turn_unsupported');
 });
 
+it('reports interleaving without claiming the operator steered an overlapping assistant', () => {
+  const failure = new TranscriptReadFailure(
+    new CollaborationContractError(
+      'snapshot_changed',
+      'snapshot_changed: interleaved messages inside an assistant turn are not supported',
+    ),
+    'durable',
+  );
+  expect(failure.telemetry().reason).toBe('interleaved_turn_unsupported');
+});
+
 it('separates other transcript contract refusals from unknown read failures', () => {
   expect(
     new TranscriptReadFailure(

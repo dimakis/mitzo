@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { ZodError } from 'zod';
-import { CollaborationContractError, STEERED_TURN_UNSUPPORTED } from '@mitzo/protocol';
+import {
+  CollaborationContractError,
+  INTERLEAVED_TURN_UNSUPPORTED,
+  STEERED_TURN_UNSUPPORTED,
+} from '@mitzo/protocol';
 import { runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
 
 /** Fixed local failure categories only; provider text and stored content stay in cause. */
@@ -11,6 +15,7 @@ const replayReasons = new Map([
   ['Stored event has unverifiable Symposium attribution', 'seat_attribution_invalid'],
   ['Stored Symposium event has mismatched seat provenance', 'seat_attribution_invalid'],
   [STEERED_TURN_UNSUPPORTED, 'steered_turn_unsupported'],
+  [INTERLEAVED_TURN_UNSUPPORTED, 'interleaved_turn_unsupported'],
 ]);
 
 export class TranscriptReadFailure extends Error {

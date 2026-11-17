@@ -663,6 +663,9 @@ export type CollaborationSnapshotSelection = z.infer<typeof CollaborationSnapsho
  * open assistant turn. The code is unchanged; this only names the cause. */
 export const STEERED_TURN_UNSUPPORTED =
   'snapshot_changed: steered turn inside an assistant message is not supported';
+/** The ordering guard detects both user steering and overlapping assistant starts. */
+export const INTERLEAVED_TURN_UNSUPPORTED =
+  'snapshot_changed: interleaved messages inside an assistant turn are not supported';
 export class CollaborationContractError extends Error {
   constructor(
     readonly code:
