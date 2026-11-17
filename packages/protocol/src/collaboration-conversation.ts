@@ -659,6 +659,10 @@ export type CollaborationMessageSource = z.infer<typeof CollaborationMessageSour
 export type CollaborationJoinInput = z.infer<typeof CollaborationJoinInputSchema>;
 export type CollaborationJoinReconcileInput = z.infer<typeof CollaborationJoinReconcileInputSchema>;
 export type CollaborationSnapshotSelection = z.infer<typeof CollaborationSnapshotSelectionSchema>;
+/** Message for the snapshot_changed refusal of a user message (steer) inside an
+ * open assistant turn. The code is unchanged; this only names the cause. */
+export const STEERED_TURN_UNSUPPORTED =
+  'snapshot_changed: steered turn inside an assistant message is not supported';
 export class CollaborationContractError extends Error {
   constructor(
     readonly code:

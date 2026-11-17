@@ -95,7 +95,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-retraction-public-consumers.test.ts':
     '4720f704b22bfc96a96ea8e4568116f56f2727a0693cdd1119be66d6bea47223',
   '../../packages/protocol/__tests__/collaboration-visible-source.test.ts':
-    '59b88651ac1be9e98c3295646c250b4e86b18fa3953446708d16222bf0656252',
+    '2eb4af6aa7675fe4b66463f5973eb48787b152a12cf2ca01e41eabe87f6af67a',
   '../__tests__/collaboration-context-source.test.ts':
     '45efbce04831c3a210b75ead1ebecef5cf8f77446b077e4441193a05e57c8892',
   '../../packages/protocol/__tests__/collaboration-durable-transcript.test.ts':
@@ -1589,7 +1589,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-conversation-store.ts':
     'dd87d1e05494932e74b3789c2d59e79fd4b13503da298073679ac2594c1f24ca',
   '../../packages/protocol/src/collaboration-conversation.ts':
-    'ab2369dace27a18c7bf1d8b6080e1d20cfe4c3ca5fb2bf3a9d6117656675e6d2',
+    'bdb78a8e0d8d9bc5b7ace1b5642625a9970c63b879413ef2b531e21176664fde',
   '../../packages/protocol/src/collaboration-forward-custody.ts':
     '63368fb15184ad9424eb91ef60a6bf8d37fd9ae67a6305eea46cef8e34d56d95',
   '../../packages/protocol/src/collaboration-forward.ts':
@@ -1599,7 +1599,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-source-setup.ts':
     '87909fca446e5048958fdc22cb237a4258918ea7a3db749096eb58707c1158b7',
   '../../packages/protocol/src/collaboration-visible-source.ts':
-    '999803236d48f4b53a2014991a0cb7d2446cff083c4a6134819a0579d5006ed2',
+    '5a6e68b01937cb872cda1d791273d9d8db6acca98fde63e4e6a5663a3d47eab2',
   '../../packages/protocol/src/context-compaction.ts':
     '14ad6a62ebd1a263a9cfcd9eda141763f56e38789b353360980651a0695f8752',
   '../../packages/protocol/src/context-injection.ts':
@@ -4813,7 +4813,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../transcript-observation.ts':
     '0e37c59a895b617552ab299cd55ad7042c958f4aa4adf4067afa31ef42ca57f4',
   '../transcript-read-failure.ts':
-    '26f81300edc5d036895e1142259151b7b4102bb719a96ec7aa5e30a6242cae99',
+    'dd741141956ec52a260514b936a2fbb2908cb2657d562dd3cf43e07a5494db40',
   '../transcript-response.ts': '6d738803a1af50e9c8fee76bfea804ee76bb1e40eb613eb4a3cb4cd4ca949578',
   '../transport-auth-ownership.ts':
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',

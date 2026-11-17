@@ -7,6 +7,7 @@ import {
   COLLABORATION_DURABLE_TRANSCRIPT_MAX_MATERIAL_BYTES,
   CollaborationDurableTranscriptSchema,
   CollaborationSnapshotMessageSchema,
+  STEERED_TURN_UNSUPPORTED,
 } from './collaboration-conversation.js';
 import { SymposiumProvenanceSchema } from './symposium.js';
 import {
@@ -358,7 +359,8 @@ function createVisibleSource(
           AND ${ordinary('t')})) LIMIT 1`,
       )
       .get(args);
-    if (interleaved) fail();
+    if (interleaved)
+      throw new CollaborationContractError('snapshot_changed', STEERED_TURN_UNSUPPORTED);
     if (initialPrompt) {
       const prompt = db
         .prepare(

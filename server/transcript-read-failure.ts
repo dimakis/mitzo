@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ZodError } from 'zod';
+import { CollaborationContractError, STEERED_TURN_UNSUPPORTED } from '@mitzo/protocol';
 import { runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
 
 /** Fixed local failure categories only; provider text and stored content stay in cause. */
@@ -9,6 +10,7 @@ const replayReasons = new Map([
   ['Claude account history unavailable', 'account_history_unavailable'],
   ['Stored event has unverifiable Symposium attribution', 'seat_attribution_invalid'],
   ['Stored Symposium event has mismatched seat provenance', 'seat_attribution_invalid'],
+  [STEERED_TURN_UNSUPPORTED, 'steered_turn_unsupported'],
 ]);
 
 export class TranscriptReadFailure extends Error {
@@ -27,7 +29,10 @@ export class TranscriptReadFailure extends Error {
       this.cause instanceof ZodError
         ? 'history_schema_invalid'
         : this.cause instanceof Error
-          ? (replayReasons.get(this.cause.message) ?? 'history_read_failed')
+          ? (replayReasons.get(this.cause.message) ??
+            (this.cause instanceof CollaborationContractError
+              ? `transcript_contract_${this.cause.code}`
+              : 'history_read_failed'))
           : 'history_read_failed';
     return {
       code: this.code,

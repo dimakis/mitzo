@@ -333,3 +333,20 @@ it('accepts the exact serialized byte boundary consistently at selection and the
     openCollaborationVisibleSource(db, 'one', boundary).readSelected(['first', 'second']),
   ).toThrow('capacity_refused');
 });
+
+it('names a steered turn when refusing an interleaved assistant prefix', () => {
+  user(1, 'u1', 'First');
+  event(2, 'message_start', { messageId: 'a1' });
+  event(3, 'block_start', { messageId: 'a1', blockId: 'b1', blockType: 'text' });
+  user(4, 'u2', 'Steer');
+  event(5, 'block_end', { messageId: 'a1', blockId: 'b1' });
+  event(6, 'message_end', { messageId: 'a1' });
+  let refused: unknown;
+  try {
+    openCollaborationVisibleSource(db, 'one', { sequence: 6, messageId: 'a1' }).readSelected([]);
+  } catch (error) {
+    refused = error;
+  }
+  expect(refused).toMatchObject({ code: 'snapshot_changed' });
+  expect((refused as Error).message).toMatch(/steered turn/);
+});
