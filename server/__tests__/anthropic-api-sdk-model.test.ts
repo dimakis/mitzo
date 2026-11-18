@@ -147,6 +147,7 @@ it.each([true, false])(
         store: f.events,
         custody,
         commandId: selected.commandId,
+        ownerAuthSessionId: owner.authSessionId,
         signal: owner.signal,
         environment: () => owner.environment(),
         sourceWriteRoots: [],
