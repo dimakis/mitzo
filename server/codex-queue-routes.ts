@@ -1,7 +1,7 @@
 import {
   CodexSteerInputSchema,
   type CodexSteerInput,
-  type CodexSteerResult,
+  type UserSteerResult,
 } from './codex-steering.js';
 import { Router } from 'express';
 import type { AuthSession } from './auth.js';
@@ -25,7 +25,7 @@ interface Dependencies {
     binding: AccountBinding,
     input: CodexSteerInput,
     authorization?: AuthSession,
-  ): Promise<CodexSteerResult>;
+  ): Promise<UserSteerResult>;
 
   authorizeMutation?(sessionId: string, authorization?: AuthSession): void;
   binding(sessionId: string): AccountBinding | undefined;

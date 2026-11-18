@@ -9,7 +9,7 @@ import type { EventStore } from './event-store.js';
 import type { AuthSession } from './auth.js';
 import { AgentCommunicationError, type AgentMessageRuntime } from './agent-message-runtime.js';
 import { createLogger } from './logger.js';
-import { SdkUserSteering } from './sdk-user-steering.js';
+import { SDK_STEER_PRIORITY, SdkUserSteering } from './sdk-user-steering.js';
 import type { CodexSteerInput } from './codex-steering.js';
 
 const log = createLogger('sdk-agent-messages');
@@ -27,6 +27,8 @@ type Pending = {
   current(): void;
   signal: AbortSignal;
   attempted: boolean;
+  query?: object;
+  heldTurn?: boolean;
 };
 
 /** Corrections stay in the existing SDK query and its frozen active command.
@@ -142,7 +144,7 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
       // additionally spells its string type as a hyphenated template literal.
       uuid: message.messageId as SDKUserMessage['uuid'],
       parent_tool_use_id: null,
-      priority: 'now',
+      priority: SDK_STEER_PRIORITY,
       message: { role: 'user', content: agentMessagePrompt(message) },
     };
     this.#inputs.set(input, pending);
@@ -276,7 +278,36 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
       return false;
     }
     pending.attempted = true;
+    pending.query = query;
     return true;
+  }
+
+  /** Keep one terminal result open when a steer released to stdin has not been
+   * echoed yet: the CLI runs it as a follow-up turn owned by the same command.
+   * Returns a sanitized label of the steer that claimed the hold. */
+  holdTurnForLateEcho(query: object): { kind: 'correction' | 'peer'; id: string } | undefined {
+    const correction = this.userCorrections.holdTurnForLateEcho(query);
+    if (correction) return { kind: 'correction', id: correction };
+    const target = this.owners.activeCommandId();
+    for (const pending of this.#pending.values()) {
+      if (
+        pending.attempted &&
+        !pending.heldTurn &&
+        pending.query === query &&
+        pending.target === target
+      ) {
+        pending.heldTurn = true;
+        return { kind: 'peer', id: pending.message.messageId };
+      }
+    }
+    return undefined;
+  }
+
+  awaitingLateEcho(query: object): boolean {
+    if (this.userCorrections.awaitingLateEcho(query)) return true;
+    for (const pending of this.#pending.values())
+      if (pending.heldTurn && pending.attempted && pending.query === query) return true;
+    return false;
   }
 
   observe(

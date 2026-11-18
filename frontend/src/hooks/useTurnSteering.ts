@@ -123,10 +123,16 @@ export function useTurnSteering(
         diagnosticId = receipt.body.diagnosticId;
       if (
         receipt.body.requestId === input.requestId &&
-        ['accepted', 'rejected', 'stale_target', 'uncertain'].includes(receipt.body.status)
+        ['accepted', 'rejected', 'stale_target', 'unconfirmed', 'uncertain'].includes(
+          receipt.body.status,
+        )
       ) {
         status = receipt.body.status;
-        refusalProven = ['rejected', 'stale_target'].includes(status);
+        // `unconfirmed` is terminal but proves nothing: its turn ended without the
+        // provider echo, so the correction may or may not have been applied. It
+        // retires the original identity (never replayed) and returns the text to the
+        // operator, who decides whether to resend it as a new message.
+        refusalProven = ['rejected', 'stale_target', 'unconfirmed'].includes(status);
       }
       // An auth/input denial without the matching receipt proves nothing about an earlier attempt.
     } catch {
@@ -135,7 +141,12 @@ export function useTurnSteering(
       clearTimeout(timer);
       scope.busy = false;
     }
-    if (status === 'accepted' || status === 'rejected' || status === 'stale_target') {
+    if (
+      status === 'accepted' ||
+      status === 'rejected' ||
+      status === 'stale_target' ||
+      status === 'unconfirmed'
+    ) {
       try {
         const saved = retained(scope.sessionId);
         if (saved?.requestId === input.requestId) {
@@ -158,7 +169,9 @@ export function useTurnSteering(
               ? ''
               : status === 'stale_target'
                 ? 'That turn has finished. Your correction is still in the input; send it as a new message.'
-                : 'The correction was not accepted. Your draft was kept.',
+                : status === 'unconfirmed'
+                  ? 'The turn ended before this correction was confirmed, so it may or may not have been applied. Check the reply; your text is kept if you want to resend it.'
+                  : 'The correction was not accepted. Your draft was kept.',
         });
     } else {
       scope.pending = input;

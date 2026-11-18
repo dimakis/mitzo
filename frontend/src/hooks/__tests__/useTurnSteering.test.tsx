@@ -269,3 +269,23 @@ it('retains an uncertain correction across a generic auth denial and emits refus
   expect(proof).toHaveBeenCalledOnce();
   expect(delivery).toHaveBeenLastCalledWith('failed');
 });
+it('retires an unconfirmed correction as terminal, returns the text and never replays it', async () => {
+  vi.mocked(apiFetch).mockResolvedValueOnce(Response.json({ code: 'x' }, { status: 503 }));
+  const delivery = vi.fn(),
+    release = vi.fn();
+  const hook = renderHook(() => useTurnSteering('unconfirmed-chat', 'original-turn', true));
+  await act(async () =>
+    hook.result.current.submit('Correction', delivery, undefined, 'req-1', undefined, release),
+  );
+  expect(delivery).toHaveBeenLastCalledWith('uncertain');
+  expect(hook.result.current.retry).toBeDefined();
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    Response.json({ requestId: 'req-1', status: 'unconfirmed' }, { status: 409 }),
+  );
+  await act(async () => hook.result.current.retry!());
+  expect(delivery).toHaveBeenLastCalledWith('failed');
+  expect(release).toHaveBeenCalledOnce();
+  expect(hook.result.current.retry).toBeUndefined();
+  expect(hook.result.current.error).toContain('may or may not have been applied');
+  expect(localStorage.getItem('mitzo-turn-steering:unconfirmed-chat')).toBeNull();
+});
