@@ -72,7 +72,6 @@ async function sdkRepositoryReadFixture() {
     store: f.events,
     custody,
     commandId: selected.commandId,
-    ownerAuthSessionId: owner.authSessionId,
     signal: f.signal.signal,
     environment: () => owner.environment(),
     sourceWriteRoots: [],

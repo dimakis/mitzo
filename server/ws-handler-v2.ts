@@ -584,13 +584,8 @@ export async function handleSwitchSession(
 
       if (!allowOwnedLocalControl(connectionId, msg.sessionId, ctx)) return;
       const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
-      // An admitted Claude conversation writes its session row only when its
-      // queued startup runs. Until then it is starting, not missing: watch it
-      // so startup events reach this client, and send metadata once it exists.
-      const awaitingStartup =
-        !sessionMeta && !!ctx.eventStore.getOrdinaryLocalVertexCustody?.(msg.sessionId);
 
-      if (!sessionMeta && !awaitingStartup) {
+      if (!sessionMeta) {
         ctx.connRegistry.get(connectionId)?.transport.send({
           type: 'error',
           sessionId: msg.sessionId,
@@ -649,11 +644,6 @@ export async function handleSwitchSession(
             found.session.ownerConnectionId = connectionId;
           }
         }
-      }
-
-      if (!sessionMeta) {
-        log.info('switch_session awaiting startup', { connectionId, sessionId: msg.sessionId });
-        return;
       }
 
       // Cross-reference registry with durable state to avoid reporting

@@ -50,8 +50,6 @@ export class OrdinaryLocalVertexSdkAuthority {
       store: EventStore;
       custody: OrdinaryLocalVertexCustody;
       commandId: string;
-      /** Login that owns the live driver; retained from its first registration. */
-      ownerAuthSessionId: string;
       signal?: AbortSignal;
       /** Existing exact AccountProfiles.sdkEnv projection, re-resolved every effect. */
       environment(): Record<string, string | undefined>;
@@ -81,9 +79,6 @@ export class OrdinaryLocalVertexSdkAuthority {
   }
   sdkSessionId(): string {
     return this.#custody.sdkSessionId;
-  }
-  ownerAuthSessionId(): string {
-    return this.owners.ownerAuthSessionId;
   }
   writeRoots(): readonly string[] {
     const credential = this.#custody.credentialAuthority;

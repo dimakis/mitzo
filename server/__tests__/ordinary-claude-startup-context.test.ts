@@ -165,7 +165,6 @@ async function fixture(personal: boolean, consumeInput = false) {
       store: f.events,
       custody: f.events.getOrdinaryLocalVertexCustody(selected.sessionId)!,
       commandId: selected.commandId,
-      ownerAuthSessionId: owner.authSessionId,
       signal: owner.signal,
       environment: () => owner.environment(),
       sourceWriteRoots: [],
@@ -196,7 +195,7 @@ async function fixture(personal: boolean, consumeInput = false) {
         ordinarySdkCommandOwner: (_native, send, apply) => {
           chat.registry.get('startup-context')!.ordinaryRuntimeOwner = {
             location: 'local',
-            authSessionId: owner.authSessionId,
+            authSessionId: 'offline-sdk-operator',
             identity: owner,
             initialCommandId: f.request.clientMsgId,
             admit: (request) => owner.admit(request),
@@ -514,15 +513,14 @@ it.each([false, true])(
           draft: true,
         },
       });
-      // The per-query server carries the native call fence through owner
-      // capture: the driver is bound to its operator from registration, so the
-      // call reaches the managed-connection check, which this offline fixture
-      // lacks. The signed publication chain is covered in
+      // The per-query server carries the native call fence into owner capture.
+      // This adapter fixture's synthetic runtime owner is not its bound operator,
+      // so capture stops there; the signed-operator chain is covered in
       // github-publishing-tool.test.ts with the same server and fence.
       expect(result.isError).toBe(true);
-      expect((result.content as Array<{ text: string }>)[0].text).toMatch(
-        /needs a configured managed GitHub connection/,
-      );
+      const failure = JSON.parse((result.content as Array<{ text: string }>)[0].text);
+      expect(failure).toMatchObject({ stage: 'owner_capture', operationRecorded: false });
+      expect(failure.reason).not.toBe('native_call_required');
     } finally {
       await client.close();
     }
@@ -557,40 +555,6 @@ it('prepares startup context while Tool Library discovery is still pending', asy
   const admitted = x.owner.admit(x.f.request);
   await vi.waitFor(() => expect(x.reconcile).toHaveBeenCalled());
   expect(x.calls).toHaveLength(0);
-  finishDiscovery();
-  await admitted;
-  await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
-}, 20_000);
-
-it('keeps the operator in control when its stream reconnects during Claude startup', async () => {
-  const x = await fixture(false, true);
-  const library = await import('../tool-library-sdk.js');
-  let finishDiscovery!: () => void;
-  const discovery = new Promise<undefined>((resolve) => {
-    finishDiscovery = () => resolve(undefined);
-  });
-  vi.spyOn(library, 'createSdkToolLibrary').mockReturnValue(discovery);
-  const admitted = x.owner.admit(x.f.request);
-  await vi.waitFor(() => expect(x.reconcile).toHaveBeenCalled());
-  // Startup is registered but the native SDK query does not exist yet.
-  expect(x.calls).toHaveLength(0);
-  const session = x.chat.registry.get('startup-context')!;
-  expect(session.ownedLocalAuthSessionId).toBe(x.owner.authSessionId);
-
-  const { claimTransportConnection, releaseTransportConnection } =
-    await import('../transport-auth-ownership.js');
-  const { ownedLocalControlStatus } = await import('../owned-local-codex-control.js');
-  const ctx = { sessionRegistry: x.chat.registry, eventStore: x.chat.eventStore };
-  const open = { isOpen: () => true } as never;
-  const reconnected = 'conn-reconnected-during-startup';
-  claimTransportConnection(reconnected, x.owner.authSessionId);
-  cleanups.push(() => releaseTransportConnection(reconnected, x.owner.authSessionId));
-  expect(ownedLocalControlStatus(reconnected, session.sessionId!, open, ctx)).toBe('authorized');
-  const stranger = 'conn-other-login-during-startup';
-  claimTransportConnection(stranger, 'other-login');
-  cleanups.push(() => releaseTransportConnection(stranger, 'other-login'));
-  expect(ownedLocalControlStatus(stranger, session.sessionId!, open, ctx)).toBe('denied');
-
   finishDiscovery();
   await admitted;
   await vi.waitFor(() => expect(x.inputs).toHaveLength(1));

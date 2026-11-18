@@ -1213,25 +1213,6 @@ describe('handleSwitchSession', () => {
     });
   });
 
-  it('watches an admitted Claude conversation whose startup has not written its row', async () => {
-    const eventStore = mockEventStore();
-    eventStore.getSession.mockReturnValue(null);
-    const custody = vi.fn((sessionId: string) =>
-      sessionId === 'admitted' ? { sessionId } : undefined,
-    );
-    Object.assign(eventStore, { getOrdinaryLocalVertexCustody: custody });
-    const ctx = createContext({
-      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
-    });
-    const transport = mockTransport();
-    ctx.connRegistry.register('c1', transport);
-    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'admitted' }, ctx);
-    expect(transport.sent.filter((event) => event.type === 'error')).toEqual([]);
-    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('admitted')).toBe(true);
-    expect(ctx.connRegistry.get('c1')?.activeSession).toBe('admitted');
-    expect(custody).toHaveBeenCalledWith('admitted');
-  });
-
   it('sets active session and sends session metadata from event store', async () => {
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue({
