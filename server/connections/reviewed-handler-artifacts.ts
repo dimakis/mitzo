@@ -1859,7 +1859,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-native-candidate.py':
     'd188729c059ba785715b2eb1271d765cdf7b2f88768ad7043da43b6602f3eefb',
   '../../scripts/ci-native-repository-workflows.mjs':
-    '3dd1b0c90d7bffba8f7665934133ff942cee1c024cd6ce14049fb482f21bfac6',
+    '6859e6d3c5cdb5278a4c30f796f4666405ea6e118715835950dc25325487e96d',
   '../../scripts/ci-prepared-consumer-gate.mjs':
     '2e073dd2a187060424fcb3d4fd1e79c1c91723bfbecf668a3bf2fe252175a0ef',
   '../../scripts/ci-prepared-consumers.mjs':

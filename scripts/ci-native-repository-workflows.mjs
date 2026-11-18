@@ -36,6 +36,29 @@ function requireNativeEvidence(value, account) {
   )
     throw Error('Incomplete native repository evidence for ' + account);
 }
+/** Surface the failing assertion as a check annotation. The job log and evidence
+ * artifacts are not always readable by reviewers, while annotations are. */
+function annotateNativeFailure(selected, report, error) {
+  if (!process.env.GITHUB_ACTIONS) return;
+  const escape = (text) => text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  let messages;
+  try {
+    const observed = JSON.parse(readFileSync(report, 'utf8'));
+    messages = (observed.testResults ?? []).flatMap((suite) => [
+      ...(suite.assertionResults ?? [])
+        .filter((test) => test.status === 'failed')
+        .map((test) => test.fullName + ': ' + (test.failureMessages ?? []).join('\n')),
+      ...(suite.message ? [suite.message] : []),
+    ]);
+  } catch (cause) {
+    messages = ['Vitest report unavailable: ' + String(cause)];
+  }
+  if (messages.length === 0) messages = [String(error)];
+  for (const message of messages.slice(0, 6))
+    process.stderr.write(
+      `::error file=${selected.file},line=1::${selected.account}: ${escape(message.slice(0, 4096))}\n`,
+    );
+}
 export async function runNativeRepositoryWorkflows({ root, runner = runBrowserCommand }) {
   const require = createRequire(import.meta.url);
   const vitest = join(dirname(require.resolve('vitest/package.json')), 'vitest.mjs');
@@ -99,6 +122,7 @@ export async function runNativeRepositoryWorkflows({ root, runner = runBrowserCo
       summary.push({ ...selected, status: 'passed', report, evidence: proof });
     } catch (error) {
       summary.push({ ...selected, status: 'failed', code, error: String(error) });
+      annotateNativeFailure(selected, report, error);
     }
     // Native helpers retain their existing own cleanup. A fresh process isolates
     // test JavaScript; cancellation must never admit the next account.
