@@ -51,6 +51,24 @@ export async function retainReadOnlyCallbackOutcome<T extends object | undefined
   return result;
 }
 
+/** Top-level assistant text is the agent's follow-up to earlier tool results. Sub-agent
+ * messages, thinking and tool-only messages explain nothing to the operator. */
+export function observeAssistantFollowUp(
+  event: Readonly<Record<string, unknown>>,
+  c: TurnCallbacks,
+) {
+  if (event.type !== 'assistant' || event.parent_tool_use_id) return;
+  const content = (event.message as { content?: unknown } | undefined)?.content;
+  if (
+    Array.isArray(content) &&
+    content.some(
+      (block) =>
+        block?.type === 'text' && typeof block.text === 'string' && block.text.trim().length > 0,
+    )
+  )
+    c.explainUncertainOutcomes();
+}
+
 /** Surface a settled turn's uncertain tool effects on its terminal result, the
  * same notice the Codex route shows. A provider failure keeps its own message. */
 export function withUncertainOutcomeNotice<T extends object>(
@@ -91,6 +109,12 @@ export class TurnCallbacks {
   }
   get needsSettlement() {
     return this.pending.size > 0 || !!this.failure;
+  }
+  /** The model wrote visible text after seeing the outcomes counted so far, so
+   * those outcomes are followed up. Like the Codex route, only an outcome that
+   * settles later, or that the turn never follows up, reaches the result notice. */
+  explainUncertainOutcomes() {
+    this.uncertain = 0;
   }
   track<T>(
     operation: () => Promise<T>,

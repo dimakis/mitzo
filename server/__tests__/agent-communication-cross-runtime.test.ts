@@ -577,7 +577,7 @@ it.each([
       if (sdkAdapter) {
         const receipt = JSON.parse((result.content as Array<{ text: string }>)[0].text);
         expect(receipt.status).toBe('uncertain');
-        expect(sdkInput).toMatchObject({ priority: 'now', uuid: receipt.messageId });
+        expect(sdkInput).toMatchObject({ priority: 'next', uuid: receipt.messageId });
         expect(sdkAdapter.beforeInput(sdkInput!)).toBe(true);
         expect(
           sdkAdapter.observe({ type: 'user', uuid: sdkInput!.uuid, message: sdkInput!.message }),

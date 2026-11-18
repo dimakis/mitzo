@@ -5,6 +5,7 @@ import {
   useId,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -92,15 +93,44 @@ export function ComposerStatusRail({
   recipients?: string;
 }) {
   const { activities, connected, lastKnownActivities = [] } = useSessionOverview();
-  const activity = (connected ? activities : lastKnownActivities).find(
+  const reportedActivity = (connected ? activities : lastKnownActivities).find(
     (a) => a.sessionId === sessionId,
   );
+  const activityKey =
+    reportedActivity &&
+    JSON.stringify([
+      reportedActivity.state,
+      reportedActivity.phase,
+      reportedActivity.lastEventAt,
+      reportedActivity.turnStartedAt,
+      reportedActivity.completedAt,
+      reportedActivity.stateChangedAt,
+    ]);
+  const run = useRef<{ sessionId?: string; running: boolean; startActivityKey?: string }>({
+    sessionId,
+    running,
+  });
+  if (run.current.sessionId !== sessionId || run.current.running !== running) {
+    // A newly observed start outranks the preceding turn's cached status until
+    // the overview changes. Repeated unrelated broadcasts cannot renew it.
+    const startActivityKey =
+      run.current.sessionId === sessionId &&
+      running &&
+      reportedActivity?.state !== 'working' &&
+      reportedActivity?.state !== 'init'
+        ? activityKey
+        : undefined;
+    run.current = { sessionId, running, startActivityKey };
+  }
+  const activity = activityKey === run.current.startActivityKey ? undefined : reportedActivity;
   // Unassigned admission rails keep their existing transport notices. Once a
   // session is assigned, a retained running flag is not proof of live activity.
   const live = !sessionId || connected;
+  const liveRunning =
+    running && live && (!activity || activity.state === 'working' || activity.state === 'init');
   const workingLabel = !live
     ? 'Reconnecting'
-    : activity?.state === 'working'
+    : activity
       ? sessionActivityLabel(activity)
       : 'Working';
   const sink = useComposerStatusSink();
@@ -162,7 +192,7 @@ export function ComposerStatusRail({
         aria-label="Conversation status"
         data-tone={tone}
       >
-        {running && live && tone === 'normal' ? (
+        {liveRunning && tone === 'normal' ? (
           <ActivityBars />
         ) : (
           <span className="composer-status-dot" aria-hidden="true" />
@@ -174,7 +204,7 @@ export function ComposerStatusRail({
         >
           {message}
         </span>
-        {running && live && tone === 'normal' && activity?.turnStartedAt !== undefined && (
+        {liveRunning && tone === 'normal' && activity?.turnStartedAt !== undefined && (
           <SessionTurnElapsed startedAt={activity.turnStartedAt} />
         )}
         {recipients && (
@@ -235,7 +265,9 @@ export function ComposerStatusRail({
             <p className="composer-status-baseline">
               {running
                 ? live
-                  ? 'Agent working'
+                  ? liveRunning
+                    ? 'Agent working'
+                    : workingLabel
                   : 'Reconnecting; showing last known activity'
                 : issues.length > 0
                   ? 'Needs attention before continuing'

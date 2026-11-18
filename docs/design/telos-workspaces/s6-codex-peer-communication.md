@@ -60,8 +60,9 @@ peer prompt through native `turn/steer`, targeting the exact accepted live turn.
 Only an inactive/stale target falls back to the queue; rejection or uncertainty
 never causes another delivery attempt. Stop/recovery remains paused.
 
-The owned Local Claude SDK adapter uses `priority: now` on the existing query's
-stdin. It captures the active ordinary command and checks original source
+The owned Local Claude SDK adapter uses `priority: next` on the existing query's
+stdin (`now` aborts the recipient's running turn; a late `next` steer runs as a
+follow-up turn that the owner keeps under the same command). It captures the active ordinary command and checks original source
 approval, operator, target owner, target command and Stop state immediately
 before yielding the correction. The exact replay-user-messages acknowledgement
 updates the retained peer receipt and is filtered before the ordinary

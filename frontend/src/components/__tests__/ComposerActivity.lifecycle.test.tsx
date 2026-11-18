@@ -97,3 +97,139 @@ it('describes a stopped recovery fence without claiming the chat is ready', () =
   view.rerender(<Fixture blocked={false} />);
   expect(within(dialog).getByText('Ready for your next message')).toBeTruthy();
 });
+
+it('refreshes a completed turn from activity evidence before the message stream catches up', () => {
+  const activity = {
+    sessionId: 'one',
+    clientId: 'client',
+    title: 'Command',
+    flags: [],
+    state: 'working',
+    phase: 'command',
+    turnStartedAt: 60_000,
+    lastEventAt: 100_000,
+  };
+  act(() => {
+    bus.connection(true);
+    bus.activity([activity]);
+  });
+  render(
+    <ComposerStatusProvider>
+      <ComposerStatusRail sessionId="one" running />
+    </ComposerStatusProvider>,
+  );
+  const row = screen.getByRole('region', { name: 'Conversation status' });
+  expect(within(row).getByRole('status').textContent).toBe('Running command');
+  act(() => bus.activity([{ ...activity, state: 'done', phase: undefined, completedAt: 120_000 }]));
+  expect(within(row).getByRole('status').textContent).toBe('Finished');
+  expect(row.querySelector('.session-activity-bars')).toBeNull();
+  expect(within(row).queryByText(/elapsed/)).toBeNull();
+  fireEvent.click(within(row).getByRole('button', { name: 'Conversation status details' }));
+  const dialog = screen.getByRole('dialog', { name: 'Conversation status' });
+  expect(within(dialog).queryByText('Agent working')).toBeNull();
+});
+
+it('uses the selected chat status immediately without waiting for another activity event', () => {
+  act(() => {
+    bus.connection(true);
+    bus.activity([
+      {
+        sessionId: 'one',
+        clientId: 'first',
+        title: 'Command',
+        flags: [],
+        state: 'working',
+        phase: 'command',
+        turnStartedAt: 60_000,
+        lastEventAt: 100_000,
+      },
+      {
+        sessionId: 'two',
+        clientId: 'second',
+        title: 'Idle chat',
+        flags: [],
+        state: 'idle',
+        lastEventAt: 90_000,
+      },
+    ]);
+  });
+  function Fixture({ id }: { id: string }) {
+    return (
+      <ComposerStatusProvider>
+        <ComposerStatusRail sessionId={id} running />
+      </ComposerStatusProvider>
+    );
+  }
+  const view = render(<Fixture id="one" />);
+  const row = screen.getByRole('region', { name: 'Conversation status' });
+  expect(within(row).getByRole('status').textContent).toBe('Running command');
+  view.rerender(<Fixture id="two" />);
+  expect(within(row).getByRole('status').textContent).toBe('Idle');
+  expect(row.querySelector('.session-activity-bars')).toBeNull();
+  expect(within(row).queryByText(/elapsed/)).toBeNull();
+});
+
+it('does not reuse the previous turn completion when a new turn starts', () => {
+  const finished = {
+    sessionId: 'one',
+    clientId: 'client',
+    title: 'Previous turn',
+    flags: [],
+    state: 'done',
+    lastEventAt: 100_000,
+    completedAt: 100_000,
+    turnStartedAt: 60_000,
+  };
+  act(() => {
+    bus.connection(true);
+    bus.activity([finished]);
+  });
+  function Fixture({ running }: { running: boolean }) {
+    return (
+      <ComposerStatusProvider>
+        <ComposerStatusRail sessionId="one" running={running} />
+      </ComposerStatusProvider>
+    );
+  }
+  const view = render(<Fixture running={false} />);
+  view.rerender(<Fixture running />);
+  const row = screen.getByRole('region', { name: 'Conversation status' });
+  expect(within(row).getByRole('status').textContent).toBe('Working');
+  expect(within(row).queryByText(/elapsed/)).toBeNull();
+  // An unrelated broadcast may repeat the previous turn's exact observation.
+  act(() => bus.activity([{ ...finished }]));
+  expect(within(row).getByRole('status').textContent).toBe('Working');
+  act(() => bus.activity([{ ...finished, lastEventAt: 120_000, completedAt: 120_000 }]));
+  expect(within(row).getByRole('status').textContent).toBe('Finished');
+});
+
+it('keeps fresh working activity when its start reaches the overview first', () => {
+  act(() => {
+    bus.connection(true);
+    bus.activity([]);
+  });
+  function Fixture({ running }: { running: boolean }) {
+    return (
+      <ComposerStatusProvider>
+        <ComposerStatusRail sessionId="one" running={running} />
+      </ComposerStatusProvider>
+    );
+  }
+  const view = render(<Fixture running={false} />);
+  act(() =>
+    bus.activity([
+      {
+        sessionId: 'one',
+        clientId: 'client',
+        title: 'New turn',
+        flags: [],
+        state: 'working',
+        phase: 'reading',
+        turnStartedAt: 120_000,
+        lastEventAt: 120_000,
+      },
+    ]),
+  );
+  view.rerender(<Fixture running />);
+  expect(screen.getByRole('status').textContent).toBe('Reading files');
+});
