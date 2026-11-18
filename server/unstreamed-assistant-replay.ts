@@ -16,8 +16,13 @@
 type SdkMessage = Record<string, unknown>;
 
 export interface UnstreamedAssistantReplayObserver {
-  /** One envelope was replayed as stream events. */
-  replayed(detail: { messageId: string; blockCount: number; skippedBlockTypes: string[] }): void;
+  /** One non-streamed envelope was examined; new supported blocks were replayed. */
+  replayed(detail: {
+    messageId: string;
+    blockCount: number;
+    duplicateBlockCount: number;
+    skippedBlockTypes: string[];
+  }): void;
   /** Late stream events for an already replayed message were dropped. */
   suppressedLateStream(detail: { messageId: string }): void;
 }
@@ -120,9 +125,11 @@ export async function* replayUnstreamedAssistantMessages(
   observer: UnstreamedAssistantReplayObserver,
 ): AsyncGenerator<SdkMessage> {
   const streamed = new Set<string>();
-  // Replayed message → next content index. The CLI may split one API message
-  // into several envelopes; later envelopes continue that message's indices.
-  const replayed = new Map<string, number>();
+  // Replayed message → next content index and the blocks already replayed. The
+  // CLI may split one API message into several envelopes; later envelopes
+  // continue its indices. A late stream's completing envelope, or a cumulative
+  // envelope, repeats replayed blocks and must not replay them again.
+  const replayed = new Map<string, { nextIndex: number; blocks: Set<string> }>();
   let suppressing: string | null = null;
 
   for await (const msg of source) {
@@ -155,23 +162,32 @@ export async function* replayUnstreamedAssistantMessages(
         msg.isApiErrorMessage !== true &&
         content.length > 0
       ) {
-        let index = replayed.get(id) ?? 0;
+        const prior = replayed.get(id);
+        let index = prior?.nextIndex ?? 0;
+        const replayedBlocks = new Set(prior?.blocks);
         const blocks: SdkMessage[] = [];
         const skippedBlockTypes: string[] = [];
         let blockCount = 0;
+        let duplicateBlockCount = 0;
         for (const block of content) {
+          const identity = JSON.stringify(block);
+          if (prior?.blocks.has(identity)) {
+            duplicateBlockCount += 1;
+            continue;
+          }
           const replay = block && typeof block === 'object' ? blockEvents(msg, index, block) : null;
           if (!replay) {
             skippedBlockTypes.push(String((block as { type?: unknown })?.type ?? 'unknown'));
             continue;
           }
+          replayedBlocks.add(identity);
           blocks.push(...replay);
           index += 1;
           blockCount += 1;
         }
-        observer.replayed({ messageId: id, blockCount, skippedBlockTypes });
+        observer.replayed({ messageId: id, blockCount, duplicateBlockCount, skippedBlockTypes });
         if (blockCount > 0) {
-          if (!replayed.has(id)) {
+          if (!prior) {
             yield streamEvent(msg, {
               type: 'message_start',
               message: {
@@ -185,7 +201,7 @@ export async function* replayUnstreamedAssistantMessages(
               },
             });
           }
-          replayed.set(id, index);
+          replayed.set(id, { nextIndex: index, blocks: replayedBlocks });
           for (const event of blocks) yield event;
         }
       }

@@ -80,6 +80,7 @@ it('replays a non-streamed reply as stream events ahead of its envelope', async 
   expect(observer.replayed).toHaveBeenCalledWith({
     messageId: 'msg_fallback',
     blockCount: 3,
+    duplicateBlockCount: 0,
     skippedBlockTypes: [],
   });
 });
@@ -96,12 +97,21 @@ it('continues indices without a second message_start for split envelopes', async
   expect(starts.map((msg) => (msg.event as { index: number }).index)).toEqual([0, 1]);
 });
 
-it('drops a late stream for a message it already replayed', async () => {
+it('drops a late stream, including its completing envelope, for a replayed message', async () => {
+  const lateEnvelope = assistant('msg_late', [{ type: 'text', text: 'once' }]);
+  const split = assistant('msg_late', [
+    { type: 'tool_use', id: 'toolu_3', name: 'Read', input: {} },
+  ]);
   const { out, observer } = await run([
     assistant('msg_late', [{ type: 'text', text: 'once' }]),
     stream({ type: 'message_start', message: { id: 'msg_late' } }),
     stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+    stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'once' } }),
     stream({ type: 'content_block_stop', index: 0 }),
+    // The late stream completes with an envelope repeating the replayed block.
+    lateEnvelope,
+    // A later split envelope still adds its new block exactly once.
+    split,
     stream({ type: 'message_start', message: { id: 'msg_next' } }),
   ]);
   expect(events(out)).toEqual([
@@ -110,10 +120,43 @@ it('drops a late stream for a message it already replayed', async () => {
     'content_block_delta',
     'content_block_stop',
     'assistant',
+    'assistant',
+    'content_block_start',
+    'content_block_delta',
+    'content_block_stop',
+    'assistant',
     'message_start',
   ]);
+  const deltas = out.filter(
+    (msg) => (msg.event as { type?: string } | undefined)?.type === 'content_block_delta',
+  );
+  expect(deltas.map((msg) => (msg.event as { index: number }).index)).toEqual([0, 1]);
+  expect(JSON.stringify(deltas).match(/once/g)).toHaveLength(1);
+  expect(out[5]).toBe(lateEnvelope);
   expect((out.at(-1)!.event as Msg).message).toEqual({ id: 'msg_next' });
   expect(observer.suppressedLateStream).toHaveBeenCalledWith({ messageId: 'msg_late' });
+  expect(observer.replayed).toHaveBeenCalledWith({
+    messageId: 'msg_late',
+    blockCount: 0,
+    duplicateBlockCount: 1,
+    skippedBlockTypes: [],
+  });
+});
+
+it('replays only new blocks from a cumulative envelope', async () => {
+  const text = { type: 'text', text: 'first' };
+  const tool = { type: 'tool_use', id: 'toolu_4', name: 'Bash', input: { command: 'ls' } };
+  const { out } = await run([
+    assistant('msg_cumulative', [text]),
+    assistant('msg_cumulative', [text, tool]),
+  ]);
+  const starts = out.filter(
+    (msg) => (msg.event as { type?: string } | undefined)?.type === 'content_block_start',
+  );
+  expect(
+    starts.map((msg) => (msg.event as { content_block: { type: string } }).content_block.type),
+  ).toEqual(['text', 'tool_use']);
+  expect(starts.map((msg) => (msg.event as { index: number }).index)).toEqual([0, 1]);
 });
 
 it.each([
@@ -151,6 +194,7 @@ it('reports unsupported blocks and emits no empty message', async () => {
   expect(observer.replayed).toHaveBeenCalledWith({
     messageId: 'msg_server',
     blockCount: 0,
+    duplicateBlockCount: 0,
     skippedBlockTypes: ['server_tool_use'],
   });
 });

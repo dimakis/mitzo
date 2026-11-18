@@ -861,12 +861,13 @@ async function _runQueryLoopInner(
     // outer try ensures span.end() always fires
     try {
       for await (const msg of replayUnstreamedAssistantMessages(q, {
-        replayed: ({ messageId, blockCount, skippedBlockTypes }) => {
+        replayed: ({ messageId, blockCount, duplicateBlockCount, skippedBlockTypes }) => {
           const detail = {
             clientId,
             code: 'sdk_unstreamed_assistant_replayed',
             nativeMessageId: messageId,
             blockCount,
+            ...(duplicateBlockCount ? { duplicateBlockCount } : {}),
             ...(skippedBlockTypes.length ? { skippedBlockTypes } : {}),
           };
           if (skippedBlockTypes.length)
