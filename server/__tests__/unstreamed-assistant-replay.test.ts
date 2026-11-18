@@ -149,6 +149,50 @@ it('drops a late stream, including its completing envelope, for a replayed messa
   });
 });
 
+it('locates late-stream envelopes that arrive before their content_block_stop', async () => {
+  const tool = { type: 'tool_use', id: 'toolu_5', name: 'Bash', input: { command: 'ls' } };
+  const { out, observer } = await run([
+    assistant('msg_early', [{ type: 'text', text: 'recovered' }]),
+    stream({ type: 'message_start', message: { id: 'msg_early' } }),
+    stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+    stream({
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'text_delta', text: 'recovered' },
+    }),
+    // Envelope before its stop: the already replayed block, not a new one.
+    assistant('msg_early', [{ type: 'text', text: 'recovered' }]),
+    stream({ type: 'content_block_stop', index: 0 }),
+    stream({
+      type: 'content_block_start',
+      index: 1,
+      content_block: { type: 'tool_use', id: 'toolu_5', name: 'Bash', input: {} },
+    }),
+    // Envelope before its stop: a new tool call that must be replayed once.
+    assistant('msg_early', [tool]),
+    stream({ type: 'content_block_stop', index: 1 }),
+  ]);
+  const starts = out.filter(
+    (msg) => (msg.event as { type?: string } | undefined)?.type === 'content_block_start',
+  );
+  expect(
+    starts.map((msg) => (msg.event as { content_block: { type: string } }).content_block.type),
+  ).toEqual(['text', 'tool_use']);
+  expect(starts.map((msg) => (msg.event as { index: number }).index)).toEqual([0, 1]);
+  expect(observer.replayed).toHaveBeenNthCalledWith(2, {
+    messageId: 'msg_early',
+    blockCount: 0,
+    duplicateBlockCount: 1,
+    skippedBlockTypes: [],
+  });
+  expect(observer.replayed).toHaveBeenNthCalledWith(3, {
+    messageId: 'msg_early',
+    blockCount: 1,
+    duplicateBlockCount: 0,
+    skippedBlockTypes: [],
+  });
+});
+
 it('keeps a late stream block whose text repeats an already replayed block', async () => {
   const same = { type: 'text', text: 'again' };
   const text = (index: number) => [

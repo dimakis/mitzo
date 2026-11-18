@@ -4380,9 +4380,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
   '../query-loop.ts': '0de213c7356720c7b45842946755241fee768bc6e6be5f05de06ac9187f9241c',
   '../unstreamed-assistant-replay.ts':
-    '72e503fc152ad1dbd4fe622d9689e9d2bdf3906639179756bcf34980a65e2268',
+    '32dad727dc7f36522f90babdb6af8eb6cd73a685025814b1b7eb3ecde8410bf2',
   '../__tests__/unstreamed-assistant-replay.test.ts':
-    'b9a46665470bd890f4aeb5e14b9f7b162f64b0b9d35b5ba77056536c5c041264',
+    'cbfc73ab0adc7ab1ea073867479a3cf09eca2fceb2ee8444e6133ae3cbf5aa91',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',

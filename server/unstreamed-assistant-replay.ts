@@ -132,9 +132,12 @@ export async function* replayUnstreamedAssistantMessages(
   const replayed = new Map<string, { nextIndex: number; covered: number }>();
   // A late stream for a replayed message is suppressed. Its envelopes are
   // located by the stream's own block positions: positions already covered were
-  // replayed; later positions are new and still replayed once.
+  // replayed; later positions are new and still replayed once. A block's
+  // envelope follows that block's content_block_start and precedes the next
+  // block's start, but may arrive before or after its content_block_stop, so the
+  // most recently started block identifies it.
   let suppressing: string | null = null;
-  let lateStopIndex: number | null = null;
+  let lateActiveIndex: number | null = null;
 
   for await (const msg of source) {
     if (msg.type === 'stream_event' && topLevel(msg)) {
@@ -142,7 +145,7 @@ export async function* replayUnstreamedAssistantMessages(
       if (event?.type === 'message_start') {
         const id = apiMessageId((event.message as Record<string, unknown> | undefined)?.id);
         suppressing = id && replayed.has(id) ? id : null;
-        lateStopIndex = null;
+        lateActiveIndex = null;
         if (suppressing) {
           observer.suppressedLateStream({ messageId: suppressing });
           continue;
@@ -150,8 +153,8 @@ export async function* replayUnstreamedAssistantMessages(
         if (id) streamed.add(id);
       }
       if (suppressing) {
-        if (event?.type === 'content_block_stop' && Number.isInteger(event.index))
-          lateStopIndex = event.index as number;
+        if (event?.type === 'content_block_start' && Number.isInteger(event.index))
+          lateActiveIndex = event.index as number;
         continue;
       }
       yield msg;
@@ -176,8 +179,8 @@ export async function* replayUnstreamedAssistantMessages(
         const covered = prior?.covered ?? 0;
         // API position of this envelope's first block.
         const firstPosition =
-          suppressing === id && lateStopIndex !== null
-            ? lateStopIndex - (content.length - 1)
+          suppressing === id && lateActiveIndex !== null
+            ? lateActiveIndex - (content.length - 1)
             : covered;
         const blocks: SdkMessage[] = [];
         const skippedBlockTypes: string[] = [];
