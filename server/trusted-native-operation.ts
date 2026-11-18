@@ -2,6 +2,8 @@ import { retainCallbackOutcome } from './turn-callbacks.js';
 import { githubReadProjection, githubReadSummary } from './github-read-summary.js';
 import {
   GITHUB_LOG_SOURCE_LIMIT,
+  classifyGithubLogTransportFailure,
+  describeGithubLogTransportFailure,
   githubLogPage,
   validateGithubLogRead,
   type GithubLogRead,
@@ -80,6 +82,12 @@ async function run(
       },
       (error, stdout, stderr) => {
         if (error) {
+          // Never echo stderr or stdout: stdout can hold unfiltered CI log text
+          // and stderr can hold the signed blob URL. Classify instead.
+          const transport =
+            options.boundedReadDiagnostics && !error.killed && !options.signal.aborted
+              ? classifyGithubLogTransportFailure(typeof stderr === 'string' ? stderr : '')
+              : undefined;
           if (options.boundedReadDiagnostics)
             log.warn('GitHub log transport failed', {
               stage: 'github-log-read',
@@ -87,6 +95,7 @@ async function run(
               cancelled: options.signal.aborted,
               killed: error.killed === true,
               exitCode: typeof error.code === 'number' ? error.code : undefined,
+              ...(transport ? { transport } : {}),
             });
           if (options.readOnly && error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
             reject(
@@ -97,9 +106,18 @@ async function run(
             return;
           }
           const failure = options.boundedReadDiagnostics
-            ? new Error('GitHub log transport failed; no log content was returned', {
-                cause: error,
-              })
+            ? new Error(
+                'GitHub log transport failed' +
+                  (options.signal.aborted
+                    ? ''
+                    : error.killed
+                      ? ' (timed out)'
+                      : transport && transport.reason !== 'unknown'
+                        ? `: ${describeGithubLogTransportFailure(transport)}`
+                        : '') +
+                  '; no log content was returned',
+                { cause: error },
+              )
             : new Error((stderr || stdout || error.message).trim());
           // Only the original read adapter can attest to a normal process exit.
           // Cancellation, timeouts and writes retain uncertainty.

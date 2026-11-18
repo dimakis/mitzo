@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1252-claude-startup-reconnect-control';
+  'v1.0.1253-github-log-transport-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3656,7 +3656,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/trusted-native-operation-partial.test.ts':
     '3b6bb301cba2a336dc94b61b910ff9232ef19c253e45e911c6b09d84eab96e79',
   '../__tests__/trusted-native-operation.test.ts':
-    'f8c1da52d604967fea89d90064acfa0e4660f6bd7a4946c596c81096cf5d1e67',
+    '724d2e2236e1b38e0f848c28856a237115bc25735d81e27436dc24c0df48c075',
   '../__tests__/turn-callbacks.test.ts':
     '9bd9467485be14c6d6d0a46875e8442f9727139357c8c731afd6485e4a4b4205',
   '../__tests__/unified-inbox-routes.test.ts':
@@ -3952,7 +3952,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../git-version.ts': '405110af784b38f664fa6165bc83da008aae9de92410395d22a031c6c6b4d220',
   '../github-host-source.ts': 'cd0468ec4645d6aacd91b59c70ee5957e4d40e154851af3a569638e3e6083390',
-  '../github-log-read.ts': '7f6ec3cff9629e55c95442b38baacd3606b6dbba272dfeb159a1ae22b01c551a',
+  '../github-log-read.ts': '121d83a3a1ba6deb55527fc1e31a248df313ccea94491d8116260cba3b7432a2',
   '../github-main-merge-selection.ts':
     '984cd9a21ee5b40cbe33a27ce732f7a99ee9c9c8593aef0f675121b054fb316e',
   '../github-main-publication-dispatch.ts':
@@ -4831,7 +4831,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../transport-auth-ownership.ts':
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
   '../trusted-native-operation.ts':
-    '0c96fb2b120d78176e41e27764401b9d74155c10f709dfd9c8544a21153bf410',
+    'ade67d1ee380b44f1dd5100743aac957159ba9e9168c91416953d75132110cf5',
   '../turn-callbacks.ts': '88e4efd195098dff2c7727de11c5ecb14934cf9e96127b98ba4cdf0db67e5fa7',
   '../unified-inbox-routes.ts': '6413398c77b9f1c62fbb1c597d5cf7c857b65338b23592ce9751cf6755e271d4',
   '../unified-inbox.ts': '6ca474e1069e33341bfe53f87b3022372645e250beffa0d7082b138bf90911df',

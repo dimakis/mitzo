@@ -172,12 +172,58 @@ it.each(['timeout', 'abort', 'exit'] as const)(
     ).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).toBe(
-      'GitHub log transport failed; no log content was returned',
+      kind === 'timeout'
+        ? 'GitHub log transport failed (timed out); no log content was returned'
+        : 'GitHub log transport failed; no log content was returned',
     );
+    expect((failure as Error).message).not.toMatch(/PRIVATE|private stderr/);
     expect((failure as Error).cause).toBeInstanceOf(Error);
     expect(retainedCallbackOutcome(failure as Error)).toBe(kind === 'exit' ? 'settled' : undefined);
   },
 );
+
+it.each([
+  [
+    'gh: Must have admin rights to Repository. (HTTP 403)\n',
+    'GitHub API returned HTTP 403 (Must have admin rights to Repository.)',
+  ],
+  [
+    'Get "https://productionresultssa8.blob.core.windows.net/actions-results/x/job-logs.txt?rsct=text&sig=SECRET%3D&se=2026": Forbidden\n',
+    'the log download redirect to productionresultssa8.blob.core.windows.net was refused by a network proxy',
+  ],
+  [
+    'Get "https://productionresultssa8.blob.core.windows.net/a?sig=SECRET": dial tcp: lookup productionresultssa8.blob.core.windows.net: no such host\n',
+    'network failure reaching productionresultssa8.blob.core.windows.net (dns_failure)',
+  ],
+  [
+    'Get "https://unexpected.example/path?sig=SECRET": dial tcp 10.0.0.1:443: connect: connection refused\n',
+    'network failure reaching other-host (connection_refused)',
+  ],
+])('names the log transport failure without leaking its URL (%#)', async (stderr, reason) => {
+  githubProcess.execute.mockReset();
+  githubProcess.execute.mockImplementation((_file, _args, _options, callback) => {
+    callback(
+      Object.assign(Error('original transport cause'), { code: 1, killed: false, signal: null }),
+      'PRIVATE LOG\n',
+      stderr,
+    );
+    return {};
+  });
+  const failure = await executeTrustedGitHubRead(
+    '/repos/o/r/actions/jobs/123/logs',
+    new AbortController().signal,
+    undefined,
+    undefined,
+    'full',
+    undefined,
+    {},
+  ).catch((error: unknown) => error);
+  expect((failure as Error).message).toBe(
+    `GitHub log transport failed: ${reason}; no log content was returned`,
+  );
+  expect((failure as Error).message).not.toMatch(/SECRET|sig=|PRIVATE|unexpected\.example|\?/);
+  expect(retainedCallbackOutcome(failure as Error)).toBe('settled');
+});
 
 it.each([false, true])(
   'settles an observed GitHub CLI refusal while preserving cancellation (cancelled=%s)',
