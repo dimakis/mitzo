@@ -2863,7 +2863,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/github-host-source.test.ts':
     'b0e081ef2256587623e599c46cb132c5df33f7b7228815078274462ee2dd8ba6',
   '../__tests__/github-log-read.test.ts':
-    '32d99f2715973e37bebd36b06854756daf935fe847b24bff484ae040076999a7',
+    '19eb66440653ef579c642114eab35d4cff91868d64b7f729838b3ce8e68df13b',
   '../__tests__/github-native-read-projection.test.ts':
     '4adc02fcc60fd9af5d9d39770d6e2175a96a89a5d3cac7a321d73517c7c15a25',
   '../__tests__/github-publication-preflight.test.ts':
@@ -3656,7 +3656,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/trusted-native-operation-partial.test.ts':
     '3b6bb301cba2a336dc94b61b910ff9232ef19c253e45e911c6b09d84eab96e79',
   '../__tests__/trusted-native-operation.test.ts':
-    '724d2e2236e1b38e0f848c28856a237115bc25735d81e27436dc24c0df48c075',
+    'f8d0e30eefdef0cf06ae9be4958cccf17413bcca533689dabc16e5124cf127b2',
   '../__tests__/turn-callbacks.test.ts':
     '9bd9467485be14c6d6d0a46875e8442f9727139357c8c731afd6485e4a4b4205',
   '../__tests__/unified-inbox-routes.test.ts':
@@ -3952,7 +3952,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../git-version.ts': '405110af784b38f664fa6165bc83da008aae9de92410395d22a031c6c6b4d220',
   '../github-host-source.ts': 'cd0468ec4645d6aacd91b59c70ee5957e4d40e154851af3a569638e3e6083390',
-  '../github-log-read.ts': '121d83a3a1ba6deb55527fc1e31a248df313ccea94491d8116260cba3b7432a2',
+  '../github-log-read.ts': '01531783054b4ad4877d710414cc8ebbb1a026795d9cb4446da4e5b30476c3ad',
   '../github-main-merge-selection.ts':
     '984cd9a21ee5b40cbe33a27ce732f7a99ee9c9c8593aef0f675121b054fb316e',
   '../github-main-publication-dispatch.ts':

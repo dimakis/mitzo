@@ -184,9 +184,10 @@ it.each(['timeout', 'abort', 'exit'] as const)(
 
 it.each([
   [
-    'gh: Must have admin rights to Repository. (HTTP 403)\n',
-    'GitHub API returned HTTP 403 (Must have admin rights to Repository.)',
+    'gh: Request denied for unexpected.example with sig=SECRET (HTTP 403)\n',
+    'the log request returned HTTP 403 (access denied or rate limited)',
   ],
+  ['gh: HTTP 403\n', 'the log request returned HTTP 403 (access denied or rate limited)'],
   [
     'Get "https://productionresultssa8.blob.core.windows.net/actions-results/x/job-logs.txt?rsct=text&sig=SECRET%3D&se=2026": Forbidden\n',
     'the log download redirect to productionresultssa8.blob.core.windows.net was refused by a network proxy',

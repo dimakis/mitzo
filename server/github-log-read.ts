@@ -21,28 +21,41 @@ export function validateGithubLogRead(endpoint: string, options: unknown): Githu
 }
 
 export type GithubLogTransportFailure =
-  | { reason: 'github_http'; status: number; message?: string }
+  | { reason: 'http_status'; status: number; meaning?: string }
   | { reason: 'redirect_refused'; host: string; detail: string }
   | { reason: 'network'; host?: string; detail: string }
   | { reason: 'unknown' };
 
 const BLOB_HOST = /^[a-z0-9-]+\.blob\.core\.windows\.net$/i;
+// `gh` prints `gh: MESSAGE (HTTP 403)` for JSON API errors and a bare
+// `gh: HTTP 403` for other bodies, such as blob-storage XML or proxy HTML.
+const HTTP_STATUS_LINE = /^(?:gh: )?(?:HTTP (\d{3})|.*\(HTTP (\d{3})\))\s*$/m;
+
+/** Fixed wording per status. The API or blob message is free-form text that can
+ * name hosts or carry signed parameters, so it is never reported. */
+function httpStatusMeaning(status: number) {
+  if (status === 401) return 'authentication failed';
+  if (status === 403) return 'access denied or rate limited';
+  if (status === 404) return 'not found or not visible to this credential';
+  if (status === 410) return 'log no longer available';
+  if (status === 429) return 'rate limited';
+  if (status >= 500) return 'server error';
+  return undefined;
+}
 
 /** Classify a GitHub CLI log-download failure from its stderr without echoing it.
  * The job-log endpoint redirects to a signed Azure Blob URL, and the CLI prints
  * that URL (including its `sig` token) when the redirect leg fails. The result
- * keeps only the HTTP status, GitHub's short API message or the target host and
- * a fixed network category. URLs, query strings and log content never pass. */
+ * keeps only the HTTP status with fixed wording, or an allowlisted target host
+ * and a fixed network category. Messages, URLs and log content never pass. */
 export function classifyGithubLogTransportFailure(stderr: string): GithubLogTransportFailure {
-  const text = stderr.slice(0, 4096);
-  const http = text.match(/(?:^|\n)(?:gh: )?([^\n]{0,300}?)\s*\(HTTP (\d{3})\)/);
-  if (http) {
-    const message = http[1]
-      .replace(/https?:\/\/\S+/g, '')
-      .replace(/[^\w .,:'()-]/g, '')
-      .trim()
-      .slice(0, 160);
-    return { reason: 'github_http', status: Number(http[2]), ...(message ? { message } : {}) };
+  // The CLI reports its final failure last; bound the scan to the tail.
+  const text = stderr.slice(-65536);
+  const http = text.match(HTTP_STATUS_LINE);
+  const status = Number(http?.[1] ?? http?.[2]);
+  if (status >= 100 && status <= 599) {
+    const meaning = httpStatusMeaning(status);
+    return { reason: 'http_status', status, ...(meaning ? { meaning } : {}) };
   }
   const target = text.match(/"https:\/\/([a-z0-9.-]+)(?:[/?][^"]*)?":\s*([^\n]*)/i);
   // Report only expected hosts by name; anything else stays anonymous.
@@ -75,8 +88,8 @@ export function classifyGithubLogTransportFailure(stderr: string): GithubLogTran
 
 export function describeGithubLogTransportFailure(failure: GithubLogTransportFailure): string {
   switch (failure.reason) {
-    case 'github_http':
-      return `GitHub API returned HTTP ${failure.status}${failure.message ? ` (${failure.message})` : ''}`;
+    case 'http_status':
+      return `the log request returned HTTP ${failure.status}${failure.meaning ? ` (${failure.meaning})` : ''}`;
     case 'redirect_refused':
       return `the log download redirect to ${failure.host} was refused by a network proxy`;
     case 'network':
