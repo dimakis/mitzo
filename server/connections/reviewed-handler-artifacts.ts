@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1259-sdk-per-tool-authority';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1260-sdk-per-tool-authority-unstreamed-reply-history';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4388,6 +4389,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
   '../query-loop.ts': '3a9e6273d2bc15c42d80fedbc7aa2516a1b761ffc369df5ae227f6f98e0142f3',
+  '../unstreamed-assistant-replay.ts': 'PENDING',
+  '../__tests__/unstreamed-assistant-replay.test.ts': 'PENDING',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',

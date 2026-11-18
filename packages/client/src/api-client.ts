@@ -103,7 +103,13 @@ export class MitzoApiClient {
   private async assertOk(res: Response): Promise<Response> {
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`API ${res.status}: ${body || res.statusText}`);
+      const error: Error & { diagnosticId?: string } = new Error(
+        `API ${res.status}: ${body || res.statusText}`,
+      );
+      // Server failures retain their cause under this reference for operators.
+      const diagnosticId = res.headers?.get?.('x-mitzo-diagnostic-id');
+      if (diagnosticId) error.diagnosticId = diagnosticId;
+      throw error;
     }
     return res;
   }
