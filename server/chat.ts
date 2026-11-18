@@ -2296,6 +2296,12 @@ async function _startChatInner(
   mode = resolveStartupMode();
   registry.register(clientId, {
     ...(options.operatorConnectionId ? { ownerConnectionId: options.operatorConnectionId } : {}),
+    // A runtime-bound local driver denies control to every login until its
+    // owner is known. Bind it with the registration, not after native startup,
+    // so the operator's own reconnect during startup keeps control.
+    ...(options.ordinarySdkAuthority
+      ? { ownedLocalAuthSessionId: options.ordinarySdkAuthority.ownerAuthSessionId() }
+      : {}),
     transport,
     abortController,
     // startChat already checked this exact execution against the existing claim.

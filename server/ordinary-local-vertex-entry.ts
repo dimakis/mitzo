@@ -189,6 +189,7 @@ export async function startOwnedLocalVertexCommand(
       signal: owner.signal,
       custody,
       commandId: selected.commandId,
+      ownerAuthSessionId: owner.authSessionId,
       environment: () => owner.environment(),
       assertCurrent: async (signal) => {
         signal.throwIfAborted();
