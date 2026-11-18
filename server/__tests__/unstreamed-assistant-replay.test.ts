@@ -110,7 +110,13 @@ it('drops a late stream, including its completing envelope, for a replayed messa
     stream({ type: 'content_block_stop', index: 0 }),
     // The late stream completes with an envelope repeating the replayed block.
     lateEnvelope,
-    // A later split envelope still adds its new block exactly once.
+    // Its next block was never replayed: the envelope still adds it once.
+    stream({
+      type: 'content_block_start',
+      index: 1,
+      content_block: { type: 'tool_use', id: 'toolu_3', name: 'Read', input: {} },
+    }),
+    stream({ type: 'content_block_stop', index: 1 }),
     split,
     stream({ type: 'message_start', message: { id: 'msg_next' } }),
   ]);
@@ -143,20 +149,44 @@ it('drops a late stream, including its completing envelope, for a replayed messa
   });
 });
 
-it('replays only new blocks from a cumulative envelope', async () => {
-  const text = { type: 'text', text: 'first' };
-  const tool = { type: 'tool_use', id: 'toolu_4', name: 'Bash', input: { command: 'ls' } };
+it('keeps a late stream block whose text repeats an already replayed block', async () => {
+  const same = { type: 'text', text: 'again' };
+  const text = (index: number) => [
+    stream({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } }),
+    stream({ type: 'content_block_stop', index }),
+  ];
   const { out } = await run([
-    assistant('msg_cumulative', [text]),
-    assistant('msg_cumulative', [text, tool]),
+    assistant('msg_echo', [same]),
+    stream({ type: 'message_start', message: { id: 'msg_echo' } }),
+    ...text(0),
+    assistant('msg_echo', [same]),
+    ...text(1),
+    assistant('msg_echo', [same]),
   ]);
-  const starts = out.filter(
-    (msg) => (msg.event as { type?: string } | undefined)?.type === 'content_block_start',
+  const deltas = out.filter(
+    (msg) => (msg.event as { type?: string } | undefined)?.type === 'content_block_delta',
   );
+  expect(deltas.map((msg) => (msg.event as { index: number }).index)).toEqual([0, 1]);
+});
+
+it('keeps legitimate identical blocks from separate envelopes', async () => {
+  const same = { type: 'text', text: 'Checking.' };
+  const { out, observer } = await run([
+    assistant('msg_repeat', [same]),
+    assistant('msg_repeat', [same]),
+    assistant('msg_repeat', [same, same]),
+  ]);
+  const deltas = out.filter(
+    (msg) => (msg.event as { type?: string } | undefined)?.type === 'content_block_delta',
+  );
+  expect(deltas.map((msg) => (msg.event as { index: number }).index)).toEqual([0, 1, 2, 3]);
   expect(
-    starts.map((msg) => (msg.event as { content_block: { type: string } }).content_block.type),
-  ).toEqual(['text', 'tool_use']);
-  expect(starts.map((msg) => (msg.event as { index: number }).index)).toEqual([0, 1]);
+    deltas.every((msg) => (msg.event as { delta: { text: string } }).delta.text === 'Checking.'),
+  ).toBe(true);
+  expect(events(out).filter((type) => type === 'message_start')).toHaveLength(1);
+  expect(observer.replayed).not.toHaveBeenCalledWith(
+    expect.objectContaining({ duplicateBlockCount: 1 }),
+  );
 });
 
 it.each([

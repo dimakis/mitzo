@@ -125,12 +125,16 @@ export async function* replayUnstreamedAssistantMessages(
   observer: UnstreamedAssistantReplayObserver,
 ): AsyncGenerator<SdkMessage> {
   const streamed = new Set<string>();
-  // Replayed message → next content index and the blocks already replayed. The
-  // CLI may split one API message into several envelopes; later envelopes
-  // continue its indices. A late stream's completing envelope, or a cumulative
-  // envelope, repeats replayed blocks and must not replay them again.
-  const replayed = new Map<string, { nextIndex: number; blocks: Set<string> }>();
+  // Replayed message → next synthetic block index and the number of API content
+  // positions already covered. The CLI emits one envelope per completed content
+  // block, so outside a late stream each envelope is new content, even when it
+  // repeats earlier text; identical blocks are legitimate and are all kept.
+  const replayed = new Map<string, { nextIndex: number; covered: number }>();
+  // A late stream for a replayed message is suppressed. Its envelopes are
+  // located by the stream's own block positions: positions already covered were
+  // replayed; later positions are new and still replayed once.
   let suppressing: string | null = null;
+  let lateStopIndex: number | null = null;
 
   for await (const msg of source) {
     if (msg.type === 'stream_event' && topLevel(msg)) {
@@ -138,13 +142,18 @@ export async function* replayUnstreamedAssistantMessages(
       if (event?.type === 'message_start') {
         const id = apiMessageId((event.message as Record<string, unknown> | undefined)?.id);
         suppressing = id && replayed.has(id) ? id : null;
+        lateStopIndex = null;
         if (suppressing) {
           observer.suppressedLateStream({ messageId: suppressing });
           continue;
         }
         if (id) streamed.add(id);
       }
-      if (suppressing) continue;
+      if (suppressing) {
+        if (event?.type === 'content_block_stop' && Number.isInteger(event.index))
+          lateStopIndex = event.index as number;
+        continue;
+      }
       yield msg;
       continue;
     }
@@ -164,14 +173,18 @@ export async function* replayUnstreamedAssistantMessages(
       ) {
         const prior = replayed.get(id);
         let index = prior?.nextIndex ?? 0;
-        const replayedBlocks = new Set(prior?.blocks);
+        const covered = prior?.covered ?? 0;
+        // API position of this envelope's first block.
+        const firstPosition =
+          suppressing === id && lateStopIndex !== null
+            ? lateStopIndex - (content.length - 1)
+            : covered;
         const blocks: SdkMessage[] = [];
         const skippedBlockTypes: string[] = [];
         let blockCount = 0;
         let duplicateBlockCount = 0;
-        for (const block of content) {
-          const identity = JSON.stringify(block);
-          if (prior?.blocks.has(identity)) {
+        for (const [offset, block] of content.entries()) {
+          if (firstPosition + offset < covered) {
             duplicateBlockCount += 1;
             continue;
           }
@@ -180,11 +193,11 @@ export async function* replayUnstreamedAssistantMessages(
             skippedBlockTypes.push(String((block as { type?: unknown })?.type ?? 'unknown'));
             continue;
           }
-          replayedBlocks.add(identity);
           blocks.push(...replay);
           index += 1;
           blockCount += 1;
         }
+        const nextCovered = Math.max(covered, firstPosition + content.length);
         observer.replayed({ messageId: id, blockCount, duplicateBlockCount, skippedBlockTypes });
         if (blockCount > 0) {
           if (!prior) {
@@ -201,9 +214,9 @@ export async function* replayUnstreamedAssistantMessages(
               },
             });
           }
-          replayed.set(id, { nextIndex: index, blocks: replayedBlocks });
           for (const event of blocks) yield event;
         }
+        if (prior || blockCount > 0) replayed.set(id, { nextIndex: index, covered: nextCovered });
       }
     }
     yield msg;
