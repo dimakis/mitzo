@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi, type Mock } from 'vitest';
 import { EventEmitter } from 'node:events';
 import {
   query,
@@ -53,17 +53,19 @@ function childEvents(id: string) {
 }
 
 it.each([
-  ['continuous', false],
-  ['owned', false],
-  ['owned', true],
+  ['continuous', false, false],
+  ['owned', false, false],
+  ['owned', true, false],
+  ['owned', true, true],
 ] as const)(
-  'retires unresolved children through the real %s SDK wrapper while the outer iterator stays open (post-terminal failure: %s)',
-  async (route, postTerminalFailure) => {
+  'retires unresolved children through the real %s SDK wrapper while the outer iterator stays open (post-terminal failure: %s, held late steer: %s)',
+  async (route, postTerminalFailure, heldLateSteer) => {
+    let lateSteerClaimed = false;
     const controller = new AbortController();
     const input = new AsyncQueue<SDKUserMessage>();
     const runs: Array<{
       events: AsyncQueue<Record<string, unknown>>;
-      close: ReturnType<typeof vi.fn>;
+      close: Mock<() => void>;
     }> = [];
     const inputErrors: unknown[] = [];
     const create = (request: { options: Options; prompt: AsyncIterable<SDKUserMessage> }) => {
@@ -127,6 +129,20 @@ it.each([
             onUnsent: (_message, error) => {
               throw error;
             },
+            // A peer steer released during the final model request keeps the
+            // turn result open while its follow-up echo is outstanding.
+            peerMessages: heldLateSteer
+              ? () => ({
+                  beforeInput: () => undefined,
+                  observe: () => false,
+                  holdTurnForLateEcho: () => {
+                    if (lateSteerClaimed) return undefined;
+                    lateSteerClaimed = true;
+                    return { kind: 'peer' as const, id: 'late-steer' };
+                  },
+                  awaitingLateEcho: () => lateSteerClaimed,
+                })
+              : undefined,
           })
         : undefined;
     const q =
@@ -222,6 +238,15 @@ it.each([
         }),
       );
       runs[0].events.push({ type: 'result', session_id: 'original', is_error: false });
+      if (heldLateSteer) {
+        // The result waits for the steer's follow-up turn; the native iterator
+        // then fails while closing. The held result must still settle the
+        // command as terminal, and the failure stays post-terminal.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(lateSteerClaimed).toBe(true);
+        expect(onResult).not.toHaveBeenCalled();
+        runs[0].close();
+      }
       await vi.waitFor(() => expect(onResult).toHaveBeenCalledOnce());
       await owner?.apply({ model: 'second' } as never);
       await vi.waitFor(() => expect(runs[0].close).toHaveBeenCalled());

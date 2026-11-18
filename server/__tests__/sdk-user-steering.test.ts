@@ -77,7 +77,7 @@ it('requires exact real-stdin acknowledgement and retries only the original rece
   const f = fixture();
   expect(await f.runtime.steer(f.input, f.authorize)).toEqual({ status: 'uncertain' });
   const message = f.submitted();
-  expect(message).toMatchObject({ priority: 'now', message: { content: f.input.text } });
+  expect(message).toMatchObject({ priority: 'next', message: { content: f.input.text } });
   expect(f.runtime.observe({ ...message })).toBe(true);
   expect(await f.runtime.steer(f.input, f.authorize)).toEqual({ status: 'uncertain' });
   expect(f.runtime.beforeInput(message, true)).toBe(true);
@@ -103,15 +103,15 @@ it.each(['revocation', 'successor', 'retired query'] as const)(
     expect(f.events.userSteering.read('chat', 'operator', f.input)?.status).toBe('rejected');
   },
 );
-it('retains uncertainty after reopen and never resubmits to a successor', async () => {
+it('settles to unconfirmed after reopen and never accepts or resubmits to a successor', async () => {
   const f = fixture();
   await f.runtime.steer(f.input, f.authorize);
   expect(f.runtime.beforeInput(f.submitted(), true)).toBe(true);
   const restarted = f.reopen();
   f.successor();
-  expect(await restarted.steer(f.input, f.authorize)).toEqual({ status: 'uncertain' });
+  expect(await restarted.steer(f.input, f.authorize)).toEqual({ status: 'unconfirmed' });
   expect(restarted.observe({ ...f.submitted() })).toBe(true);
-  expect(await restarted.steer(f.input, f.authorize)).toEqual({ status: 'uncertain' });
+  expect(await restarted.steer(f.input, f.authorize)).toEqual({ status: 'unconfirmed' });
   expect(f.push).toHaveBeenCalledTimes(1);
 });
 it('does not claim a stale target', async () => {
@@ -180,16 +180,17 @@ it('requires the exact image payload in the provider acknowledgement', async () 
 });
 
 it.each([false, true])(
-  'settles only provably unsubmitted corrections when the original turn finishes (submitted=%s)',
+  'settles an unsubmitted correction as rejected and a submitted one as unconfirmed when the original turn finishes (submitted=%s)',
   async (submitted) => {
     const f = fixture();
     await f.runtime.steer(f.input, f.authorize);
     if (submitted) expect(f.runtime.beforeInput(f.submitted(), true)).toBe(true);
     const waiting = f.runtime.waitForReceipt(f.input);
     expect(f.runtime.observe({ type: 'result' })).toBe(false);
-    const expected = submitted ? 'uncertain' : 'rejected';
+    const expected = submitted ? 'unconfirmed' : 'rejected';
     expect(await waiting).toEqual({ status: expected });
     expect(await f.runtime.steer(f.input, f.authorize)).toEqual({ status: expected });
+    expect(f.events.userSteering.read('chat', 'operator', f.input)?.status).toBe(expected);
     if (!submitted) expect(f.runtime.beforeInput(f.submitted(), true)).toBe(false);
     expect(f.push).toHaveBeenCalledTimes(1);
     const restarted = f.reopen();
@@ -197,3 +198,28 @@ it.each([false, true])(
     expect(f.push).toHaveBeenCalledTimes(1);
   },
 );
+it('projects an unconfirmed correction as uncertain in the transcript, never accepted', async () => {
+  const f = fixture();
+  await f.runtime.steer(f.input, f.authorize);
+  expect(f.runtime.beforeInput(f.submitted(), true)).toBe(true);
+  f.runtime.observe({ type: 'result' });
+  const states = f.events
+    .getSessionEvents('chat')
+    .filter((event) => event.type === 'ordinary_command_state')
+    .map((event) => (event.payload as { commandState?: string }).commandState);
+  expect(states.at(-1)).toBe('uncertain');
+  expect(await f.runtime.steer(f.input, f.authorize)).toEqual({ status: 'unconfirmed' });
+});
+it('settles receipts that no live runtime owns after a restart', async () => {
+  const claimed = fixture();
+  await claimed.runtime.steer(claimed.input, claimed.authorize);
+  expect(await claimed.reopen().steer(claimed.input, claimed.authorize)).toEqual({
+    status: 'rejected',
+  });
+  const submitted = fixture();
+  await submitted.runtime.steer(submitted.input, submitted.authorize);
+  expect(submitted.runtime.beforeInput(submitted.submitted(), true)).toBe(true);
+  const restarted = submitted.reopen();
+  expect(await restarted.waitForReceipt(submitted.input)).toEqual({ status: 'unconfirmed' });
+  expect(submitted.push).toHaveBeenCalledTimes(1);
+});

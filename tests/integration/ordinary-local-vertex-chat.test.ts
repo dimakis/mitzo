@@ -1840,7 +1840,7 @@ it.each(
     expect(await runtime.steer(peer, () => {}, sdkSession.abortController.signal)).toBe(
       'uncertain',
     );
-    expect(await consumePeer!()).toMatchObject({ uuid: peer.messageId, priority: 'now' });
+    expect(await consumePeer!()).toMatchObject({ uuid: peer.messageId, priority: 'next' });
     await vi.waitFor(() =>
       expect(
         chat.eventStore.agentCommunication.read('offline-peer-sender', peer.messageId).status,

@@ -4,6 +4,7 @@ import type { CodexToolResult } from './codex-tool-result.js';
 import { LocalRepositoryGitInspectionError } from './local-repository-git-inspection.js';
 import { createLogger } from './logger.js';
 import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
+import { runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
 
 const log = createLogger('tool-failure');
 
@@ -67,6 +68,7 @@ export function reportToolFailure(
     code: detail.error,
     diagnostic: detail.diagnostic,
     causes: causeChain(error),
+    ...runtimeFailureDiagnostics(error),
   });
   return retainCallbackOutcome(
     result,

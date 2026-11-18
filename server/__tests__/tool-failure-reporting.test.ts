@@ -13,6 +13,7 @@ vi.mock('../logger.js', () => ({
 import { isIntrinsicRecoveryRead } from '../builtin-tool-behavior.js';
 import { qualifyToolResult, reportToolFailure } from '../tool-failure-reporting.js';
 import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
+import { annotateAuthorityFailure } from '../runtime-failure-diagnostics.js';
 
 it.each([
   ['ReadKnowledge', {}],
@@ -102,4 +103,21 @@ it('logs the code-owned kind and reason of a local repository read refusal', () 
       { name: 'LocalRepositoryGitInspectionError', kind: 'access', reason: 'read-anchor-required' },
     ],
   });
+});
+
+it('retains annotated SDK authority checks without leaking the original error', () => {
+  logged.length = 0;
+  const cause = annotateAuthorityFailure(Error('private upstream payload'), 'sdk.command_tool');
+  reportToolFailure(cause, {
+    sessionId: 'sdk-owned',
+    tool: 'TaskExecution',
+    signal: new AbortController().signal,
+  });
+  expect(logged.at(-1)).toMatchObject({
+    sessionId: 'sdk-owned',
+    tool: 'TaskExecution',
+    failedCheck: 'sdk.command_tool',
+    authorityChecks: ['sdk.command_tool'],
+  });
+  expect(JSON.stringify(logged.at(-1))).not.toContain('private upstream payload');
 });

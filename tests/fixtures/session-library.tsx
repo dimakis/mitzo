@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { useEffect, useState } from 'react';
 import { MemoryRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { SessionList } from '../../frontend/src/pages/SessionList';
 import { eventBus } from '../../frontend/src/lib/event-bus-singleton';
@@ -28,21 +29,27 @@ function OpenedConversation() {
     </button>
   );
 }
+function ActivityComposer() {
+  const [sessionId, setSessionId] = useState('session-0');
+  useEffect(() => {
+    const select = (event: Event) => setSessionId((event as CustomEvent<string>).detail);
+    window.addEventListener('offline-activity-conversation', select);
+    return () => window.removeEventListener('offline-activity-conversation', select);
+  }, []);
+  return (
+    <ComposerStatusProvider>
+      <main className="workspace-page">
+        <ChatInput sessionId={sessionId} running onSend={() => false} onStop={() => {}} />
+      </main>
+    </ComposerStatusProvider>
+  );
+}
 function Surface() {
   const desktop = useIsDesktop();
   return (
     <MobileShell>
       <Routes>
-        <Route
-          path="/activity-composer"
-          element={
-            <ComposerStatusProvider>
-              <main className="workspace-page">
-                <ChatInput sessionId="session-0" running onSend={() => false} onStop={() => {}} />
-              </main>
-            </ComposerStatusProvider>
-          }
-        />
+        <Route path="/activity-composer" element={<ActivityComposer />} />
         <Route
           path="/sessions"
           element={desktop ? <DesktopShell center={<SessionList />} /> : <SessionList />}

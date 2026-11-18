@@ -18,6 +18,7 @@ import { sessionLaunchTools, sessionLaunchDefinitions } from './session-launch-t
 import { learningToolSchemas, learningToolDefinitions } from './session-learning-tools.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
 import {
   copyCallbackOutcome,
@@ -200,14 +201,14 @@ export function createCredentialSdkServer(
       try {
         await boundary.assertCurrent(signal);
       } catch (cause) {
-        throw new SdkAuthorityFailure(cause);
+        throw new SdkAuthorityFailure(annotateAuthorityFailure(cause, 'sdk.runtime_authority'));
       }
     },
     assertCurrentSync(signal: AbortSignal) {
       try {
         boundary.assertCurrentSync(signal);
       } catch (cause) {
-        throw new SdkAuthorityFailure(cause);
+        throw new SdkAuthorityFailure(annotateAuthorityFailure(cause, 'sdk.runtime_authority'));
       }
     },
   };
@@ -286,7 +287,18 @@ export function createCredentialSdkServer(
               },
               async (signal) => {
                 const assertCommandTool = () => {
-                  if (originalCheckTool && originalCheckTool(prefix + definition.name) !== 'allow')
+                  let decision: 'allow' | 'deny' | undefined;
+                  try {
+                    decision = originalCheckTool?.(prefix + definition.name);
+                  } catch (cause) {
+                    // A stale query/command is a lost runtime owner, just like
+                    // the runtime fence below. It cannot become a recoverable
+                    // application error that invites more calls on that query.
+                    throw new SdkAuthorityFailure(
+                      annotateAuthorityFailure(cause, 'sdk.command_tool'),
+                    );
+                  }
+                  if (decision !== undefined && decision !== 'allow')
                     throw Error('Tool not allowed by the frozen command skill ceiling');
                 };
                 assertCommandTool();

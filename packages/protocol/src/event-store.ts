@@ -3025,7 +3025,8 @@ export class EventStore {
         else
           this.append(sessionId, 'ordinary_command_state', {
             messageId: input.requestId,
-            commandState: status === 'accepted' ? 'steered' : 'failed',
+            commandState:
+              status === 'accepted' ? 'steered' : status === 'unconfirmed' ? 'uncertain' : 'failed',
           });
       });
       this.agentCommunication = new AgentCommunicationStore(db, (message) => {
