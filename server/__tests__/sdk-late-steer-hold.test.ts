@@ -98,6 +98,37 @@ it('releases a held result when the stream ends', async () => {
   expect(h.received.map((e) => e.uuid)).toEqual(['first']);
 });
 
+it('releases a held result before propagating a source failure', async () => {
+  const source = new AsyncQueue<Event>();
+  const failure = Error('native iterator close failed');
+  let steer: LateSteerLabel | undefined = { kind: 'peer', id: 'message' };
+  const stream = holdResultForLateSteer(
+    (async function* () {
+      yield* source;
+      throw failure;
+    })(),
+    {
+      hold: () => {
+        const label = steer;
+        steer = undefined;
+        return label;
+      },
+      awaiting: () => true,
+      signal: new AbortController().signal,
+      sessionId: 'session',
+      timeoutMs: 10_000,
+    },
+  );
+  const received: Event[] = [];
+  const consumed = (async () => {
+    for await (const event of stream) received.push(event);
+  })();
+  source.push({ type: 'result', uuid: 'first' });
+  source.close();
+  await expect(consumed).rejects.toBe(failure);
+  expect(received.map((e) => e.uuid)).toEqual(['first']);
+});
+
 it('stops holding as soon as the owner aborts', async () => {
   const h = harness(10_000);
   h.steer();

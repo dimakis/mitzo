@@ -3352,7 +3352,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sdk-child-environment.test.ts':
     '547b7c7162a2f4109e294dd60ae279d028a63f82ea948f4cdb3695ad810dba70',
   '../__tests__/sdk-query-retirement.test.ts':
-    'a246e6d487e2a124872b6680c6b2f242fba438631468172c0177b26efd36304f',
+    '9b33ac5d235d18318225985bef539abaf7426760a90d95ddf3bf63ed18f8adf2',
   '../__tests__/sdk-query-usage.test.ts':
     'a0a6f4c0f0627dbf38e03894d7be75915ac95176b7701b0ab71fa50c21fb69d8',
   '../__tests__/sdk-task-run-consumer.test.ts':
@@ -4441,9 +4441,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../sandboxed-command.ts': '77d82d8b4c8c7c975a944193e8a657fb19de73abeb2c8fd6385a8417350b020d',
   '../sdk-agent-message-runtime.ts':
     'a87173e4bf8504ad2a1fd75f9d15323089ab502f035926f8d32c81500c90d2c4',
-  '../sdk-late-steer-hold.ts': 'f75c808687cc7dac6a901d6c12efacf4eb1740c0187e8e14a3078a7d5d29017d',
+  '../sdk-late-steer-hold.ts': '88117dc1e75988131bd7c3d76a07dce377e4461a6804c6343a46586afd2e850c',
   '../__tests__/sdk-late-steer-hold.test.ts':
-    '96db4dc66fbd8dfe118f6ccaa252878d34b64fe533c58bd861306b5ddb0ef4f9',
+    'd973064967371a2556160fb89ad58ef8d1d118a3f2f4b7e94caa5665c7116d56',
   '../sdk-query-retirement.ts': 'a4f82c8f91373d89da95cf52c7e107914118b0cc755116c9817365b71d9b1bc9',
   '../sdk-query-usage.ts': '1ad2216cc6bb6ec92ecd05a508f6abbe9af0ee86a52fceafaca2d91347d55af2',
   '../sdk-turn-query.ts': '7ed8479729a12187aa36015beead3ba4bc5e82f4d2d4df1694cfa8cef500f007',

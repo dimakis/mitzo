@@ -44,26 +44,46 @@ export async function* holdResultForLateSteer<E extends Record<string, unknown>>
   let finished = false;
   try {
     for (;;) {
-      next ??= iterator.next();
       let step: IteratorResult<E> | typeof TIMEOUT;
-      if (held && !owner.signal.aborted) {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        let onAbort: (() => void) | undefined;
-        const deadline = new Promise<typeof TIMEOUT>((resolve) => {
-          timer = setTimeout(
-            () => resolve(TIMEOUT),
-            Math.max(0, held!.since + timeoutMs - Date.now()),
-          );
-          onAbort = () => resolve(TIMEOUT);
-          owner.signal.addEventListener('abort', onAbort, { once: true });
-        });
-        try {
-          step = await Promise.race([next, deadline]);
-        } finally {
-          clearTimeout(timer);
-          if (onAbort) owner.signal.removeEventListener('abort', onAbort);
+      try {
+        next ??= iterator.next();
+        if (held && !owner.signal.aborted) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          let onAbort: (() => void) | undefined;
+          const deadline = new Promise<typeof TIMEOUT>((resolve) => {
+            timer = setTimeout(
+              () => resolve(TIMEOUT),
+              Math.max(0, held!.since + timeoutMs - Date.now()),
+            );
+            onAbort = () => resolve(TIMEOUT);
+            owner.signal.addEventListener('abort', onAbort, { once: true });
+          });
+          try {
+            step = await Promise.race([next, deadline]);
+          } finally {
+            clearTimeout(timer);
+            if (onAbort) owner.signal.removeEventListener('abort', onAbort);
+          }
+        } else step = await next;
+      } catch (error) {
+        // The native iterator can fail after its turn completed, for example
+        // while closing. Release a held result first: the owner then settles
+        // it as terminal and handles this failure as post-terminal instead of
+        // reporting the completed command as failed.
+        if (held) {
+          const released = held;
+          held = undefined;
+          log.warn('SDK stream failed while a result was held for a late steer', {
+            code: 'sdk_late_steer_stream_failed',
+            stage: 'follow_up_turn',
+            sessionId: owner.sessionId,
+            steerKind: released.label.kind,
+            steerId: released.label.id,
+          });
+          yield released.event;
         }
-      } else step = await next;
+        throw error;
+      }
 
       if (step === TIMEOUT) {
         const released = held!;
