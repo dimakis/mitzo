@@ -44,6 +44,24 @@ import { nestedRepositoryRefusal } from './nested-repository.js';
 const pathEnv = '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin';
 const log = createLogger('trusted-native-operation');
 
+/**
+ * A bounded, single-line reason from the GitHub CLI's own stderr. Job logs are
+ * served through short-lived signed storage URLs, so every URL query (SAS
+ * signatures) and fragment is removed. Log content (stdout) is never included.
+ */
+export function githubTransportReason(stderr: string): string | undefined {
+  const line = stderr
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0);
+  if (!line) return;
+  const reason = line
+    .replace(/(https?:\/\/[^\s"'?#]+)[?#][^\s"']*/gi, '$1?<redacted>')
+    .replace(/[^\x20-\x7e]/g, '?')
+    .slice(0, 240);
+  return reason || undefined;
+}
+
 async function run(
   file: string,
   args: readonly string[],
@@ -80,6 +98,15 @@ async function run(
       },
       (error, stdout, stderr) => {
         if (error) {
+          // Only an ordinary CLI exit carries a refusal worth reporting; timeouts
+          // and cancellation keep their generic message.
+          const reason =
+            options.boundedReadDiagnostics &&
+            typeof error.code === 'number' &&
+            !error.killed &&
+            !options.signal.aborted
+              ? githubTransportReason(String(stderr ?? ''))
+              : undefined;
           if (options.boundedReadDiagnostics)
             log.warn('GitHub log transport failed', {
               stage: 'github-log-read',
@@ -87,6 +114,7 @@ async function run(
               cancelled: options.signal.aborted,
               killed: error.killed === true,
               exitCode: typeof error.code === 'number' ? error.code : undefined,
+              reason,
             });
           if (options.readOnly && error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
             reject(
@@ -97,9 +125,12 @@ async function run(
             return;
           }
           const failure = options.boundedReadDiagnostics
-            ? new Error('GitHub log transport failed; no log content was returned', {
-                cause: error,
-              })
+            ? new Error(
+                reason
+                  ? `GitHub log transport failed (${reason}); no log content was returned`
+                  : 'GitHub log transport failed; no log content was returned',
+                { cause: error },
+              )
             : new Error((stderr || stdout || error.message).trim());
           // Only the original read adapter can attest to a normal process exit.
           // Cancellation, timeouts and writes retain uncertainty.

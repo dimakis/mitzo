@@ -33,6 +33,7 @@ vi.mock('node:child_process', async (original) => {
 import {
   executeTrustedGitCommit,
   executeTrustedGitHubRead,
+  githubTransportReason,
   trustedGitHubReadRequest,
 } from '../trusted-native-operation.js';
 import { captureLocalRepository } from '../local-repository-worktree.js';
@@ -172,12 +173,52 @@ it.each(['timeout', 'abort', 'exit'] as const)(
     ).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).toBe(
-      'GitHub log transport failed; no log content was returned',
+      kind === 'exit'
+        ? 'GitHub log transport failed (private stderr); no log content was returned'
+        : 'GitHub log transport failed; no log content was returned',
     );
+    expect((failure as Error).message).not.toContain('PRIVATE LOG');
     expect((failure as Error).cause).toBeInstanceOf(Error);
     expect(retainedCallbackOutcome(failure as Error)).toBe(kind === 'exit' ? 'settled' : undefined);
   },
 );
+
+it('reports the CLI refusal for a failed CI log read with signed storage URLs redacted', async () => {
+  githubProcess.execute.mockReset();
+  githubProcess.execute.mockImplementation((_file, _args, _options, callback) => {
+    callback(
+      Object.assign(Error('gh failed'), { code: 1, signal: null, killed: false }),
+      'PRIVATE LOG LINE\n',
+      'Get "https://results.blob.core.windows.net/logs/job.txt?sig=SECRET&se=2026": Forbidden\n' +
+        'second line\n',
+    );
+    return {};
+  });
+  const failure = (await executeTrustedGitHubRead(
+    '/repos/o/r/actions/jobs/123/logs',
+    new AbortController().signal,
+    undefined,
+    undefined,
+    'full',
+    undefined,
+    {},
+  ).catch((error: unknown) => error)) as Error;
+  expect(failure.message).toBe(
+    'GitHub log transport failed (Get "https://results.blob.core.windows.net/logs/job.txt?<redacted>": Forbidden); no log content was returned',
+  );
+  expect(failure.message).not.toMatch(/SECRET|PRIVATE LOG|second line/);
+});
+
+it('bounds and sanitizes GitHub CLI transport reasons', () => {
+  expect(githubTransportReason('')).toBeUndefined();
+  expect(githubTransportReason('\n  \n')).toBeUndefined();
+  expect(githubTransportReason('\n HTTP 404: Not Found \nmore')).toBe('HTTP 404: Not Found');
+  expect(githubTransportReason('x'.repeat(1000))).toHaveLength(240);
+  expect(githubTransportReason('bad \u0007 char')).toBe('bad ? char');
+  expect(githubTransportReason('see https://h.example/p#frag=1 end')).toBe(
+    'see https://h.example/p?<redacted> end',
+  );
+});
 
 it.each([false, true])(
   'settles an observed GitHub CLI refusal while preserving cancellation (cancelled=%s)',

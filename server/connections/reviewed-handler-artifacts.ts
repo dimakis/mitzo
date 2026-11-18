@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1252-claude-startup-reconnect-control';
+  'v1.0.1253-github-log-transport-reason';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3656,7 +3656,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/trusted-native-operation-partial.test.ts':
     '3b6bb301cba2a336dc94b61b910ff9232ef19c253e45e911c6b09d84eab96e79',
   '../__tests__/trusted-native-operation.test.ts':
-    'f8c1da52d604967fea89d90064acfa0e4660f6bd7a4946c596c81096cf5d1e67',
+    '67a281c46dbdb91965823d0a1fd1039c9d6b903aa9367566cba1561bf23a5be6',
   '../__tests__/turn-callbacks.test.ts':
     '9bd9467485be14c6d6d0a46875e8442f9727139357c8c731afd6485e4a4b4205',
   '../__tests__/unified-inbox-routes.test.ts':
@@ -4831,7 +4831,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../transport-auth-ownership.ts':
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
   '../trusted-native-operation.ts':
-    '0c96fb2b120d78176e41e27764401b9d74155c10f709dfd9c8544a21153bf410',
+    'd7c9514862b37ea6010646d9563c583f2ae21c75208922ee9d003011c3b8c93c',
   '../turn-callbacks.ts': '88e4efd195098dff2c7727de11c5ecb14934cf9e96127b98ba4cdf0db67e5fa7',
   '../unified-inbox-routes.ts': '6413398c77b9f1c62fbb1c597d5cf7c857b65338b23592ce9751cf6755e271d4',
   '../unified-inbox.ts': '6ca474e1069e33341bfe53f87b3022372645e250beffa0d7082b138bf90911df',
