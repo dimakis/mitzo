@@ -3,8 +3,10 @@ import type { SessionLaunchConfig, SymposiumProfileDefinition } from '@mitzo/pro
 import {
   createSessionLaunchPort,
   prepareTelosSessionSettings,
-  SESSION_LAUNCH_CODEX_ONLY,
+  qualifyTelosSessionLaunchConfig,
+  SESSION_LAUNCH_UNSUPPORTED_ACCOUNT,
   sessionLaunchStartupBlocker,
+  TELOS_SESSION_CODEX_ONLY,
 } from '../session-launch-runtime.js';
 import type { RetainedSessionLaunch } from '../session-launch-store.js';
 const mocks = vi.hoisted(() => ({
@@ -21,6 +23,10 @@ const mocks = vi.hoisted(() => ({
   hasNative: vi.fn(),
   sessionMeta: vi.fn(),
   removalFence: vi.fn(),
+  inventory: vi.fn(),
+  sdkCustody: vi.fn(),
+  sdkAdmission: vi.fn(),
+  executionAdmission: vi.fn(),
   upsert: vi.fn(),
   rename: vi.fn(),
   selectedTools: undefined as SymposiumProfileDefinition['tools'],
@@ -45,14 +51,19 @@ vi.mock('../account-profiles.js', () => ({
   loadAccountProfiles: () => ({ resolve: () => mocks.binding, validateModelSelection: () => {} }),
 }));
 vi.mock('../ordinary-local-codex-entry.js', () => ({
-  ordinaryRepositoryRuntimeInventory: () => ({
-    catalog: { resolve: () => ({ status: 'compatible', binding: mocks.runtime }) },
+  ordinaryRepositoryRuntimeInventory: (location: string, harness: string) => ({
+    catalog: {
+      resolve: () => (
+        mocks.inventory(location, harness),
+        { status: 'compatible', binding: mocks.runtime }
+      ),
+    },
     result: {
       capabilityRevision: 'catalog-v1',
       routes: [
         {
           account: mocks.runtime.account,
-          harness: 'codex',
+          harness: mocks.runtime.harness.implementation,
           targetId: 'mac',
           modes: ['ask', 'agent', 'auto'],
         },
@@ -97,6 +108,9 @@ vi.mock('../chat.js', () => ({
     getOrdinaryWorkspaceSessionPreparation: mocks.preparation,
     getSendCommand: mocks.sendCommand,
     getOrdinaryCommandAdmission: () => ({ state: 'consumed' }),
+    getOrdinaryLocalVertexCustody: mocks.sdkCustody,
+    getOrdinaryLocalVertexCommandAdmission: mocks.sdkAdmission,
+    getExecutionAdmission: mocks.executionAdmission,
     getSession: mocks.sessionMeta,
     removals: { assertAdmissible: mocks.removalFence },
   },
@@ -138,8 +152,39 @@ const authority = {
   signal: new AbortController().signal,
   assertCurrent: () => {},
 };
+const codexBinding = mocks.binding;
+const codexRuntime = mocks.runtime;
+const claudeAccount = {
+  accountId: 'claude',
+  provider: 'anthropic-claude' as const,
+  profileRevision: 'v1',
+};
+const claudeConfiguration: SessionLaunchConfig = {
+  ...configuration,
+  runtime: {
+    ...configuration.runtime,
+    account: { accountId: 'claude', model: 'fixture-model', reasoningEffort: 'high' },
+    accountReference: claudeAccount,
+  },
+};
+const claudeRecord = { ...record, configuration: claudeConfiguration } as RetainedSessionLaunch;
+function useClaude() {
+  mocks.binding = { ...codexBinding, ...claudeAccount, accountLabel: 'Personal Claude' } as never;
+  mocks.runtime = {
+    ...codexRuntime,
+    account: claudeAccount,
+    harness: { implementation: 'claude-sdk' },
+  } as never;
+  mocks.sessionMeta.mockReturnValue({ accountBinding: mocks.binding });
+  mocks.prepare.mockResolvedValue({ preparationId: 'preparation', runtimeBinding: mocks.runtime });
+}
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.binding = codexBinding;
+  mocks.runtime = codexRuntime;
+  mocks.sdkCustody.mockReturnValue(undefined);
+  mocks.sdkAdmission.mockReturnValue(undefined);
+  mocks.executionAdmission.mockReturnValue(undefined);
   mocks.selectedTools = undefined;
   mocks.prepare.mockResolvedValue({ preparationId: 'preparation', runtimeBinding: mocks.runtime });
   mocks.reserve.mockImplementation(async (input) => ({
@@ -240,24 +285,127 @@ it.each(['openshell', 'claude'] as const)(
     expect(mocks.prepareSession).not.toHaveBeenCalled();
   },
 );
-it('surfaces the Codex-only limit at proposal for a non-Codex account', async () => {
+it('admits Codex and Claude accounts at proposal but keeps Telos workers Codex-only', () => {
   expect(sessionLaunchStartupBlocker(configuration)).toBeNull();
-  const claude = structuredClone(configuration);
-  claude.runtime.accountReference = {
-    accountId: 'claude',
-    provider: 'anthropic-claude',
-    profileRevision: 'v1',
-  } as never;
-  expect(sessionLaunchStartupBlocker(claude)).toBe(SESSION_LAUNCH_CODEX_ONLY);
-  mocks.binding = { ...mocks.binding, provider: 'anthropic-claude' as never };
-  try {
-    await expect(prepareTelosSessionSettings(configuration, authority)).rejects.toThrow(
-      SESSION_LAUNCH_CODEX_ONLY,
-    );
-  } finally {
-    mocks.binding = { ...mocks.binding, provider: 'openai-codex' };
+  expect(sessionLaunchStartupBlocker(configuration, 'telos')).toBeNull();
+  for (const provider of ['anthropic-claude', 'anthropic-vertex', 'anthropic-api']) {
+    const claude = structuredClone(claudeConfiguration);
+    claude.runtime.accountReference = { ...claudeAccount, provider } as never;
+    expect(sessionLaunchStartupBlocker(claude)).toBeNull();
+    expect(sessionLaunchStartupBlocker(claude, 'telos')).toBe(TELOS_SESSION_CODEX_ONLY);
   }
+  const gemini = structuredClone(claudeConfiguration);
+  gemini.runtime.accountReference = { ...claudeAccount, provider: 'google-vertex' } as never;
+  expect(sessionLaunchStartupBlocker(gemini)).toBe(SESSION_LAUNCH_UNSUPPORTED_ACCOUNT);
+});
+it('refuses a Claude Telos child before preparation until worker startup supports it', async () => {
+  useClaude();
+  await expect(prepareTelosSessionSettings(claudeConfiguration, authority)).rejects.toThrow(
+    TELOS_SESSION_CODEX_ONLY,
+  );
+  await expect(qualifyTelosSessionLaunchConfig(claudeConfiguration, authority)).rejects.toThrow(
+    TELOS_SESSION_CODEX_ONLY,
+  );
+  expect(mocks.inventory).not.toHaveBeenCalled();
   expect(mocks.prepare).not.toHaveBeenCalled();
+});
+it('rejects an account provider without a supported launch engine before workspace effects', async () => {
+  mocks.binding = { ...codexBinding, provider: 'google-vertex' } as never;
+  await expect(createSessionLaunchPort().validate(configuration, authority)).rejects.toThrow(
+    SESSION_LAUNCH_UNSUPPORTED_ACCOUNT,
+  );
+  expect(mocks.inventory).not.toHaveBeenCalled();
+  expect(mocks.prepare).not.toHaveBeenCalled();
+});
+it('starts a reviewed Claude child through the ordinary Local Mac Claude SDK route', async () => {
+  useClaude();
+  const prepared = vi.fn();
+  await createSessionLaunchPort().start(claudeRecord, authority, prepared);
+  expect(mocks.inventory).toHaveBeenCalledWith('local', 'claude-sdk');
+  expect(mocks.prepare).toHaveBeenCalledWith(
+    expect.objectContaining({
+      selection: {
+        runOn: 'local',
+        runtime: { account: claudeAccount, harness: 'claude-sdk', targetId: 'mac' },
+      },
+    }),
+  );
+  expect(prepared).toHaveBeenCalledWith('child', 'preparation');
+  const call = mocks.dispatch.mock.calls[0][0];
+  expect(call).toMatchObject({
+    commandId: 'command',
+    preparationOperationId: 'allocation',
+    workspaceKind: 'ordinary',
+    operatorConnectionId: 'authenticated-operation',
+    ownerConnectionId: 'authenticated-operation',
+    ownerAuthSessionId: 'login',
+    reservation: { runtimeBinding: mocks.runtime },
+    command: {
+      runtime: { account: claudeAccount, harness: 'claude-sdk', targetId: 'mac', mode: 'agent' },
+      payload: { text: 'Reviewed handoff' },
+      selection: { model: 'fixture-model', thinking: 'high' },
+    },
+  });
+  expect(call.onSessionPrepared).toEqual(expect.any(Function));
+});
+it('keeps the Codex dispatch owner unchanged', async () => {
+  await createSessionLaunchPort().start(record, authority, vi.fn());
+  expect(mocks.inventory).toHaveBeenCalledWith('local', 'codex');
+  expect(mocks.dispatch.mock.calls[0][0]).not.toHaveProperty('ownerConnectionId');
+});
+it('reports a Claude child running only after its exact reviewed input entered the SDK', async () => {
+  useClaude();
+  const port = createSessionLaunchPort();
+  const consumed = {
+    state: 'consumed',
+    selection: { model: 'fixture-model', thinking: 'high' },
+  };
+  mocks.sendCommand.mockReturnValue({ sessionId: 'child', payload: { text: 'Reviewed handoff' } });
+  mocks.sdkAdmission.mockReturnValue(consumed);
+  mocks.sdkCustody.mockReturnValue({ sessionId: 'child' });
+  // Consumed admission without an execution admission is not a started turn.
+  expect(await port.inspect(claudeRecord, authority)).toMatchObject({
+    accepted: false,
+    uncertain: true,
+    childSessionId: 'child',
+  });
+  mocks.executionAdmission.mockReturnValue({ token: { executionId: 'execution' } });
+  expect(await port.inspect(claudeRecord, authority)).toMatchObject({ accepted: true });
+  expect(mocks.executionAdmission).toHaveBeenLastCalledWith('child', 'command');
+  expect(mocks.hasNative).not.toHaveBeenCalled();
+  for (const changed of [
+    () => mocks.sdkAdmission.mockReturnValue({ ...consumed, state: 'uncertain' }),
+    () => mocks.sdkAdmission.mockReturnValue({ ...consumed, selection: { model: 'other' } }),
+    () => mocks.sdkCustody.mockReturnValue(undefined),
+    () =>
+      mocks.sendCommand.mockReturnValue({ sessionId: 'child', payload: { text: 'Unreviewed' } }),
+    () =>
+      mocks.sendCommand.mockReturnValue({
+        sessionId: 'other',
+        payload: { text: 'Reviewed handoff' },
+      }),
+  ]) {
+    changed();
+    expect(await port.inspect(claudeRecord, authority)).toMatchObject({ accepted: false });
+    mocks.sdkAdmission.mockReturnValue(consumed);
+    mocks.sdkCustody.mockReturnValue({ sessionId: 'child' });
+    mocks.sendCommand.mockReturnValue({
+      sessionId: 'child',
+      payload: { text: 'Reviewed handoff' },
+    });
+  }
+});
+it('refuses replacement resume when the child already holds Claude SDK custody', async () => {
+  const port = createSessionLaunchPort();
+  mocks.workspaceOperation.mockReturnValue({ conversationId: 'child' });
+  mocks.hasNative.mockReturnValue(false);
+  mocks.sdkCustody.mockReturnValue({ sessionId: 'child' });
+  await expect(port.canResume!(claudeRecord, authority)).rejects.toThrow(
+    /native execution history/i,
+  );
+  expect(mocks.sdkCustody).toHaveBeenCalledWith('child');
+  expect(mocks.prepare).not.toHaveBeenCalled();
+  expect(mocks.dispatch).not.toHaveBeenCalled();
 });
 it('starts with the coordinator tools exposed by the selected default profile', async () => {
   const selected = {

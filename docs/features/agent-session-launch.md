@@ -1,7 +1,7 @@
 # Reviewed agent-created sessions and complete defaults
 
-Agents on an owned ordinary Local Mac Codex route can use `StartSession` to
-propose a new chat. The host resolves the saved complete default plus declared
+Agents on an owned ordinary Local Mac route can use `StartSession` to propose a
+new Codex or Claude chat. The host resolves the saved complete default plus declared
 overrides and retains the original request identity. The tool creates a pending
 review card; it has no allocation or provider-dispatch operation.
 
@@ -80,7 +80,21 @@ draft ownership; approval leaves the originating chat selected.
 
 ## Supported scope and verification
 
-The first startup route supports isolated, non-Git Local Mac Codex sessions.
+The startup route supports isolated, non-Git Local Mac Codex and Claude sessions.
+Each account starts on the engine its ordinary New chat uses: Codex accounts on
+the Codex harness, Claude accounts (Vertex, subscription or API key) on the Claude
+SDK harness. Qualification, workspace preparation, the agent-profile/tool route
+and dispatch follow that engine's existing ordinary owner; no launcher-specific
+runtime exists. Recovery uses each engine's durable start evidence. Codex needs its
+retained native conversation and provider-acknowledged turn. Claude needs retained
+SDK custody plus the exact reviewed command's consumed input and execution
+admission. Either engine's retained history refuses a replacement startup.
+
+Telos role setup (`TelosCreateSession`) and its worker startup still qualify only
+Local Mac Codex. A Claude Telos child is refused at proposal and before workspace
+preparation, so role setup never creates a worker that cannot start. Supporting it
+requires worker startup and its first-command authority to qualify the Claude SDK.
+
 OpenShell, other providers, repository launches, profile context recipes and
 context blocks are retained as editable preferences but refused before startup.
 Put self-contained context in Handoff prompt and clear Context for this route.

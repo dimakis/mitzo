@@ -278,7 +278,7 @@ import { createTelosSessionLaunchHost } from './telos-session-launch-host.js';
 import { createTelosAdoptionRuntime } from './telos-adoption-runtime.js';
 import { createTelosSessionProposalRouter } from './telos-session-launch-adapters.js';
 import {
-  qualifySessionLaunchConfig,
+  qualifyTelosSessionLaunchConfig,
   prepareTelosSessionSettings,
 } from './session-launch-runtime.js';
 import { createSessionLaunchRouter } from './session-launch-routes.js';
@@ -1340,7 +1340,7 @@ const sessionLaunchController = initializeSessionLaunches(
       sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
       roleHost: (authority) => telosRoleHost(authority.operatorConnectionId, true),
       qualify: async (configuration, authority) => {
-        await qualifySessionLaunchConfig(configuration, authority);
+        await qualifyTelosSessionLaunchConfig(configuration, authority);
       },
       prepareSettings: prepareTelosSessionSettings,
     }),

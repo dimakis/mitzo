@@ -17,25 +17,72 @@ function assertLaunchChildAdmissible(events: EventStore, id: string) {
   events.removals.assertAdmissible(id);
 }
 
-export const SESSION_LAUNCH_CODEX_ONLY =
-  'Agent-created sessions currently start only on a Local Mac Codex account. Choose a Codex account in review before Approve & start; Claude child sessions are not available yet.';
+/** Account providers a reviewed launch may start, mapped to the same ordinary
+ * Local Mac engine New chat uses for that provider. */
+const LAUNCH_HARNESS_BY_PROVIDER = {
+  'openai-codex': 'codex',
+  'anthropic-vertex': 'claude-sdk',
+  'anthropic-claude': 'claude-sdk',
+  'anthropic-api': 'claude-sdk',
+} as const;
+type LaunchProvider = keyof typeof LAUNCH_HARNESS_BY_PROVIDER;
+type LaunchHarness = (typeof LAUNCH_HARNESS_BY_PROVIDER)[LaunchProvider];
+function isLaunchProvider(provider: string | undefined): provider is LaunchProvider {
+  return !!provider && Object.hasOwn(LAUNCH_HARNESS_BY_PROVIDER, provider);
+}
+/** StartSession may launch Codex or Claude. Telos worker startup still
+ * qualifies only Codex, so Telos child creation stays Codex-only until that
+ * owner can start the same Claude child it would create. */
+export type SessionLaunchScope = 'session' | 'telos';
+
+export const SESSION_LAUNCH_UNSUPPORTED_ACCOUNT =
+  'Agent-created sessions start only on a Local Mac Codex or Claude account. Choose one of those accounts in review before Approve & start.';
+export const TELOS_SESSION_CODEX_ONLY =
+  'Telos worker sessions currently start only on a Local Mac Codex account. Choose a Codex account in review before Approve & start; Claude Telos workers are not available yet.';
+
+function launchHarness(
+  provider: string | undefined,
+  scope: SessionLaunchScope,
+): LaunchHarness | null {
+  const harness = isLaunchProvider(provider) ? LAUNCH_HARNESS_BY_PROVIDER[provider] : null;
+  return scope === 'telos' && harness !== 'codex' ? null : harness;
+}
+function unsupportedAccount(scope: SessionLaunchScope) {
+  return scope === 'telos' ? TELOS_SESSION_CODEX_ONLY : SESSION_LAUNCH_UNSUPPORTED_ACCOUNT;
+}
+function launchHarnessFor(config: SessionLaunchConfig): LaunchHarness {
+  return launchHarness(config.runtime.accountReference?.provider, 'session') ?? 'codex';
+}
 
 /** Proposal-time presentation of static startup limits, including the
- * Codex-only account route. Approve & start still requalifies everything,
+ * supported account routes. Approve & start still requalifies everything,
  * including a missing or changed saved account reference. */
-export function sessionLaunchStartupBlocker(config: SessionLaunchConfig): string | null {
+export function sessionLaunchStartupBlocker(
+  config: SessionLaunchConfig,
+  scope: SessionLaunchScope = 'session',
+): string | null {
   const provider = config.runtime.accountReference?.provider;
   return (
     sessionLaunchConfigurationReason(config) ??
-    (provider && provider !== 'openai-codex' ? SESSION_LAUNCH_CODEX_ONLY : null)
+    (provider && !launchHarness(provider, scope) ? unsupportedAccount(scope) : null)
   );
 }
 
-/** Reuse the same owned ordinary Local Mac Codex admission as New chat and
- * native advisers. No model/provider client or permission grant is created here. */
+/** Telos role setup qualifies only the child it can later start. */
+export function qualifyTelosSessionLaunchConfig(
+  config: SessionLaunchConfig,
+  authority: SessionLaunchAuthority,
+) {
+  return qualifySessionLaunchConfig(config, authority, 'telos');
+}
+
+/** Reuse the same owned ordinary Local Mac admission as New chat and native
+ * advisers: Codex for Codex accounts, the Claude SDK for Claude accounts.
+ * No model/provider client or permission grant is created here. */
 export async function qualifySessionLaunchConfig(
   config: SessionLaunchConfig,
   authority: SessionLaunchAuthority,
+  scope: SessionLaunchScope = 'session',
 ) {
   authority.assertCurrent();
   authority.signal.throwIfAborted();
@@ -56,10 +103,12 @@ export async function qualifySessionLaunchConfig(
   const { loadAccountProfiles } = await import('./account-profiles.js');
   const profiles = loadAccountProfiles();
   const binding = profiles.resolve(account.accountId, account.model);
-  if (binding.provider !== 'openai-codex') throw new SessionLaunchError(SESSION_LAUNCH_CODEX_ONLY);
+  const harness = launchHarness(binding.provider, scope);
+  if (!harness || !isLaunchProvider(binding.provider))
+    throw new SessionLaunchError(unsupportedAccount(scope));
   const reference = {
     accountId: binding.accountId,
-    provider: 'openai-codex' as const,
+    provider: binding.provider,
     profileRevision: binding.profileRevision,
   };
   if (
@@ -71,13 +120,13 @@ export async function qualifySessionLaunchConfig(
     );
   profiles.validateModelSelection(binding, account.model, account.reasoningEffort ?? undefined);
   const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
-  const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
-  const runtime = { account: reference, harness: 'codex' as const, targetId, mode: config.mode };
+  const inventory = ordinaryRepositoryRuntimeInventory('local', harness);
+  const runtime = { account: reference, harness, targetId, mode: config.mode };
   const resolution = inventory.catalog.resolve(runtime);
   const route = inventory.result.routes.find(
     (candidate) =>
       candidate.targetId === targetId &&
-      candidate.harness === 'codex' &&
+      candidate.harness === harness &&
       isDeepStrictEqual(candidate.account, reference) &&
       candidate.modes.some((mode) => mode === config.mode),
   );
@@ -101,6 +150,8 @@ export async function qualifySessionLaunchConfig(
   const { getAgentLibrary } = await import('./agent-library-runtime.js');
   const { readOrdinaryCodexAgentProfile, ordinaryCodexAgentProfileRouteProjection } =
     await import('./ordinary-codex-agent-profile.js');
+  // Same profile projection each engine's ordinary New chat route applies.
+  const toolRoute = harness === 'codex' ? 'codex-owned-local' : 'claude-sdk';
   const profile = readOrdinaryCodexAgentProfile(getAgentLibrary(), agent);
   if (
     !profile ||
@@ -108,13 +159,13 @@ export async function qualifySessionLaunchConfig(
     ordinaryCodexAgentProfileRouteProjection([profile], binding.provider, 'local', undefined, {
       contextRecipes: 'none',
       toolSelection: true,
-      toolRoute: 'codex-owned-local',
+      toolRoute,
     }).agentProfileRejections.length
   )
     throw new SessionLaunchError(
       'The selected agent revision or its context is unavailable for an ordinary Local Mac session.',
     );
-  await assertSessionLaunchTools(config.extraTools, profile.definition);
+  await assertSessionLaunchTools(config.extraTools, profile.definition, toolRoute);
   const selection = {
     version: 1 as const,
     agent,
@@ -133,7 +184,7 @@ export async function prepareTelosSessionSettings(
   config: SessionLaunchConfig,
   authority: SessionLaunchAuthority,
 ) {
-  const selected = await qualifySessionLaunchConfig(config, authority);
+  const selected = await qualifyTelosSessionLaunchConfig(config, authority);
   const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
   const prepared = await getOrdinaryWorkspaces().prepareOrdinaryWorkspace({
     binding: selected.binding,
@@ -141,7 +192,7 @@ export async function prepareTelosSessionSettings(
       runOn: 'local',
       runtime: {
         account: selected.runtime.account,
-        harness: 'codex',
+        harness: selected.runtime.harness,
         targetId: selected.runtime.targetId,
       },
     },
@@ -189,8 +240,12 @@ export function createSessionLaunchPort(): SessionLaunchPort {
         throw new SessionLaunchError('The child startup is still active. Open its chat.');
       const { getCodexConversationStore } = await import('./codex-chat-session.js');
       // Presence is intentionally stricter than a missing ACK: even an empty
-      // retained native conversation belongs to ordinary runtime recovery.
-      if (getCodexConversationStore().hasConversation(child))
+      // retained native conversation (Codex) or SDK custody (Claude) belongs to
+      // ordinary runtime recovery. Either engine's record blocks a replacement.
+      if (
+        getCodexConversationStore().hasConversation(child) ||
+        eventStore.getOrdinaryLocalVertexCustody(child)
+      )
         throw new SessionLaunchError(
           'This child already has native execution history. Open its existing chat to recover it.',
         );
@@ -255,7 +310,7 @@ export function createSessionLaunchPort(): SessionLaunchPort {
           runOn: 'local',
           runtime: {
             account: selected.runtime.account,
-            harness: 'codex',
+            harness: selected.runtime.harness,
             targetId: selected.runtime.targetId,
           },
         },
@@ -329,6 +384,12 @@ export function createSessionLaunchPort(): SessionLaunchPort {
         commandFingerprint: workspace.preparationFingerprint,
       },
       operatorConnectionId: authority.operatorConnectionId,
+      // Claude SDK startup reads the selected profile and binds tool approval
+      // through this owner, as New chat does; onSessionPrepared then replaces
+      // it with the retained login before the approve request finishes.
+      ...(selected.runtime.harness === 'claude-sdk'
+        ? { ownerConnectionId: authority.operatorConnectionId }
+        : {}),
       ownerAuthSessionId: authority.authSessionId,
       signal: authority.signal,
       continuation: false,
@@ -375,30 +436,46 @@ export function createSessionLaunchPort(): SessionLaunchPort {
       }
       const command = eventStore.getSendCommand(record.commandId);
       const admission = eventStore.getOrdinaryCommandAdmission(record.commandId);
-      const { getCodexConversationStore } = await import('./codex-chat-session.js');
       const meta = eventStore.getSession(prepared.sessionId);
-      const native = getCodexConversationStore();
-      const retainedCommand =
-        meta?.accountBinding && native.hasConversation(prepared.sessionId)
-          ? native
-              .commands(prepared.sessionId, meta.accountBinding)
-              .find((candidate) => candidate.id === record.commandId)
-          : undefined;
-      // Ordinary assembly may expand a /skill into provider prompt text. Its
-      // original intent and exact command ID still fence the reviewed launch.
-      const acknowledged =
-        meta?.accountBinding &&
-        retainedCommand &&
-        (retainedCommand.intent ?? retainedCommand.prompt) === record.prompt &&
-        retainedCommand.model === record.configuration.runtime.account?.model &&
-        (retainedCommand.reasoningEffort ?? null) ===
-          (record.configuration.runtime.account?.reasoningEffort ?? null)
-          ? native.acceptedProviderTurnForCommand(
-              prepared.sessionId,
-              meta.accountBinding,
-              record.commandId,
-            )
-          : undefined;
+      const reviewedModel = record.configuration.runtime.account?.model;
+      const reviewedThinking = record.configuration.runtime.account?.reasoningEffort ?? null;
+      let acknowledged: unknown;
+      if (launchHarnessFor(record.configuration) === 'claude-sdk') {
+        // The SDK owner marks an input consumed only after pushing it into the
+        // live query under an execution admission for this exact command.
+        const sdk = eventStore.getOrdinaryLocalVertexCommandAdmission(record.commandId);
+        acknowledged =
+          meta?.accountBinding &&
+          sdk?.state === 'consumed' &&
+          eventStore.getOrdinaryLocalVertexCustody(prepared.sessionId) &&
+          command?.payload.text === record.prompt &&
+          sdk.selection.model === reviewedModel &&
+          sdk.selection.thinking === reviewedThinking &&
+          eventStore.getExecutionAdmission(prepared.sessionId, record.commandId);
+      } else {
+        const { getCodexConversationStore } = await import('./codex-chat-session.js');
+        const native = getCodexConversationStore();
+        const retainedCommand =
+          meta?.accountBinding && native.hasConversation(prepared.sessionId)
+            ? native
+                .commands(prepared.sessionId, meta.accountBinding)
+                .find((candidate) => candidate.id === record.commandId)
+            : undefined;
+        // Ordinary assembly may expand a /skill into provider prompt text. Its
+        // original intent and exact command ID still fence the reviewed launch.
+        acknowledged =
+          meta?.accountBinding &&
+          retainedCommand &&
+          (retainedCommand.intent ?? retainedCommand.prompt) === record.prompt &&
+          retainedCommand.model === reviewedModel &&
+          (retainedCommand.reasoningEffort ?? null) === reviewedThinking
+            ? native.acceptedProviderTurnForCommand(
+                prepared.sessionId,
+                meta.accountBinding,
+                record.commandId,
+              )
+            : undefined;
+      }
       return {
         accepted:
           command?.sessionId === prepared.sessionId &&
