@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/offline/chat-status-freshness.spec.ts':
+    '7a5572da530b785993e34d4d3ac2dd7903277006f865d588d98d6165869acf3a',
   '../__tests__/sdk-repository-base.test.ts':
     '8e9924196da2a387446da3a44ebc6c45d7d24e94fb72765ed77aca71706d5067',
   '../sdk-repository-base.ts': '31dead013b75c84f332dbecff869ac26890dc6f3ed66da4f5f221261741f6748',
@@ -477,7 +479,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ComposerStatus.css':
     'bcb403d769ebe0f23e20b713d50dfd00bc6ba2ea29ba67b82db8749510a96995',
   '../../frontend/src/components/ComposerStatus.tsx':
-    '7a97b4eeffbc5d7ee7af716a95d74b81980e1fa20c6c14953eb3d78bdea0db1d',
+    'da4fc2df254abdfbe88dad54b44e302927425fd1dece845b9cea7672fd780d3f',
   '../../frontend/src/components/ComposerTools.tsx':
     '4d12ffa29195b6f3b60277e5e76e87120ec18da8bed6080b49a4813c052a2e6d',
   '../../frontend/src/components/ConnectionSetupCard.tsx':
@@ -749,7 +751,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/CollaborationTranscript.test.tsx':
     'f66a5bd974fe57b98c18ab447107681e2e5f76b8bed51c6d024dac00bd0e7e60',
   '../../frontend/src/components/__tests__/ComposerActivity.lifecycle.test.tsx':
-    '2503ac79d17fd29f8adf5e13b81381df532425285f9661935035a1009820e9b9',
+    '78f1471cb6b2a0770636b1d9379665daa2bb3267e027c41373c8b44519e9cabf',
   '../../frontend/src/components/__tests__/ComposerActivity.test.tsx':
     '14250f63ee593371674d6569d62eede154c997fb1f131b54ee6953246b2fb3f2',
   '../../frontend/src/components/__tests__/ComposerResponders.test.tsx':
@@ -1981,7 +1983,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/session-launch.tsx':
     '1ea202b9699db810cbeec0d85508b7b3ca7beec3920fad2f3240141858b530c1',
   '../../tests/fixtures/session-library.tsx':
-    'c87b55941ffe91d0c4ddc20a0532f37763f3f0e3d439050dc4e03987a66c2093',
+    '99dd87f3a513d7ad724369dcd61b997fc92c94ed5e56d9e96f3b03eb0ec8926a',
   '../../tests/fixtures/session-timers.tsx':
     'a402981a71637d97cbdb786c24011b236c5183ad9f6ffd44363ae188009cb415',
   '../../tests/fixtures/symposium-composer.tsx':
@@ -2715,7 +2717,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-runtime-authority.test.ts':
     '3979d8c1a16fe58b5e2ad0bbd2bdbb55eaadef46f75ec3671ccbcb46285a8dca',
   '../__tests__/credential-sdk-tools.test.ts':
-    '8f436bac035e3df38b6ada818d809dcb25ff6b19996eead9417c79b3339b38be',
+    '7e9246145951c14f8326d4d5eb3b1875dbf5a24dafac17a642adb5f8dbf9e699',
   '../__tests__/credential-setup-application.test.ts':
     '39683a04282c3149a17886b424218dc93bfa48bf208340f2f0a5736ad609f372',
   '../__tests__/credential-setup-continuation.test.ts':
@@ -3642,7 +3644,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/tool-builder-responses.test.ts':
     '31a03a7f6b588bc8b106227cb37344650428d2245286c28512814a7776b6e70f',
   '../__tests__/tool-failure-reporting.test.ts':
-    '6c0cf1dd19e504129036eef89296bd2666fbc002917e846770a524173805a17e',
+    '25dce58ea0fd3914bfb7176911a029b1fc6101809b2b53d06435d79f09f20631',
   '../__tests__/tool-library-sdk.test.ts':
     'b95effe09a93d35ec9c8c139c8bbd151b81d652caa2e5296bbde9e100b6e267f',
   '../__tests__/tool-validation-consumer.test.ts':
@@ -3906,7 +3908,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-boundary.ts':
     'a91fda3e868e020304722e2a78488ef41de421cc9635790a19a8e0a75c75edda',
-  '../credential-sdk-tools.ts': 'b8c99d8d47456f34823e9d5140d3603a5e8848843f3ffd7b1c1c35f54f562be9',
+  '../credential-sdk-tools.ts': 'fbea4f827b1d3ff956ded36b69ecf97c546c1a6227ac506fd75c2a06989b18de',
   '../credential-setup-application.ts':
     '6882cdc7036ec0c019392a5bf398aca9f196579d013c15f209815d0430cebd41',
   '../credential-setup-continuation.ts':
@@ -4815,7 +4817,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../tool-failure-continuation.ts':
     '7e3756c1f9ddbb4893e53571cf28ed7e1105dbbc3a2c216a7c1e62a1ed10ca6e',
   '../tool-failure-reporting.ts':
-    'bc2cb128eeb44515eef9f684a00b565fc29d394cb9f81726d4e997c0713ff28c',
+    '0357dafda9c5361509b4123e67281cec1eb3bcf52b1fad3cb0cd9667b78fed10',
   '../tool-input-error.ts': '84137699ec55ee4ff47c1516e567f3ea605b1f76a51e9d1600b6a56ddb41eb5b',
   '../tool-library-sdk.ts': '70892ff54af3d956807d6c6b3ee5e74eef3d0060de7510fe29cdb050c9f96c63',
   '../tool-output-projection.ts':
