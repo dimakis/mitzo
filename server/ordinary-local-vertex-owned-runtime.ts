@@ -126,7 +126,11 @@ export class OrdinaryLocalVertexOwnedRuntime {
   private assertOwner() {
     let check = 'owner.closed';
     try {
-      if (this.#closed) throw unavailable();
+      if (this.#closed) {
+        // Revocation closes the owner; keep the classified auth loss as the cause.
+        const authFailure = this.#operator.failure();
+        throw Object.assign(unavailable(), authFailure ? { cause: authFailure } : {});
+      }
       check = 'owner.signal';
       this.#signal.throwIfAborted();
       check = 'owner.operator';

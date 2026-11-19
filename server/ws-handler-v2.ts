@@ -584,13 +584,31 @@ export async function handleSwitchSession(
 
       if (!allowOwnedLocalControl(connectionId, msg.sessionId, ctx)) return;
       const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
-      // An admitted Claude conversation writes its session row only when its
-      // queued startup runs. Until then it is starting, not missing: watch it
-      // so startup events reach this client, and send metadata once it exists.
+      // A new Claude chat is acknowledged (202) before repository reservation,
+      // worktree creation and its session row. From that acknowledgement it is
+      // starting, not missing: watch it so startup events reach this client.
+      // The early-start record covers reservation/worktree setup; custody covers
+      // the admitted driver until its row exists.
+      const earlyStart = sessionMeta
+        ? undefined
+        : ctx.eventStore.ordinaryEarlyStarts?.preparingForSession(msg.sessionId);
       const awaitingStartup =
-        !sessionMeta && !!ctx.eventStore.getOrdinaryLocalVertexCustody?.(msg.sessionId);
+        !sessionMeta &&
+        (!!ctx.eventStore.getOrdinaryLocalVertexCustody?.(msg.sessionId) ||
+          (!!earlyStart &&
+            ordinaryOperatorOwnsConversation(
+              earlyStart.authSessionId,
+              liveTransportAuthSessionId(connectionId),
+            )));
 
       if (!sessionMeta && !awaitingStartup) {
+        log.info('switch_session refused: session not found', {
+          code: 'switch_session_not_found',
+          stage: 'switch_session',
+          connectionId,
+          sessionId: msg.sessionId,
+          ...(earlyStart ? { earlyStartForeignLogin: true } : {}),
+        });
         ctx.connRegistry.get(connectionId)?.transport.send({
           type: 'error',
           sessionId: msg.sessionId,

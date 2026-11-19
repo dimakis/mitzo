@@ -60,6 +60,17 @@ export class OrdinaryEarlyStarts {
     };
   }
 
+  /** The start still preparing this conversation, if any. It exists from the
+   * acknowledgement, before reservation, worktree creation or a session row. */
+  preparingForSession(sessionId: string): OrdinaryEarlyStart | undefined {
+    const row = this.database()
+      .prepare(
+        "SELECT client_msg_id FROM ordinary_early_starts WHERE session_id=? AND state='preparing' LIMIT 1",
+      )
+      .get(sessionId) as { client_msg_id: string } | undefined;
+    return row ? this.get(row.client_msg_id) : undefined;
+  }
+
   /** Records a new or retried start. The identity of an existing record, including
    * its creating login, is fixed; the caller qualifies the current operator. */
   begin(input: {
