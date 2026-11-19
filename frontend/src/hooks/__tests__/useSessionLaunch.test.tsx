@@ -30,6 +30,29 @@ it('retains observed links and exposes refresh failure instead of reporting an e
   expect(view.result.current.origin?.title).toBe('Source');
 });
 
+it('treats a 404 before the first read as a starting chat and re-reads without a stale-links error', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(new Response('', { status: 404 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ requests: [] })));
+  const view = renderHook(() => useSessionLaunch('starting'));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+  expect(view.result.current.error).toBeNull();
+  await waitFor(() => expect(view.result.current.readRevision).toBe(1), { timeout: 2000 });
+  expect(view.result.current.error).toBeNull();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it('reports a 404 for a chat that disappears after a successful read', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(new Response(JSON.stringify({ requests: [] })))
+    .mockResolvedValueOnce(new Response('', { status: 404 }));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const view = renderHook(() => useSessionLaunch('removed'));
+  await waitFor(() => expect(view.result.current.readRevision).toBe(1));
+  act(() => view.result.current.refresh());
+  await waitFor(() => expect(view.result.current.error).toBeTruthy());
+});
+
 it.each([undefined, null])(
   'keeps an absent session (%s) quiet without dereferencing a missing snapshot',
   (sessionId) => {
