@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -6,6 +6,7 @@ import {
   assertClaudeSubscriptionAccount,
   ClaudeSubscriptionCustody,
   ClaudeSubscriptionSignInError,
+  claudeSdkInstallation,
 } from '../claude-subscription-custody.js';
 
 it.each([
@@ -129,12 +130,37 @@ it('verifies the native CLI account without persisting tokens and permits refres
   const f = fixture(),
     custody = ClaudeSubscriptionCustody.capture(f.env, f.executable);
   await custody.verify(f.env, new AbortController().signal);
-  expect(ClaudeSubscriptionCustody.reopen(custody.snapshot(), f.env).snapshot()).toEqual(
-    custody.snapshot(),
-  );
+  expect(
+    ClaudeSubscriptionCustody.reopen(custody.snapshot(), f.env, f.executable).snapshot(),
+  ).toEqual(custody.snapshot());
   expect(JSON.stringify(custody.snapshot())).not.toMatch(/accessToken|refreshToken/);
   f.writeStatus();
   await custody.verify(f.env, new AbortController().signal);
+});
+it('runs a deployed release binary for retained custody but refuses an in-place binary change', () => {
+  const f = fixture(),
+    custody = ClaudeSubscriptionCustody.capture(f.env, f.executable);
+  // A deploy installs the SDK under a new release path; the old one may be gone.
+  const release = join(f.root, 'release-2');
+  mkdirSync(release, { mode: 0o700 });
+  const installed = join(release, 'claude');
+  writeFileSync(installed, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
+  rmSync(f.executable);
+  const reopened = ClaudeSubscriptionCustody.reopen(custody.snapshot(), f.env, installed);
+  expect(reopened.snapshot().executable.path).toBe(installed);
+  expect(reopened.accountIdentity()).toEqual(custody.accountIdentity());
+  expect(reopened.accountIdentity()).not.toHaveProperty('executable');
+  // The same installed path replaced in place is not the admitted binary.
+  const current = reopened.snapshot();
+  rmSync(installed);
+  writeFileSync(installed, '#!/bin/sh\necho replaced\nexit 2\n', { mode: 0o700 });
+  expect(() => ClaudeSubscriptionCustody.reopen(current, f.env, installed)).toThrow(
+    ClaudeSubscriptionSignInError,
+  );
+  // Without an installed SDK (non-Darwin), the retained identity must still match.
+  vi.spyOn(claudeSdkInstallation, 'executable').mockReturnValue(undefined);
+  expect(() => ClaudeSubscriptionCustody.reopen(custody.snapshot(), f.env)).toThrow();
+  vi.restoreAllMocks();
 });
 it('distinguishes a native status mismatch from an SDK metadata mismatch', async () => {
   const f = fixture(),

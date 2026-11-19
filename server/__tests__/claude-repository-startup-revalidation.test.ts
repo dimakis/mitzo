@@ -39,7 +39,10 @@ it('preserves the ownership fence when source cleanup races Personal Claude inpu
   const result = owner.revalidate(f.signal.signal);
   await expect(result).rejects.toThrow('Host repository ownership changed during authorization');
   await result.catch((error: unknown) => {
-    expect(runtimeFailureDiagnostics(error)).toMatchObject({ failedCheck: 'workspace.reserve' });
+    expect(runtimeFailureDiagnostics(error)).toMatchObject({
+      failedCheck: 'host_reservation.authorize',
+      authorityChecks: ['workspace.reserve', 'host_reservation.authorize'],
+    });
   });
   await expect(owner.revalidate(f.signal.signal)).resolves.toBeUndefined();
 });

@@ -77,6 +77,13 @@ export function claudeSdkExecutable(): string {
     `@anthropic-ai/claude-agent-sdk-darwin-${process.arch}/claude`,
   );
 }
+/** This release's installed SDK binary. Only Darwin hosts install one; elsewhere
+ * reopen keeps the retained identity, which must still match exactly. */
+export const claudeSdkInstallation = {
+  executable(): string | undefined {
+    return process.platform === 'darwin' ? claudeSdkExecutable() : undefined;
+  },
+};
 function identity(path: string, directory: boolean) {
   if (!isAbsolute(path) || realpathSync(path) !== path) throw unavailable();
   const stat = lstatSync(path, { bigint: true });
@@ -137,10 +144,32 @@ export class ClaudeSubscriptionCustody {
       }),
     );
   }
-  static reopen(value: unknown, env: Readonly<NodeJS.ProcessEnv>) {
-    const custody = new ClaudeSubscriptionCustody(ClaudeSubscriptionCustodySchema.parse(value));
+  /** The account and config root are durable chat custody. The SDK binary is the
+   * current server's execution authority: each deploy installs it under a new
+   * release path, so a chat admitted by an earlier release runs this release's
+   * own binary. An in-place change at the same path still fails closed. */
+  static reopen(
+    value: unknown,
+    env: Readonly<NodeJS.ProcessEnv>,
+    executable: string | undefined = claudeSdkInstallation.executable(),
+  ) {
+    const retained = ClaudeSubscriptionCustodySchema.parse(value);
+    const current = executable === undefined ? undefined : realpathSync(executable);
+    const custody = new ClaudeSubscriptionCustody(
+      current !== undefined && current !== retained.executable.path
+        ? ClaudeSubscriptionCustodySchema.parse({
+            ...retained,
+            executable: identity(current, false),
+          })
+        : retained,
+    );
     custody.assertCurrent(env);
     return custody;
+  }
+  /** Credential identity without the per-release executable attestation. */
+  accountIdentity() {
+    const { kind, version, email, planType, config } = this.retained;
+    return structuredClone({ kind, version, email, planType, config });
   }
   snapshot() {
     return structuredClone(this.retained);

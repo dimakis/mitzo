@@ -22,6 +22,7 @@ import {
 } from './workspace-preservation.js';
 import type { WorkspaceLifecycleClaim } from './workspace-lifecycle.js';
 import { CodexToolFailure } from './codex-tool-failure.js';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import type { LocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
 import { retainPreparationPackedRefs } from './local-repository-preparation-packed-refs.js';
 import { capturePreparedRepositoryTransition } from './prepared-repository-transition-capture.js';
@@ -3075,41 +3076,65 @@ export class RepositoryWorkspaces {
   getHostReservation(
     input: Omit<HostRepositoryReservationInput, 'signal'>,
   ): HostRepositoryReservation {
-    this.assertAvailable();
-    const expected = this.snapshotHostInput(input);
-    this.assertNoOrdinaryPrimary(expected.conversationId);
-    const record = this.getReadonlyHostRecord(expected.id);
-    return this.hostReservationFromRecord(expected, record);
+    let check = 'host_reservation.available';
+    try {
+      this.assertAvailable();
+      check = 'host_reservation.input';
+      const expected = this.snapshotHostInput(input);
+      check = 'host_reservation.ordinary_primary';
+      this.assertNoOrdinaryPrimary(expected.conversationId);
+      check = 'host_reservation.ledger';
+      const record = this.getReadonlyHostRecord(expected.id);
+      check = 'host_reservation.lookup';
+      return this.hostReservationFromRecord(expected, record);
+    } catch (error) {
+      throw annotateAuthorityFailure(error, check);
+    }
   }
   /** Pure comparisons over the owning operation's freshly read ledger row. */
   private hostReservationFromRecord(
     expected: Omit<HostRepositoryReservationInput, 'signal'>,
     record: RepositoryWorkspace,
   ): HostRepositoryReservation {
+    // Each refusal names its constant check: a cold follow-up otherwise reports
+    // only `workspace.reserve`, which cannot distinguish these causes.
+    const refuse = (check: string, message: string) =>
+      annotateAuthorityFailure(new Error(message), check);
     if (record.retirement && record.retirement.disposition !== 'restored')
-      throw Error('Repository task is archived or retiring');
+      throw refuse('host_reservation.retired', 'Repository task is archived or retiring');
     if (primaryConversation(record) !== expected.conversationId)
-      throw Error('Historical repository ownership is not current custody');
+      throw refuse(
+        'host_reservation.custody',
+        'Historical repository ownership is not current custody',
+      );
     const descriptor = this.reservationDescriptor(record);
     if (
       record.ordinaryFirstReservation &&
       expected.commandFingerprint &&
       record.ordinaryFirstReservation.commandFingerprint !== expected.commandFingerprint
     )
-      throw new Error('Prepared first command is frozen');
+      throw refuse('host_reservation.first_command', 'Prepared first command is frozen');
     if (
       record.ordinaryPreparation &&
       expected.runtimeBinding &&
       !isDeepStrictEqual(expected.runtimeBinding, record.ordinaryPreparation.runtimeBinding)
     )
-      throw new Error('Prepared runtime target changed');
-    if (
-      descriptor.id !== expected.id ||
-      descriptor.conversationId !== expected.conversationId ||
-      descriptor.hostReservation.taskRoot !== expected.taskRoot ||
-      !isDeepStrictEqual(descriptor.binding, expected.binding)
-    )
-      throw new Error('Host repository reservation belongs to another selection');
+      throw refuse('host_reservation.runtime_target', 'Prepared runtime target changed');
+    const selectionMismatch =
+      descriptor.id !== expected.id
+        ? 'id'
+        : descriptor.conversationId !== expected.conversationId
+          ? 'conversation'
+          : descriptor.hostReservation.taskRoot !== expected.taskRoot
+            ? 'task_root'
+            : !isDeepStrictEqual(descriptor.binding, expected.binding)
+              ? 'account_binding'
+              : undefined;
+    if (selectionMismatch)
+      throw refuse(
+        `host_reservation.selection.${selectionMismatch}`,
+        'Host repository reservation belongs to another selection',
+      );
     return descriptor;
   }
   private assertUnchangedHostRecord(expected: RepositoryWorkspace): void {
@@ -3903,20 +3928,37 @@ export class RepositoryWorkspaces {
   /** Pins host identity in the existing SQLite row, without creating destination files. */
   async reserveHostTask(input: HostRepositoryReservationInput): Promise<HostRepositoryReservation> {
     return this.runOperation(async () => {
-      const expected = this.snapshotHostInput(input),
-        signal = input.signal;
-      signal.throwIfAborted();
-      const record = this.getHostRecord(expected.id);
-      if (record.qualifiedLocalPreparation)
-        throw new PendingHostTaskError('pending_host_task_access_required');
-      if (record.state !== 'ready') {
-        const descriptor = this.getHostReservation(expected);
-        await this.authorizeHostRecord(record, record.binding, signal);
-        if (descriptor.state !== 'claimed') await this.verifyHostSource(record, signal);
-        await this.assertHostRoot(descriptor.hostReservation);
+      const signal = input.signal;
+      // Revalidation of an existing reservation (every cold follow-up) names the
+      // failing step; the fresh-reservation path below keeps its own handling.
+      let check = 'host_reservation.input';
+      let expected: ReturnType<typeof this.snapshotHostInput>;
+      let record: RepositoryWorkspace;
+      try {
+        expected = this.snapshotHostInput(input);
         signal.throwIfAborted();
-        this.assertUnchangedHostRecord(record);
-        return this.getHostReservation(expected);
+        check = 'host_reservation.ledger';
+        record = this.getHostRecord(expected.id);
+        check = 'host_reservation.pending_access';
+        if (record.qualifiedLocalPreparation)
+          throw new PendingHostTaskError('pending_host_task_access_required');
+        if (record.state !== 'ready') {
+          check = 'host_reservation.existing';
+          const descriptor = this.getHostReservation(expected);
+          check = 'host_reservation.authorize';
+          await this.authorizeHostRecord(record, record.binding, signal);
+          check = 'host_reservation.source';
+          if (descriptor.state !== 'claimed') await this.verifyHostSource(record, signal);
+          check = 'host_reservation.root';
+          await this.assertHostRoot(descriptor.hostReservation);
+          signal.throwIfAborted();
+          check = 'host_reservation.unchanged';
+          this.assertUnchangedHostRecord(record);
+          check = 'host_reservation.existing';
+          return this.getHostReservation(expected);
+        }
+      } catch (error) {
+        throw annotateAuthorityFailure(error, check);
       }
       if (
         record.pendingHostTask !== undefined ||
