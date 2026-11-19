@@ -6434,9 +6434,16 @@ export function stopOrdinaryChat(clientId: string): void {
     if (phase && phase !== 'TERMINAL') {
       const execution = meta?.executionId;
       const timer = setTimeout(() => {
-        const current = eventStore.getSession(sessionId);
-        if (current?.executionPhase === 'STOPPING' && current.executionId === execution)
-          if (!escalate('timeout')) outcome('already_stopping', { trigger: 'timeout' });
+        // Only the same live owner may escalate; a closed or replaced runtime
+        // (or a store closed at shutdown) has nothing left to stop.
+        if (registry.get(clientId)?.ordinaryRuntimeOwner?.sdkTurns !== turns) return;
+        try {
+          const current = eventStore.getSession(sessionId);
+          if (current?.executionPhase === 'STOPPING' && current.executionId === execution)
+            if (!escalate('timeout')) outcome('already_stopping', { trigger: 'timeout' });
+        } catch (cause) {
+          outcome('escalation_failed', { trigger: 'timeout', ...runtimeFailureDiagnostics(cause) });
+        }
       }, ordinarySdkStopEscalation.timeoutMs);
       timer.unref?.();
       outcome('requested');
