@@ -33,6 +33,7 @@ import { holdResultForLateSteer } from './sdk-late-steer-hold.js';
 import { sdkPersistenceDiagnostic } from './sdk-persistence-diagnostics.js';
 import { createSdkRepositoryCallbacks } from './sdk-repository-callback.js';
 import type { SdkAuthorityCaller } from './sdk-authority-observation.js';
+import { createRuntimeOwnerContext } from './runtime-owner-context.js';
 const log = createLogger('owned-sdk-query');
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
  * completed query cannot abort its successor; stale hooks always refuse effects. */
@@ -333,6 +334,7 @@ export function createOrdinaryLocalVertexSdkQuery<
 }) {
   let input = owners.input;
   let hasHistory = !!owners.options.resume;
+  const ownerContext = createRuntimeOwnerContext();
   const runs = new AsyncQueue<Query>();
   type State = SdkCallbackState & {
     commandInputUuid?: string;
@@ -528,7 +530,11 @@ export function createOrdinaryLocalVertexSdkQuery<
         : {}),
     };
     if (selection && hasHistory) delete options.sessionId;
-    const native = query({ prompt: prompt(input, () => native), options });
+    // A successor can be admitted from another session's tool call (a peer
+    // message); its callbacks must never run inside that caller's tool guard.
+    const native: Query = ownerContext(() =>
+      query({ prompt: prompt(input, () => native), options }),
+    );
     states.set(native, state);
     return native;
   };
