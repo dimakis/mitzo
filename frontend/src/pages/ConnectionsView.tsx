@@ -24,6 +24,11 @@ import {
   templateKey,
 } from '../lib/connections-form';
 import {
+  decideConnectionAuthorization,
+  takePendingConnectionChange,
+} from '../lib/connection-change-authorization';
+import type { PendingConnectionChange } from '../lib/connection-change-authorization';
+import {
   Assignments,
   Authentication,
   Review,
@@ -60,6 +65,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
   const [csrf, setCsrf] = useState('');
   const [csrfExpiresAt, setCsrfExpiresAt] = useState(0);
   const [authorizationOpen, setAuthorizationOpen] = useState(false);
+  const [pendingChange, setPendingChange] = useState<PendingConnectionChange | null>(null);
   const [passphrase, setPassphrase] = useState('');
   const [personalChosen, setPersonalChosen] = useState(false);
   const [personalCreationUncertain, setPersonalCreationUncertain] = useState(false);
@@ -149,7 +155,10 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
     stepHeading.current?.focus();
   }, [step, personalChosen, created, recovery]);
   useEffect(() => {
-    if (authorizationOpen) authorizationField.current?.focus();
+    if (!authorizationOpen) return;
+    // The form precedes the connection list, so on a phone it can open off-screen.
+    authorizationField.current?.scrollIntoView?.({ block: 'center' });
+    authorizationField.current?.focus();
   }, [authorizationOpen]);
   useEffect(() => {
     if (
@@ -214,39 +223,61 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
       setBusy(null);
     }
   };
-  const requireReauthorization = (force = false) => {
-    if (connectionsRefreshing || loadError) {
-      setMessage('Refresh connection details before changing access.');
+  const requireReauthorization = (request?: PendingConnectionChange | true) => {
+    const forced = request === true;
+    const pending = request === true ? null : (request ?? null);
+    const decision = decideConnectionAuthorization(
+      { csrf, csrfExpiresAt, connectionsRefreshing, loadError },
+      pending,
+      Date.now(),
+    );
+    if (decision.action === 'blocked') {
+      setMessage(decision.message);
       setFailed(true);
       return false;
     }
-    if (!force && csrf && csrfExpiresAt > Date.now()) return true;
+    if (decision.action === 'proceed' && !forced) {
+      setPendingChange(null);
+      return true;
+    }
     setCsrf('');
     setCsrfExpiresAt(0);
+    // Keep the tapped change so confirmation applies it instead of asking for
+    // the same tap again, and name it beside the control that was tapped.
+    setPendingChange(pending);
     setAuthorizationOpen(true);
     setPassphrase('');
     setMessage(
-      mode === 'openai'
+      forced || mode === 'openai' || decision.action !== 'confirm'
         ? 'Confirm your identity to continue.'
-        : 'Confirm your identity, then retry the change.',
+        : decision.message,
     );
     setFailed(false);
     return false;
   };
-  const authorizeChanges = () =>
-    void run(
-      'reauthorize',
-      async () => {
-        const next = await reauthorize(passphrase);
-        if (next.expiresAt <= Date.now())
-          throw new Error('Authorization expired. Enter your passphrase again.');
-        setCsrf(next.csrf);
-        setCsrfExpiresAt(next.expiresAt);
-        setPassphrase('');
-        setAuthorizationOpen(false);
-      },
-      mode === 'openai' ? '' : 'Identity confirmed. You can retry the change.',
-    );
+  const authorizeChanges = () => {
+    let fresh = '';
+    void (async () => {
+      const confirmed = await run(
+        'reauthorize',
+        async () => {
+          const next = await reauthorize(passphrase);
+          if (next.expiresAt <= Date.now())
+            throw new Error('Authorization expired. Enter your passphrase again.');
+          fresh = next.csrf;
+          setCsrf(next.csrf);
+          setCsrfExpiresAt(next.expiresAt);
+          setPassphrase('');
+          setAuthorizationOpen(false);
+        },
+        mode === 'openai' ? '' : 'Identity confirmed. You can retry the change.',
+      );
+      const change = takePendingConnectionChange(pendingChange, fresh);
+      setPendingChange(null);
+      if (!confirmed || !change) return;
+      await run(`change:${pendingChange?.connectionId}`, change.run, change.success);
+    })();
+  };
   const toggle = (id: string, values: string[], setter: (next: string[]) => void) =>
     setter(values.includes(id) ? values.filter((value) => value !== id) : [...values, id]);
   const chooseTemplate = (next: ConnectionTemplate) => {
@@ -763,6 +794,13 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                   rotateOpen={rotateId === connection.id}
                   rotationCredentials={rotationCredentials}
                   requireReauthorization={requireReauthorization}
+                  pendingChange={
+                    pendingChange?.connectionId === connection.id ? pendingChange : null
+                  }
+                  onConfirmIdentity={() => {
+                    setAuthorizationOpen(true);
+                    setPassphrase('');
+                  }}
                   onRotateOpen={() => {
                     setRotateId(connection.id);
                     setRotationCredentials({});
