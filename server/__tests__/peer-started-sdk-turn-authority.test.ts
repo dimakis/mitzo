@@ -101,7 +101,12 @@ async function fixture() {
       startQueued: vi.fn(async () => {}),
     });
   const allow = () =>
-    vi.fn(async (input: unknown) => ({ behavior: 'allow' as const, updatedInput: input }));
+    vi.fn(
+      async (input: unknown): Promise<{ behavior: 'allow' | 'deny'; updatedInput: unknown }> => ({
+        behavior: 'allow',
+        updatedInput: input,
+      }),
+    );
   const senderApprove = allow();
   const recipientApprove = allow();
   const sender = registry.get('operator:orchestrator')!;
