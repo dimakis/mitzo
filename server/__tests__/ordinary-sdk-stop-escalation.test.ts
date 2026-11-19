@@ -224,6 +224,20 @@ it('escalates a wedged Stop after the bounded timeout without a second Stop', as
   expect(await nextMessageRuns('timeout', f.owners)).toEqual(['timeout-next']);
 });
 
+it('leaves a closed or replaced runtime alone when the bound elapses', async () => {
+  chat.ordinarySdkStopEscalation.timeoutMs = 20;
+  const f = await wedgedTurn('replaced');
+  chat.stopOrdinaryChat(f.clientId);
+  await vi.waitFor(() => expect(f.native.interrupt).toHaveBeenCalledOnce());
+  // The runtime closed (for example at shutdown, when the store also closes).
+  chat.registry.get(f.clientId)!.ordinaryRuntimeOwner = undefined;
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(f.native.abort).not.toHaveBeenCalled();
+  expect(stopOutcomes('replaced').map((ctx) => ctx.code)).not.toContain(
+    'ordinary_sdk_stop_escalated',
+  );
+});
+
 it('does not escalate when the stopped turn settles within the bound', async () => {
   chat.ordinarySdkStopEscalation.timeoutMs = 20;
   const f = await wedgedTurn('settled');
