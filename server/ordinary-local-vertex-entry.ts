@@ -7,6 +7,7 @@ import type { SessionTransport, ManagedSession } from '@mitzo/harness';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { retainNativeHostToolOperator } from './native-host-tool-operator.js';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
 import type { HostRepositoryReservationInput } from './repository-workspaces.js';
@@ -24,9 +25,6 @@ import { OrdinaryLocalVertexCommandRequestSchema } from './ordinary-local-codex-
 import { assertOwnedVertexQueueControl } from './ordinary-local-vertex-queue.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import type { AuthSession } from './auth.js';
-import { runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
-import { createLogger } from './logger.js';
-const log = createLogger('local-claude-entry');
 const unavailable = () => Error('Owned Local Claude runtime unavailable');
 export async function continueOwnedLocalVertexQueue(
   sessionId: string,
@@ -233,10 +231,11 @@ export async function startOwnedLocalVertexCommand(
         sourceSnapshots: selected.payload.sourceSnapshots,
         replyToMessageId: selected.payload.replyToMessageId,
         clientMsgId: selected.commandId,
-        // Authority is the send's login-bound operation binding; the viewer
-        // stream only routes events and may reconnect during startup.
+        // Authority stays with the login-bound operator retained for this
+        // operation. The sending stream is only an attachment: the phone reopens
+        // it under a new ID during startup, which must not end the start.
         operatorConnectionId: options.operatorConnectionId,
-        ownerConnectionId: options.ownerConnectionId,
+        ownerConnectionId: options.ownerConnectionId ?? null,
         ordinarySdkAuthority: authority,
         ordinarySdkRetrySourceCommandId: selected.sdkRetrySourceCommandId,
         ordinarySdkCommandOwner: (nativeQuery, push, reopen, control) => {
@@ -360,21 +359,10 @@ export async function startOwnedLocalVertexCommand(
     return { ...result, sessionId };
   } catch (cause) {
     owner.close();
-    // Keep the original cause: callers classify auth loss from it, and the
-    // diagnostic names the failed check instead of a bare "unavailable".
-    const failure = Object.assign(unavailable(), { cause });
-    log.warn('Claude startup failed', {
-      code: 'ordinary_claude_startup_failed',
-      stage: 'claude_startup',
-      sessionId,
-      commandId: command.clientMsgId,
-      ...(options.preparationOperationId
-        ? { preparationOperationId: options.preparationOperationId }
-        : {}),
-      resume: !!options.resume,
-      ...runtimeFailureDiagnostics(cause),
-    });
-    throw failure;
+    throw annotateAuthorityFailure(
+      Error('Owned Local Claude runtime unavailable', { cause }),
+      'claude.owned_startup',
+    );
   } finally {
     options.signal?.removeEventListener('abort', abortPreparation);
     release?.();
