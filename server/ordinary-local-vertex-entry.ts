@@ -331,6 +331,7 @@ export async function startOwnedLocalVertexCommand(
               stop: (requestId) => queue!.stop(requestId),
               stopBeforeInput: (commandId, requestId) =>
                 queue!.stopBeforeInput(commandId, requestId),
+              escalateStop: () => queue!.escalateStop(),
               resumeQueue: () => queue!.resumeQueue(),
               captureInterruptTarget: () => queue!.captureInterruptTarget(),
               interruptIfCurrent: (requestId, target) =>

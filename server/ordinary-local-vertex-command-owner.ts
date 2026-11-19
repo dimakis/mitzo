@@ -21,6 +21,9 @@ import {
   ordinarySdkRetryCommandId,
   readOwnedVertexRetrySource,
 } from './ordinary-local-vertex-queue.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('ordinary-sdk-command-owner');
 
 /** A FIFO controller for one existing SDK query. The durable queue is the existing
  * ordinary/send ledger; this object only tracks the live query's active command. */
@@ -131,6 +134,47 @@ export class OrdinaryLocalVertexCommandOwner {
   }
   /** A shared Stop can address an admitted input before a native echo exists.
    * Yielded/foreign inputs keep the native target's existing uncertainty rules. */
+  /** True only while the exact active execution is STOPPING. */
+  #stoppingActive(): boolean {
+    const session = this.owners.store.getSession(this.owners.sessionId);
+    return (
+      !!this.#active &&
+      session?.executionPhase === 'STOPPING' &&
+      session.executionId === this.#active.execution.executionId &&
+      session.executionGeneration === this.#active.execution.generation
+    );
+  }
+  /** Stop escalation for a turn that did not settle after its Stop: the native
+   * process ignored or lost the interrupt. Settle the exact stopped execution
+   * and close this SDK query (its CLI process). The conversation continues from
+   * its saved SDK history through the ordinary cold-resume path. The provider
+   * outcome stays unconfirmed: no result was observed, so none is recorded. */
+  escalateStop(): { commandId: string; inputAcknowledged: boolean } | undefined {
+    const active = this.#active;
+    if (!active || this.#failed || !this.#stoppingActive() || !this.owners.assertCurrentSync)
+      return undefined;
+    assertOrdinarySynchronousFence(active.commandId, () => this.owners.assertCurrentSync!());
+    const transition = this.owners.store.transitionExecution(
+      active.execution,
+      'TERMINAL',
+      'stopped',
+    );
+    if (!transition.applied) throw Error('Original SDK stop escalation execution unavailable');
+    const inputAcknowledged = !!this.#inputUuid;
+    this.#failed = true;
+    this.#paused = true;
+    this.#active = undefined;
+    this.#inputUuid = undefined;
+    this.#inputDispatched = undefined;
+    this.#inputYielded = false;
+    this.#pending = this.#pending.filter((id) => id !== active.commandId);
+    const deferred = this.#deferredStop;
+    this.#deferredStop = undefined;
+    deferred?.resolve();
+    this.owners.onTerminal?.(active.commandId);
+    this.owners.query.abort();
+    return { commandId: active.commandId, inputAcknowledged };
+  }
   async stopBeforeInput(commandId: string, requestId: string): Promise<boolean> {
     if (
       this.#active?.commandId !== commandId ||
@@ -331,16 +375,21 @@ export class OrdinaryLocalVertexCommandOwner {
     commandId: string,
     failed = false,
     inputUuid?: string,
-    { dispatchSuccessor = true } = {},
+    {
+      dispatchSuccessor = true,
+      stoppedUnconfirmed = false,
+    }: { dispatchSuccessor?: boolean; stoppedUnconfirmed?: boolean } = {},
   ): Promise<void> {
     return this.#serialize(async () => {
       await this.#fence();
       if (this.#active?.commandId !== commandId)
         throw Error('SDK result does not match active command');
-      if (this.owners.turnEvidence && !inputUuid)
-        throw Error('Original SDK result input acknowledgment unavailable');
       const stopping =
         this.owners.store.getSession(this.owners.sessionId)?.executionPhase === 'STOPPING';
+      // Only a result already proven to follow Stop may settle without an
+      // acknowledged input; its provider outcome then remains unconfirmed.
+      if (this.owners.turnEvidence && !inputUuid && !(stoppedUnconfirmed && stopping))
+        throw Error('Original SDK result input acknowledgment unavailable');
       const transition = this.owners.store.transitionExecution(
         this.#active.execution,
         'TERMINAL',
@@ -404,6 +453,30 @@ export class OrdinaryLocalVertexCommandOwner {
     failed = false,
     options?: { dispatchSuccessor?: boolean },
   ): Promise<void> {
+    if (
+      this.#active &&
+      (!inputUuid || this.#inputUuid !== inputUuid) &&
+      !this.#failed &&
+      this.#stoppingActive()
+    ) {
+      // An interrupt can end the turn before the result is correlated with its
+      // exact input echo. Stop already decided this command's outcome, so the
+      // result settles it as stopped; only the accepted input identity (if
+      // any) is recorded, never the unconfirmed one.
+      const commandId = this.#active.commandId;
+      const accepted = this.#inputUuid;
+      log.warn('SDK result after Stop settled without its exact input identity', {
+        code: 'sdk_stop_result_identity_unconfirmed',
+        stage: 'provider_terminal',
+        sessionId: this.owners.sessionId,
+        commandId,
+        inputAcknowledged: !!accepted,
+        resultInputCorrelated: !!inputUuid,
+      });
+      this.#resultObserved = true;
+      this.#inputUuid = undefined;
+      return this.complete(commandId, failed, accepted, { ...options, stoppedUnconfirmed: true });
+    }
     if (!this.#active || !inputUuid || this.#inputUuid !== inputUuid) {
       this.#failed = true;
       this.owners.query.abort();
