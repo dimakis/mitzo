@@ -7,6 +7,7 @@ import {
   reopenClaudeSdkCredentials,
 } from './claude-sdk-credentials.js';
 import { AnthropicApiCustody } from './anthropic-api-custody.js';
+import { AuthorityProofCache } from './authority-proof-cache.js';
 import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import {
   assertSdkRepositoryCallback,
@@ -45,6 +46,7 @@ export function assertSdkRepositoryReadOwner(owner: SdkRepositoryReadOwner) {
 export class OrdinaryLocalVertexSdkAuthority {
   readonly #custody: OrdinaryLocalVertexCustody;
   readonly #credential: ReturnType<typeof captureClaudeSdkCredentials>;
+  readonly #apiCredentialProof = new AuthorityProofCache();
   constructor(
     private readonly owners: {
       store: EventStore;
@@ -221,11 +223,24 @@ export class OrdinaryLocalVertexSdkAuthority {
       check = 'authority.owner';
       await this.owners.assertCurrent(signal);
       check = 'authority.api_credentials';
-      if (this.#credential instanceof AnthropicApiCustody)
-        await this.#credential.verify(this.owners.environment(), signal);
-      // Admission verifies native sign-in; the running query checks accountInfo
-      // before releasing each prompt. Tool callbacks retain the physical account,
-      // operator and workspace fences without spawning another CLI status process.
+      if (this.#credential instanceof AnthropicApiCustody) {
+        const credential = this.#credential;
+        const ownerSignal = this.owners.signal;
+        // A shared keychain proof runs under the owner's lifetime so one
+        // caller's cancellation cannot refuse the others. Without that owner
+        // signal, each caller proves on its own.
+        if (ownerSignal)
+          await this.#apiCredentialProof.run('api_credentials', () =>
+            credential.verify(this.owners.environment(), ownerSignal),
+          );
+        else await credential.verify(this.owners.environment(), signal);
+        signal.throwIfAborted();
+      }
+      // The owner's deep proof (workspace revalidation and its repository
+      // credential check, which for personal sign-in runs a CLI status process)
+      // and the API keychain proof are shared per command for
+      // SDK_AUTHORITY_PROOF_TTL_MS. The physical account, operator, receipt and
+      // workspace fences below still run on every callback.
       this.assertCurrentSync(signal);
     } catch (error) {
       throw annotateAuthorityFailure(error, check);
