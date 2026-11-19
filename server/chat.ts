@@ -3483,6 +3483,9 @@ async function _startChatInner(
           sdkSessionId: options.ordinarySdkAuthority.sdkSessionId(),
           cwd,
           controller: abortController,
+          stopping: () =>
+            !!session.sessionId &&
+            eventStore.getSession(session.sessionId)?.executionPhase === 'STOPPING',
           onUnsent: (message, error) =>
             reportRetainedRuntimeFailure({
               store: eventStore,
@@ -6380,26 +6383,94 @@ export function stopOrdinaryChat(clientId: string): void {
   const turns = session?.ordinaryRuntimeOwner?.sdkTurns;
   if (turns && session.sessionId) {
     const sessionId = session.sessionId;
-    const phase = eventStore.getSession(sessionId)?.executionPhase;
-    // Keep the original query alive to observe its settled result. Closing it
-    // here loses the only evidence that permits the next SDK command to run.
-    if (phase === 'STOPPING') return;
-    if (phase && phase !== 'TERMINAL') {
-      const target = turns.captureInterruptTarget();
-      const report = (cause: unknown) =>
+    const meta = eventStore.getSession(sessionId);
+    const phase = meta?.executionPhase;
+    const requestId = randomUUID();
+    const commandId = eventStore.getCurrentExecutionCommandId(sessionId);
+    const outcome = (result: OrdinarySdkStopOutcome, extra: Record<string, unknown> = {}) => {
+      const fields = {
+        code: `ordinary_sdk_stop_${result}`,
+        stage: 'turn_stop',
+        sessionId,
+        commandId,
+        requestId,
+        executionPhase: phase,
+        ...extra,
+      };
+      if (result === 'failed' || result === 'escalation_failed')
+        log.warn('Ordinary SDK Stop outcome', fields);
+      else log.info('Ordinary SDK Stop outcome', fields);
+    };
+    const escalate = (trigger: 'repeat_stop' | 'timeout') => {
+      try {
+        const escalated = turns.escalateStop?.();
+        if (!escalated) return false;
+        outcome('escalated', {
+          trigger,
+          commandId: escalated.commandId,
+          inputAcknowledged: escalated.inputAcknowledged,
+        });
+        return true;
+      } catch (cause) {
+        outcome('escalation_failed', { trigger, ...runtimeFailureDiagnostics(cause) });
         reportRetainedRuntimeFailure({
           store: eventStore,
           sessionId,
-          commandId: target?.commandId,
+          commandId,
           session,
           error: new SessionRuntimeError('unsettled_effects', { cause }),
         });
-      void turns.stop(randomUUID()).catch(report);
+        return true;
+      }
+    };
+    // Keep the original query alive for one bounded window to observe its
+    // settled result; that result is the evidence that permits the next SDK
+    // command. A repeated Stop, or that window elapsing, closes the native
+    // process instead so the chat never stays wedged in STOPPING.
+    if (phase === 'STOPPING') {
+      if (!escalate('repeat_stop')) outcome('already_stopping');
       return;
     }
+    if (phase && phase !== 'TERMINAL') {
+      const execution = meta?.executionId;
+      const timer = setTimeout(() => {
+        const current = eventStore.getSession(sessionId);
+        if (current?.executionPhase === 'STOPPING' && current.executionId === execution)
+          escalate('timeout');
+      }, ordinarySdkStopEscalation.timeoutMs);
+      timer.unref?.();
+      outcome('requested');
+      void turns.stop(requestId).then(
+        () => outcome('accepted'),
+        (cause: unknown) => {
+          clearTimeout(timer);
+          outcome('failed', runtimeFailureDiagnostics(cause));
+          reportRetainedRuntimeFailure({
+            store: eventStore,
+            sessionId,
+            commandId,
+            session,
+            error: new SessionRuntimeError('unsettled_effects', { cause }),
+          });
+        },
+      );
+      return;
+    }
+    outcome('not_running');
   }
   stopChat(clientId);
 }
+type OrdinarySdkStopOutcome =
+  | 'requested'
+  | 'accepted'
+  | 'already_stopping'
+  | 'escalated'
+  | 'escalation_failed'
+  | 'failed'
+  | 'not_running';
+/** Bound for a stopped SDK turn to settle before its native process is closed.
+ * Exported as a mutable object so tests shorten it instead of faking timers. */
+export const ordinarySdkStopEscalation = { timeoutMs: 30_000 };
 export function stopChat(clientId: string) {
   withSpan('session.stop', { 'session.clientId': clientId }, () => {
     const session = registry.get(clientId);

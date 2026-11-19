@@ -64,6 +64,8 @@ export interface ManagedSession {
     sdkTurns?: {
       stop(requestId: string): Promise<void>;
       stopBeforeInput(commandId: string, requestId: string): Promise<boolean>;
+      /** Close the native process of a turn still STOPPING and settle it stopped. */
+      escalateStop?(): { commandId: string; inputAcknowledged: boolean } | undefined;
       resumeQueue(): Promise<void>;
       captureInterruptTarget(): OrdinarySdkInterruptTarget | undefined;
       interruptIfCurrent(
