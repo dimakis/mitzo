@@ -5,6 +5,7 @@ import {
   prepareTelosSessionSettings,
   qualifyTelosSessionLaunchConfig,
   SESSION_LAUNCH_UNSUPPORTED_ACCOUNT,
+  sessionLaunchRepositoryWorkspaceId,
   sessionLaunchStartupBlocker,
   TELOS_SESSION_CODEX_ONLY,
 } from '../session-launch-runtime.js';
@@ -29,6 +30,11 @@ const mocks = vi.hoisted(() => ({
   executionAdmission: vi.fn(),
   upsert: vi.fn(),
   rename: vi.fn(),
+  selectRepository: vi.fn(),
+  prepareRepositorySession: vi.fn(),
+  repositoryRecord: vi.fn(),
+  repositoryPreparation: vi.fn(),
+  mkdir: vi.fn(),
   selectedTools: undefined as SymposiumProfileDefinition['tools'],
   binding: {
     accountId: 'personal',
@@ -88,7 +94,16 @@ vi.mock('../ordinary-codex-agent-profile.js', () => ({
   }),
   ordinaryCodexAgentProfileRouteProjection: () => ({ agentProfileRejections: [] }),
 }));
+vi.mock('node:fs', async (original) => ({
+  ...(await original<object>()),
+  mkdirSync: mocks.mkdir,
+}));
 vi.mock('../repository-workspace-runtime.js', () => ({
+  getLocalRepositoryWorkspaces: () => ({
+    selectLocalRepository: mocks.selectRepository,
+    prepareOrdinarySession: mocks.prepareRepositorySession,
+    get: mocks.repositoryRecord,
+  }),
   getOrdinaryWorkspaces: () => ({
     prepareOrdinaryWorkspace: mocks.prepare,
     reserveOrdinaryWorkspace: mocks.reserve,
@@ -106,6 +121,7 @@ vi.mock('../chat.js', () => ({
     upsertSession: mocks.upsert,
     markManuallyRenamed: mocks.rename,
     getOrdinaryWorkspaceSessionPreparation: mocks.preparation,
+    getOrdinarySessionPreparation: mocks.repositoryPreparation,
     getSendCommand: mocks.sendCommand,
     getOrdinaryCommandAdmission: () => ({ state: 'consumed' }),
     getOrdinaryLocalVertexCustody: mocks.sdkCustody,
@@ -115,6 +131,7 @@ vi.mock('../chat.js', () => ({
     removals: { assertAdmissible: mocks.removalFence },
   },
   registry: { findBySessionId: () => null },
+  BASE_REPO: '/base',
 }));
 vi.mock('../codex-chat-session.js', () => ({
   getCodexConversationStore: () => ({
@@ -178,11 +195,41 @@ function useClaude() {
   mocks.sessionMeta.mockReturnValue({ accountBinding: mocks.binding });
   mocks.prepare.mockResolvedValue({ preparationId: 'preparation', runtimeBinding: mocks.runtime });
 }
+const claudeWorkspaceId = sessionLaunchRepositoryWorkspaceId('allocation');
+const claudeTaskRoot = '/base/.claude/repository-tasks';
+const claudeReceipt = () => ({
+  version: 1,
+  allocationOperationId: 'allocation',
+  sessionId: 'child',
+  workspaceId: claudeWorkspaceId,
+  preparationFingerprint: 'repository-fingerprint',
+  firstCommandId: null as string | null,
+  settings: {
+    binding: mocks.runtime,
+    selection: {
+      version: 1,
+      agent: configuration.runtime.agentProfile,
+      context: { source: 'none', revision: null },
+      permission: { mode: 'agent', revision: 0 },
+      model: 'fixture-model',
+      thinking: 'high',
+    },
+    repositoryWorkspaceId: claudeWorkspaceId,
+  },
+});
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.binding = codexBinding;
   mocks.runtime = codexRuntime;
   mocks.sdkCustody.mockReturnValue(undefined);
+  mocks.repositoryPreparation.mockReturnValue(undefined);
+  mocks.selectRepository.mockResolvedValue({ id: claudeWorkspaceId });
+  mocks.prepareRepositorySession.mockImplementation(async () => ({ receipt: claudeReceipt() }));
+  mocks.repositoryRecord.mockReturnValue({
+    id: claudeWorkspaceId,
+    sandbox: false,
+    hostReservation: { taskRoot: claudeTaskRoot },
+  });
   mocks.sdkAdmission.mockReturnValue(undefined);
   mocks.executionAdmission.mockReturnValue(undefined);
   mocks.selectedTools = undefined;
@@ -317,29 +364,47 @@ it('rejects an account provider without a supported launch engine before workspa
   expect(mocks.inventory).not.toHaveBeenCalled();
   expect(mocks.prepare).not.toHaveBeenCalled();
 });
-it('starts a reviewed Claude child through the ordinary Local Mac Claude SDK route', async () => {
+it('starts a reviewed Claude child on a prepared repository session, as New chat does', async () => {
   useClaude();
   const prepared = vi.fn();
   await createSessionLaunchPort().start(claudeRecord, authority, prepared);
   expect(mocks.inventory).toHaveBeenCalledWith('local', 'claude-sdk');
-  expect(mocks.prepare).toHaveBeenCalledWith(
-    expect.objectContaining({
-      selection: {
-        runOn: 'local',
-        runtime: { account: claudeAccount, harness: 'claude-sdk', targetId: 'mac' },
-      },
-    }),
+  // The Claude SDK owner admits repository custody only; no ordinary workspace.
+  expect(mocks.prepare).not.toHaveBeenCalled();
+  expect(mocks.reserve).not.toHaveBeenCalled();
+  expect(mocks.prepareSession).not.toHaveBeenCalled();
+  expect(mocks.selectRepository).toHaveBeenCalledWith(
+    mocks.binding,
+    'primary',
+    { runOn: 'local', runtime: { account: claudeAccount, harness: 'claude-sdk', targetId: 'mac' } },
+    authority.signal,
+    claudeWorkspaceId,
   );
-  expect(prepared).toHaveBeenCalledWith('child', 'preparation');
+  expect(mocks.prepareRepositorySession).toHaveBeenCalledWith(
+    expect.objectContaining({
+      allocationOperationId: 'allocation',
+      id: claudeWorkspaceId,
+      taskRoot: claudeTaskRoot,
+      settings: claudeReceipt().settings,
+    }),
+    expect.anything(),
+  );
+  expect(prepared).toHaveBeenCalledWith('child', claudeWorkspaceId);
   const call = mocks.dispatch.mock.calls[0][0];
   expect(call).toMatchObject({
     commandId: 'command',
     preparationOperationId: 'allocation',
-    workspaceKind: 'ordinary',
+    workspaceKind: 'repository',
     operatorConnectionId: 'authenticated-operation',
     ownerConnectionId: 'authenticated-operation',
     ownerAuthSessionId: 'login',
-    reservation: { runtimeBinding: mocks.runtime },
+    reservation: {
+      id: claudeWorkspaceId,
+      conversationId: 'child',
+      taskRoot: claudeTaskRoot,
+      runtimeBinding: mocks.runtime,
+      commandFingerprint: 'repository-fingerprint',
+    },
     command: {
       runtime: { account: claudeAccount, harness: 'claude-sdk', targetId: 'mac', mode: 'agent' },
       payload: { text: 'Reviewed handoff' },
@@ -347,6 +412,33 @@ it('starts a reviewed Claude child through the ordinary Local Mac Claude SDK rou
     },
   });
   expect(call.onSessionPrepared).toEqual(expect.any(Function));
+});
+it('recovers a Claude child on its original repository receipt without another selection', async () => {
+  useClaude();
+  const retained = { ...claudeRecord, childSessionId: 'child' } as RetainedSessionLaunch;
+  mocks.repositoryPreparation.mockReturnValue(claudeReceipt());
+  await createSessionLaunchPort().start(retained, authority, vi.fn());
+  expect(mocks.selectRepository).not.toHaveBeenCalled();
+  expect(mocks.prepareRepositorySession).not.toHaveBeenCalled();
+  expect(mocks.dispatch).toHaveBeenCalledOnce();
+  for (const changed of [
+    { ...claudeReceipt(), workspaceId: 'other' },
+    { ...claudeReceipt(), firstCommandId: 'other-command' },
+    { ...claudeReceipt(), sessionId: 'other-child' },
+  ]) {
+    mocks.dispatch.mockClear();
+    mocks.repositoryPreparation.mockReturnValue(changed);
+    await expect(createSessionLaunchPort().start(retained, authority, vi.fn())).rejects.toThrow(
+      /settings changed/,
+    );
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  }
+  // A retained child without its receipt never allocates a replacement.
+  mocks.repositoryPreparation.mockReturnValue(undefined);
+  await expect(createSessionLaunchPort().start(retained, authority, vi.fn())).rejects.toThrow(
+    /cannot be allocated/,
+  );
+  expect(mocks.selectRepository).not.toHaveBeenCalled();
 });
 it('keeps the Codex dispatch owner unchanged', async () => {
   await createSessionLaunchPort().start(record, authority, vi.fn());
@@ -363,6 +455,7 @@ it('reports a Claude child running only after its exact reviewed input entered t
   mocks.sendCommand.mockReturnValue({ sessionId: 'child', payload: { text: 'Reviewed handoff' } });
   mocks.sdkAdmission.mockReturnValue(consumed);
   mocks.sdkCustody.mockReturnValue({ sessionId: 'child' });
+  mocks.repositoryPreparation.mockReturnValue(claudeReceipt());
   // Consumed admission without an execution admission is not a started turn.
   expect(await port.inspect(claudeRecord, authority)).toMatchObject({
     accepted: false,
@@ -373,6 +466,10 @@ it('reports a Claude child running only after its exact reviewed input entered t
   expect(await port.inspect(claudeRecord, authority)).toMatchObject({ accepted: true });
   expect(mocks.executionAdmission).toHaveBeenLastCalledWith('child', 'command');
   expect(mocks.hasNative).not.toHaveBeenCalled();
+  expect(mocks.preparation).not.toHaveBeenCalled();
+  expect(await port.inspect(claudeRecord, authority)).toMatchObject({
+    preparationId: claudeWorkspaceId,
+  });
   for (const changed of [
     () => mocks.sdkAdmission.mockReturnValue({ ...consumed, state: 'uncertain' }),
     () => mocks.sdkAdmission.mockReturnValue({ ...consumed, selection: { model: 'other' } }),
@@ -397,7 +494,7 @@ it('reports a Claude child running only after its exact reviewed input entered t
 });
 it('refuses replacement resume when the child already holds Claude SDK custody', async () => {
   const port = createSessionLaunchPort();
-  mocks.workspaceOperation.mockReturnValue({ conversationId: 'child' });
+  mocks.repositoryPreparation.mockReturnValue(claudeReceipt());
   mocks.hasNative.mockReturnValue(false);
   mocks.sdkCustody.mockReturnValue({ sessionId: 'child' });
   await expect(port.canResume!(claudeRecord, authority)).rejects.toThrow(

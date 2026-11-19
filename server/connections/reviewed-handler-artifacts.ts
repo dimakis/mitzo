@@ -219,7 +219,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/agent-communication.md':
     '4cab031ee52b267dc4afbcbf03b741b39cc398ec17da2687292f22dc99c88266',
   '../../docs/features/agent-session-launch.md':
-    '7fffe98c322ec70835bb15d4675ef34bbd15b1d57bd28897251a14daeef8c4d6',
+    'eae7f30682c7a0a62b78f4dff8e1c58119a67476e6b109ff03e68cddd3a4dba6',
   '../../docs/features/approval-modes-reusable-access.md':
     '12bd6f296ae1dade188221126e8b8d6ec508924c97b9c101f9232cc12c50f962',
   '../../docs/features/chat-runtime-tools.md':
@@ -3434,7 +3434,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-launch-routes.test.ts':
     'a50e239e83c9cebd4aab1d1c2a4339388c0335c97c160a89e46384e12e5c9c2d',
   '../__tests__/session-launch-runtime.test.ts':
-    '76315faa9a63620a21e45991af0a8d24b988dc1ae7eba7e9022bc8a071b2e000',
+    '6aa87cd8659e20eb64ecb317c045b7cf4531152d7bd1f21e7c3edab58604db72',
   '../__tests__/session-launch-service.test.ts':
     'a89404b88a6bdba351b7dccead2a65a3f8dc26d7a73f3f274f8187dbcd6b36ba',
   '../__tests__/session-launch-store.test.ts':
@@ -3442,7 +3442,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-launch-tools-selection.test.ts':
     '2f8ba495c348dafd62c4f495e63569f88168d9f45095a56da85cbb1b61a2fe8f',
   '../__tests__/session-launch-tools.test.ts':
-    '5356debc5153da3767914986033a1514f0a23bee50bf2b3b46ab5b6f972e9677',
+    'a274008f100e3023d867ebb3bd78f49c0afa123b63e8473a523d6c2235ef131e',
   '../__tests__/session-learning-policy.test.ts':
     '218605e3efb261b2f814be91ab436d1d4f2715fd13da10f3042b35b5f867f882',
   '../__tests__/session-learning-router.test.ts':
@@ -3734,7 +3734,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../api-tool-router.ts': '2b95fa7fa918be7ea1b59e04293d7fbbd80e55ef719d1b0a90e65ffb2e0b3eef',
   '../api-tool-runtime.ts': 'b81ed9f222e6b6aea47425b4fa33511c26235e02e5c548221522bd2cae43ed6c',
   '../api-tool-template.ts': '32908a45ddeacada75dfb4a1d0e8d2370b3fe441fabf8dad3d2fd3edb8eb8c51',
-  '../app.ts': '8447f644f4871f0ddc28d71133548eace022d5fda94a9ad3dbc2f883e4140a24',
+  '../app.ts': '5a63625c33f85e09476879a5644b01baf75bc4408410e37b1d71c97618dab0a0',
   '../approved-url-fetch.ts': '523bbd692e74a9c16b7fd851b6b4b1cdc6be5581e083c04f9549662e11548ee3',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../auth-route-boundary.ts': '9b853baf795f6c65a7cf956311787d049c961291cf4817ad53ad9e22ec62dd4c',
@@ -4496,13 +4496,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd00c67e372fdae9f683fb4ee27774ca3bedacf93dd9fe2ae8dc982dbc0bf9388',
   '../session-launch-routes.ts': '0795fa724412c732653dbfb7fe610f32ed3fca65cfe6b4f81cfcf867487afac0',
   '../session-launch-runtime.ts':
-    '0ffa6ba519f6869f5d05f6dac0ef5ed17ede7fc65059e85b0af45e443182c5a3',
+    '78f65cc89c040f37c62d7a527c8c2c54ea6359d921deb3224e2020b4934c2f6f',
   '../session-launch-service.ts':
     '63acde5c2f83668093eb0385f6bae85d89b9257fadd8e47f6e2a04fd4f9e9636',
   '../session-launch-store.ts': 'fb81b892e6721fc3f7c4a8768a6a8de9102b35f95597da7e1629d6e2a1779a18',
   '../session-launch-tools-selection.ts':
-    '41652d9862067bbe6973029442eb5c7fac7f9c9ec6d977e14a21d13455e126a4',
-  '../session-launch-tools.ts': '31f4e7b508a38bb88a6ee3458b661b9b89ad740d89a3913eb7c33993d923eef3',
+    '6f3f0133b2b35d4387f48d2a40823507624543ea7372b70a9e1476e60f384661',
+  '../session-launch-tools.ts': '5f607e6bcde69ac54851e35d1b0a48ca3a2e30404e8f2473cef3ce26fc45f58d',
   '../session-learning-router.ts':
     '52503a7b4900412691746f2a83e954659f0d5c7e97dc5f5ef20f56d93a7aefbc',
   '../session-learning-tools.ts':

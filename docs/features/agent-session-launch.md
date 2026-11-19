@@ -80,20 +80,31 @@ draft ownership; approval leaves the originating chat selected.
 
 ## Supported scope and verification
 
-The startup route supports isolated, non-Git Local Mac Codex and Claude sessions.
-Each account starts on the engine its ordinary New chat uses: Codex accounts on
-the Codex harness, Claude accounts (Vertex, subscription or API key) on the Claude
-SDK harness. Qualification, workspace preparation, the agent-profile/tool route
-and dispatch follow that engine's existing ordinary owner; no launcher-specific
-runtime exists. Recovery uses each engine's durable start evidence. Codex needs its
-retained native conversation and provider-acknowledged turn. Claude needs retained
-SDK custody plus the exact reviewed command's consumed input and execution
-admission. Either engine's retained history refuses a replacement startup.
+The startup route supports Local Mac Codex and Claude sessions. Each account
+starts on the engine and workspace its ordinary New chat uses. Codex accounts start
+an isolated, non-Git ordinary workspace (version-2 preparation) on the Codex
+harness. Claude accounts (Vertex, subscription or API key) start on the Claude SDK
+harness in a repository task of the configured primary Local Mac repository. The
+launcher selects that repository under an identity derived from the frozen
+allocation, prepares a version-1 repository session and lets the Claude SDK owner
+admit the reviewed command through its prepared-first path. The Claude SDK owner,
+its custody and chat startup own repository workspaces only; the launcher never
+gives it an ordinary workspace. Qualification, the agent-profile/tool route and
+dispatch follow each engine's existing ordinary owner; no launcher-specific
+runtime exists.
 
-Telos role setup (`TelosCreateSession`) and its worker startup still qualify only
-Local Mac Codex. A Claude Telos child is refused at proposal and before workspace
-preparation, so role setup never creates a worker that cannot start. Supporting it
-requires worker startup and its first-command authority to qualify the Claude SDK.
+Recovery uses each engine's durable start evidence. Codex needs its retained native
+conversation and provider-acknowledged turn. Claude needs its repository
+preparation receipt, retained SDK custody, and the exact reviewed command's consumed
+input and execution admission. A retained Claude child without its receipt is never
+reallocated, and either engine's retained history refuses a replacement startup.
+
+Telos role setup (`TelosCreateSession`) still creates new children only on Local
+Mac Codex. A new Claude Telos child is refused at proposal and before workspace
+preparation, because Telos worker startup and its first-command authority qualify
+only Codex. An existing idle Local Mac Claude chat, including one this route
+started, can instead be adopted into a Telos role; see
+[reviewed existing-chat adoption](telos-reviewed-chat-adoption.md).
 
 OpenShell, other providers, repository launches, profile context recipes and
 context blocks are retained as editable preferences but refused before startup.
@@ -115,6 +126,14 @@ Offline regressions cover the native tool dispatch, durable defaults, edited
 approval, default races, real ordinary workspace/native admission with simulated
 provider transport, startup interruptions, exact recovery, draft/context retention
 and shared UI components. Focused semantic TypeScript and lint checks pass.
+
+The 19 November 2026 repair of Centaur finding CEN-34D28388A599 adds an offline
+Claude ownership test through the real launch service, repository preparation,
+ordinary dispatcher, Claude SDK owner and chat startup; only the SDK process is a
+protocol peer. An approved Claude child's reviewed handover becomes the first SDK
+input, interrupted startup resumes on its original receipt, and an exact retry
+starts no second SDK process. The previous launcher, which gave Claude an
+ordinary workspace, left the same child uncertain before SDK dispatch.
 
 Source-bundled offline browser fixtures cover narrow WebKit/Chromium phones and
 desktop Chromium, dark Mint/System and light Teal/Georgia, exact Local Mac host
