@@ -10,7 +10,7 @@ import {
   type ReactNode,
   type ComponentProps,
 } from 'react';
-import { MitzoApiClient } from '@mitzo/client';
+import { CollaborationApiError, MitzoApiClient } from '@mitzo/client';
 import { useInRouterContext, useNavigate } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import {
@@ -61,6 +61,18 @@ const applicationApi = new MitzoApiClient(apiFetch);
 const EMPTY_CONTEXT: string[] = [];
 type Host = ReturnType<typeof useSharedConversation>;
 const Context = createContext<Host | null>(null);
+/**
+ * A new chat is selected before its durable session row exists, so source setup
+ * refuses it as unavailable_recipient until startup completes. Retry that refusal
+ * on a bounded schedule (~90s total) instead of holding the transcript and
+ * composer behind a permanent error; setup itself stays observational.
+ */
+const SOURCE_SETUP_RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 15000, 30000, 30000];
+const SOURCE_SETUP_UNAVAILABLE_MESSAGE =
+  'This conversation is not available for collaboration checks yet. Refresh to check again.';
+function sourceSetupStartupRefusal(cause: unknown): boolean {
+  return cause instanceof CollaborationApiError && cause.code === 'unavailable_recipient';
+}
 
 /** One owner above the responsive screens; resizing does not retire joining or send identity. */
 export function OrdinarySharedConversationHost({
@@ -144,12 +156,15 @@ function useSharedConversation({
   }>({ owner });
   const association = associationState.owner === owner ? associationState : { owner };
   const [attempt, setAttempt] = useState(0);
+  const startupRetries = useRef<{ owner: object; count: number }>({ owner, count: 0 });
+  if (startupRetries.current.owner !== owner) startupRetries.current = { owner, count: 0 };
   const [savedDraft, setDraft] = useState<{ owner: object; id: string }>();
   const draftId = savedDraft?.owner === owner ? savedDraft.id : undefined;
   useEffect(() => {
     if (!sourceConversationId || !clientId || !authScope || getVerifiedAuthScope() !== authScope)
       return;
     const controller = new AbortController();
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     setAssociation((previous) => ({
       ...(previous.owner === owner ? previous : { owner }),
       error: undefined,
@@ -158,6 +173,7 @@ function useSharedConversation({
       .sourceSetup(sourceConversationId, clientId, controller.signal)
       .then((setup) => {
         if (controller.signal.aborted || getVerifiedAuthScope() !== authScope) return;
+        startupRetries.current.count = 0;
         if (setup.state === 'ordinary_history') {
           setAssociation({ owner, ordinaryHistory: true });
           return;
@@ -212,13 +228,48 @@ function useSharedConversation({
         setDraft({ owner, id });
       })
       .catch((cause) => {
-        if (!controller.signal.aborted)
-          setAssociation((previous) => ({
-            ...(previous.owner === owner ? previous : { owner }),
-            error: cause instanceof Error ? cause.message : 'Collaboration unavailable.',
-          }));
+        if (controller.signal.aborted) return;
+        const retries = startupRetries.current;
+        const startupRefusal = sourceSetupStartupRefusal(cause);
+        if (
+          startupRefusal &&
+          retries.owner === owner &&
+          retries.count < SOURCE_SETUP_RETRY_DELAYS_MS.length
+        ) {
+          // Remain resolving: the source is most likely still starting.
+          const delay = SOURCE_SETUP_RETRY_DELAYS_MS[retries.count++];
+          console.info('Collaboration source setup deferred', {
+            code: 'collaboration_source_setup_unavailable',
+            stage: 'source_setup',
+            sessionId: sourceConversationId,
+            retry: retries.count,
+            delayMs: delay,
+          });
+          retryTimer = setTimeout(() => setAttempt((n) => n + 1), delay);
+          return;
+        }
+        console.warn('Collaboration source setup failed', {
+          code: startupRefusal
+            ? 'collaboration_source_setup_unavailable'
+            : 'collaboration_source_setup_failed',
+          stage: 'source_setup',
+          sessionId: sourceConversationId,
+          status: cause instanceof CollaborationApiError ? cause.status : undefined,
+          retries: retries.count,
+        });
+        setAssociation((previous) => ({
+          ...(previous.owner === owner ? previous : { owner }),
+          error: startupRefusal
+            ? SOURCE_SETUP_UNAVAILABLE_MESSAGE
+            : cause instanceof Error
+              ? cause.message
+              : 'Collaboration unavailable.',
+        }));
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+    };
   }, [owner, api, sourceConversationId, clientId, authScope, getVerifiedAuthScope, attempt]);
   const presentation = useConversationPresentation({
     api: api.collaborations,
@@ -404,8 +455,10 @@ function useSharedConversation({
     retry: () => {
       // Setup and the retained conversation read have different owners. Repeating
       // unchanged setup does not rerun a failed read of the same collaboration.
-      if (association.error) setAttempt((n) => n + 1);
-      else void refresh();
+      if (association.error) {
+        startupRetries.current = { owner, count: 0 };
+        setAttempt((n) => n + 1);
+      } else void refresh();
     },
   };
 }
