@@ -1411,7 +1411,13 @@ export async function startChat(
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
+    /** Operator authority for this start. Also the attached stream unless
+     * ownerConnectionId names it separately. */
     operatorConnectionId?: string;
+    /** Stream to attach as the session owner when authority is retained under a
+     * separate login-bound ID. A stream ID is an attachment, never an authority:
+     * it may already have reconnected. null attaches no stream. */
+    ownerConnectionId?: string | null;
     userIntent?: string;
     reattachOnly?: boolean;
     /** Sealed backend-owned SDK authority; never read from a client request. */
@@ -1629,7 +1635,13 @@ async function _startChatInner(
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
+    /** Operator authority for this start. Also the attached stream unless
+     * ownerConnectionId names it separately. */
     operatorConnectionId?: string;
+    /** Stream to attach as the session owner when authority is retained under a
+     * separate login-bound ID. A stream ID is an attachment, never an authority:
+     * it may already have reconnected. null attaches no stream. */
+    ownerConnectionId?: string | null;
     userIntent?: string;
     reattachOnly?: boolean;
     /** Sealed backend-owned SDK authority; never read from a client request. */
@@ -1885,13 +1897,23 @@ async function _startChatInner(
     if (options.ordinaryTurnLifecycle && !codexProfile)
       throw new Error('Selected account does not support ordinary contributor turns');
   } catch (err: unknown) {
-    options.onStartupAdmission?.(err);
+    const failure = annotateAuthorityFailure(err, 'chat.startup_selection');
+    options.onStartupAdmission?.(failure);
     const diagnostic = err instanceof Error ? codexRuntimeDiagnostic(err) : undefined;
     if (diagnostic)
       log.warn('Codex account preflight failed', {
         clientId,
         ...codexRuntimeErrorTelemetry(err as Error),
         error: diagnostic,
+      });
+    // The requesting stream may already be gone, so the error event below can
+    // reach nobody. Record the failing stage for every provider.
+    else
+      log.warn('Chat startup selection failed', {
+        clientId,
+        ...(options.initialSessionId ? { sessionId: options.initialSessionId } : {}),
+        ...(options.clientMsgId ? { clientMsgId: options.clientMsgId } : {}),
+        ...runtimeFailureDiagnostics(failure),
       });
     send(transport, {
       type: 'error',
@@ -2301,8 +2323,12 @@ async function _startChatInner(
 
   abortController.signal.throwIfAborted();
   mode = resolveStartupMode();
+  const ownerConnectionId =
+    options.ownerConnectionId === undefined
+      ? options.operatorConnectionId
+      : options.ownerConnectionId;
   registry.register(clientId, {
-    ...(options.operatorConnectionId ? { ownerConnectionId: options.operatorConnectionId } : {}),
+    ...(ownerConnectionId ? { ownerConnectionId } : {}),
     // A runtime-bound local driver denies control to every login until its
     // owner is known. Bind it with the registration, not after native startup,
     // so the operator's own reconnect during startup keeps control.

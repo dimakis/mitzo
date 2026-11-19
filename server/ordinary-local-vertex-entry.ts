@@ -7,6 +7,7 @@ import type { SessionTransport, ManagedSession } from '@mitzo/harness';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { retainNativeHostToolOperator } from './native-host-tool-operator.js';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
 import type { HostRepositoryReservationInput } from './repository-workspaces.js';
@@ -230,7 +231,11 @@ export async function startOwnedLocalVertexCommand(
         sourceSnapshots: selected.payload.sourceSnapshots,
         replyToMessageId: selected.payload.replyToMessageId,
         clientMsgId: selected.commandId,
-        operatorConnectionId: options.ownerConnectionId,
+        // Authority stays with the login-bound operator retained for this
+        // operation. The sending stream is only an attachment: the phone reopens
+        // it under a new ID during startup, which must not end the start.
+        operatorConnectionId: options.operatorConnectionId,
+        ownerConnectionId: options.ownerConnectionId ?? null,
         ordinarySdkAuthority: authority,
         ordinarySdkRetrySourceCommandId: selected.sdkRetrySourceCommandId,
         ordinarySdkCommandOwner: (nativeQuery, push, reopen, control) => {
@@ -352,9 +357,12 @@ export async function startOwnedLocalVertexCommand(
       : owner.admit(options.command));
     if (!result.dispatched && !started) owner.close();
     return { ...result, sessionId };
-  } catch {
+  } catch (cause) {
     owner.close();
-    throw unavailable();
+    throw annotateAuthorityFailure(
+      Error('Owned Local Claude runtime unavailable', { cause }),
+      'claude.owned_startup',
+    );
   } finally {
     options.signal?.removeEventListener('abort', abortPreparation);
     release?.();
