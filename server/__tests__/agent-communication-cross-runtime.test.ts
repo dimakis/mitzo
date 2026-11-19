@@ -158,6 +158,18 @@ function fixture(
   };
 }
 
+/** Receipt states a transcript actually showed, in order. */
+function shownStatuses(events: EventStore, conversationId: string) {
+  return events
+    .getSessionEvents(conversationId)
+    .filter((event) => event.type === 'agent_message')
+    .map(
+      (event) =>
+        (event.payload as { projection: { message: { status: string } } }).projection.message
+          .status,
+    );
+}
+
 async function signedOperator() {
   const token = await login(process.env.AUTH_PASSPHRASE!);
   const auth = (await authenticateToken(token!))!;
@@ -576,7 +588,16 @@ it.each([
       expect(target.steer).toHaveBeenCalledOnce();
       if (sdkAdapter) {
         const receipt = JSON.parse((result.content as Array<{ text: string }>)[0].text);
-        expect(receipt.status).toBe('uncertain');
+        // Held by the busy recipient's live query: queued until its exact ACK.
+        expect(receipt).toMatchObject({ status: 'queued', reason: null });
+        const lookup = await client.callTool({
+          name: 'AgentCommunication',
+          arguments: { operation: 'lookup', requestId: sendInput.requestId },
+        });
+        expect(JSON.parse((lookup.content as Array<{ text: string }>)[0].text)).toMatchObject({
+          messageId: receipt.messageId,
+          status: 'queued',
+        });
         expect(sdkInput).toMatchObject({ priority: 'next', uuid: receipt.messageId });
         expect(sdkAdapter.beforeInput(sdkInput!)).toBe(true);
         expect(
@@ -585,6 +606,8 @@ it.each([
         expect(f.events.agentCommunication.read('orchestrator', receipt.messageId).status).toBe(
           'delivered',
         );
+        // Neither transcript ever showed a terminal-looking uncertain receipt.
+        expect(shownStatuses(f.events, 'orchestrator')).toEqual(['pending', 'queued', 'delivered']);
       }
       const receipt = JSON.parse((result.content as Array<{ text: string }>)[0].text);
       for (const arguments_ of [
@@ -717,6 +740,61 @@ it.each(['busy', 'idle'] as const)(
     expect(f.approve).toHaveBeenCalledTimes(1);
   },
 );
+
+it('reports an idle Claude admission as pending while in flight, never uncertain before it queues', async () => {
+  const f = fixture();
+  const adapter = f.installClaude('idle');
+  let admit!: () => void;
+  const admitted = new Promise<void>((resolve) => {
+    admit = resolve;
+  });
+  let entered!: () => void;
+  const entering = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  adapter.enqueue.mockImplementation(async () => {
+    entered();
+    await admitted;
+    return 'queued';
+  });
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'claude-worker',
+    text: 'Ordinary admission takes a while.',
+  };
+  const sending = f.execute(input);
+  await entering;
+  expect(await f.execute({ operation: 'lookup', requestId: input.requestId })).toMatchObject({
+    status: 'pending',
+    reason: null,
+  });
+  admit();
+  expect(await sending).toMatchObject({ status: 'queued', reason: null });
+  expect(await f.execute({ operation: 'lookup', requestId: input.requestId })).toMatchObject({
+    status: 'queued',
+  });
+  expect(shownStatuses(f.events, 'orchestrator')).toEqual(['pending', 'queued']);
+  expect(adapter.enqueue).toHaveBeenCalledOnce();
+});
+
+it('settles an admission that ends without a delivery fact as uncertain', async () => {
+  const f = fixture();
+  const adapter = f.installClaude('idle');
+  adapter.enqueue.mockRejectedValue(Error('admission outcome lost'));
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'claude-worker',
+    text: 'Unknown admission outcome.',
+  };
+  expect(await f.execute(input)).toMatchObject({
+    status: 'uncertain',
+    reason: 'admission_uncertain',
+  });
+  expect(await f.execute(input)).toMatchObject({ status: 'uncertain' });
+  expect(adapter.enqueue).toHaveBeenCalledOnce();
+});
 
 it('refuses a stopped runtime without enqueueing or recovering it', async () => {
   const f = fixture();

@@ -568,8 +568,10 @@ it.each(['exact', 'wrong-text', 'foreign-uuid'] as const)(
     expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original']);
     expect(f.resultIds).toEqual([]);
     expect(f.state().completing).toBe(false);
+    // A mismatched echo makes delivery unknown. A foreign echo is not this
+    // message's ACK: the claimed admission is still awaiting its provider ACK.
     expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe(
-      ack === 'exact' ? 'delivered' : 'uncertain',
+      ack === 'exact' ? 'delivered' : ack === 'wrong-text' ? 'uncertain' : 'pending',
     );
     if (ack !== 'exact') {
       expect(await f.runtime.steer(f.message, () => {}, f.session.abortController.signal)).toBe(
@@ -660,7 +662,8 @@ it('keeps the original command unsettled and never replays it when recipient aut
 it('uses priority-next stdin input (now would abort the running turn), and accepts only its exact replay ACK without consuming the original command input or result', async () => {
   const f = fixture();
   const runtime = f.create();
-  expect(await runtime.steer(f.message, () => {}, new AbortController().signal)).toBe('uncertain');
+  // Held by the live query's input stream: queued until its exact replay ACK.
+  expect(await runtime.steer(f.message, () => {}, new AbortController().signal)).toBe('queued');
   const input = f.push.mock.calls[0][0];
   expect(input).toMatchObject({
     uuid: f.message.messageId,
@@ -717,11 +720,18 @@ it.each(['revoked', 'expired', 'stopped', 'successor'] as const)(
 it('leaves a lost ACK uncertain and reconciles the exact retained replay after restart without resending', async () => {
   const f = fixture();
   const runtime = f.create();
-  await runtime.steer(f.message, () => {}, new AbortController().signal);
+  expect(await runtime.steer(f.message, () => {}, new AbortController().signal)).toBe('queued');
+  // As the AgentCommunication admission owner records it.
+  f.events.agentCommunication.settleAdmission(f.message.messageId, 'queued');
   const input = f.push.mock.calls[0][0];
   runtime.beforeInput(input);
-  expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe('uncertain');
+  expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe('queued');
   f.reopen();
+  // The process that held the steer is gone without its ACK: unknown, not queued.
+  expect(f.events.agentCommunication.read('sender', f.message.messageId)).toMatchObject({
+    status: 'uncertain',
+    reason: 'admission_uncertain',
+  });
   const restarted = f.create();
   expect(
     restarted.observe({ type: 'user', uuid: f.message.messageId, message: input.message }),

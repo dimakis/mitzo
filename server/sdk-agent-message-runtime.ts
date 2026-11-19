@@ -76,6 +76,36 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
         owners.ordinaryCommandId ? owners.ordinaryCommandId() : owners.activeCommandId(),
       push: (input) => owners.push(input),
     });
+    owners.session.abortController.signal.addEventListener(
+      'abort',
+      () => this.#abandonUnacknowledged(),
+      { once: true },
+    );
+  }
+
+  /** A steer released to stdin is queued until its replay ACK. If its owning
+   * session ends first, the outcome is unknown; never leave it looking queued. */
+  #abandonUnacknowledged() {
+    for (const pending of this.#pending.values()) {
+      const { messageId } = pending.message;
+      try {
+        const { message } = this.owners.events.agentCommunication.forHost(messageId);
+        if (message.status === 'queued')
+          this.owners.events.agentCommunication.recordForHost(
+            messageId,
+            'uncertain',
+            'admission_uncertain',
+          );
+      } catch (error) {
+        log.warn('Unacknowledged SDK peer input receipt not settled', {
+          code: 'peer_receipt_settlement_failed',
+          stage: 'session_abort',
+          messageId,
+          causeType: error instanceof Error ? error.name : typeof error,
+        });
+      }
+    }
+    this.#pending.clear();
   }
 
   async steerUser(input: CodexSteerInput, authorize: () => void) {
@@ -150,7 +180,10 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     this.#inputs.set(input, pending);
     this.#pending.set(message.messageId, pending);
     this.owners.push(input);
-    return 'uncertain' as const;
+    // The input is now held by the recipient's live query: queued, not
+    // uncertain. Its stdin guard records a refusal as failed, its exact replay
+    // ACK records delivered, and losing the session first records uncertain.
+    return 'queued' as const;
   }
 
   /** Called after asynchronous SDK authority checks and immediately before stdin yield.
@@ -380,6 +413,14 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
         sessionId: this.sessionId,
         messageId: retained.message.messageId,
       });
+      // The provider echoed something else for this exact message: its
+      // delivery is now unknown, no longer merely awaiting acknowledgement.
+      if (['pending', 'queued'].includes(retained.message.status))
+        this.owners.events.agentCommunication.recordForHost(
+          retained.message.messageId,
+          'uncertain',
+          'admission_uncertain',
+        );
       return true;
     }
     this.owners.events.agentCommunication.recordForHost(retained.message.messageId, 'delivered');
