@@ -1404,7 +1404,11 @@ export async function startChat(
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
+    /** Operator authority for startup. An admitted send passes its server-only
+     * operation binding here, never a viewer stream that can reconnect. */
     operatorConnectionId?: string;
+    /** Viewer stream that receives this chat's events; routing only, never authority. */
+    ownerConnectionId?: string;
     userIntent?: string;
     reattachOnly?: boolean;
     /** Sealed backend-owned SDK authority; never read from a client request. */
@@ -1622,7 +1626,11 @@ async function _startChatInner(
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
+    /** Operator authority for startup. An admitted send passes its server-only
+     * operation binding here, never a viewer stream that can reconnect. */
     operatorConnectionId?: string;
+    /** Viewer stream that receives this chat's events; routing only, never authority. */
+    ownerConnectionId?: string;
     userIntent?: string;
     reattachOnly?: boolean;
     /** Sealed backend-owned SDK authority; never read from a client request. */
@@ -2295,7 +2303,9 @@ async function _startChatInner(
   abortController.signal.throwIfAborted();
   mode = resolveStartupMode();
   registry.register(clientId, {
-    ...(options.operatorConnectionId ? { ownerConnectionId: options.operatorConnectionId } : {}),
+    ...((options.ownerConnectionId ?? options.operatorConnectionId)
+      ? { ownerConnectionId: options.ownerConnectionId ?? options.operatorConnectionId }
+      : {}),
     // A runtime-bound local driver denies control to every login until its
     // owner is known. Bind it with the registration, not after native startup,
     // so the operator's own reconnect during startup keeps control.

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1253-github-log-transport-diagnostics';
+  'v1.0.1254-claude-first-send-operation-authority';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -144,7 +144,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
   '../../packages/protocol/src/ordinary-early-starts.ts':
-    'd64c06baa10bd58bd6cabbfb35ef2d4e6c515f6bde49da73e0f308dd5c8bd813',
+    '3d9592e4bd755a16c565b8cbf9f5e04242646baa97f69409ea3dc694493775b6',
   '../../frontend/src/components/LocalCommandRecovery.tsx':
     'd093d28fcd46f2de484bde909f0a007f4127b521cfd07c3aa06190ae2e8a6e17',
   '../../frontend/src/lib/chat-storage-write.ts':
@@ -3684,7 +3684,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree.test.ts':
     '623557ff34afc47410b0b0cfed1be7337630c0c4898edbae739ea5f8cc02a8c1',
   '../__tests__/ws-handler-v2.test.ts':
-    'dd1b8e5b6108aed73c77714767be1ad67240e1411b61575685a6e9615c281faa',
+    '5ae8b1e43c22f3047d2e94b21345f9a3cd0675d8605c3d3d9420532e59448209',
   '../account-harness-connection.ts':
     'a964b559eb869ac947edd14c6ce68cdaac114255af8d8b347bd34b81401fe856',
   '../account-profiles.ts': '594631b5682fe15043a0b7a87c0c94415a2557c2d25394702290dea427479f10',
@@ -3714,7 +3714,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-library-runtime.ts': '88d4762a00dbeaf1c7abd4bea23a8c9db612c755eea32b8173ede4090e6a4fe6',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
   '../agent-library-transport.ts':
-    '08accd41da7afeda72c18e58b020a74a722b02a6f8cc5e92f0aaed30c8befe48',
+    '63e6ee1c9261972d1a85d01eabd9f198a9352babee91c754f275bdbed88e4f3a',
   '../agent-message-runtime.ts': '1c66926bf484d2d2cfee6daf80c6fc7c1797c726ca6c94d5b0d9309ea5ea7dd3',
   '../agent-message-transcript.ts':
     '334d831e292db28446c826d5a736b7d91c74207c119b6bdfa1ad57cacd78a431',
@@ -3757,7 +3757,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': '465ff3acb7953c6f88555c6eb29ac85b0e68f3b7653784e779631f203c05e4ec',
+  '../chat.ts': '9216832db2822244d8214ce736afe4fdea720525d8232b51309d0dc40e4f6d71',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
@@ -4263,11 +4263,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-custody.ts':
     '7f1ce782be5190881004a63aacf58d8df69acb0fe46d9bfe952c436cf6c2aed9',
   '../ordinary-local-vertex-entry.ts':
-    'cc63295db7d63abaeec0d41682d3f90f8f20f5f2ff8ec81a041e656bfca7fa42',
+    '3233e6d2ef5e5305968d0b9ed1f948faf5c22308400c16ffaaf9bd60e286f171',
   '../ordinary-local-vertex-native-history.ts':
     '728a074550a08eb80ce84414bba54ff64e0bc735a34f89dcd87fc9eb85fbacae',
   '../ordinary-local-vertex-owned-runtime.ts':
-    'a8670f5ff86e6645ca8d5f55b66a13d8bc476e754317d38307bc3b3da19e0e5b',
+    '615096575d100068831579c51f77c28a1a5b6695995fc04410f865de17734f67',
   '../ordinary-local-vertex-queue.ts':
     '379b1daa99bc3511157960ed517aed72f992a84edbffb77c285607aa9dcbc561',
   '../ordinary-local-vertex-replay.ts':
@@ -4854,7 +4854,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../workspace-runtime-private-paths.ts':
     '0bc5efcb7aa3341ccdd237923f591ee074dbdd9631525a9c4f25b8fef2aa88e5',
   '../worktree.ts': '5e4d8290f307c8bd456db6eed717a1d531d70a11db359314daa9b36ed0f7f292',
-  '../ws-handler-v2.ts': 'bc2c20f396b892b9998d6068933e0e689c9a60efa004a17cd5b494bcf001638e',
+  '../ws-handler-v2.ts': 'aaba841636efed833ce43840180b1bb76bb8d9b47ca62422a6bad61907058769',
   'capabilities/approval.ts': '23f8d2d336c01d4680c322b105f1125bc66cc4ac5c7b2a910afcba5d31f48508',
   'capabilities/github-publish-pr-transport.ts':
     '831c78e9dfdfa73248d275a5557c2d5228aa46ab8b35e06ea75102f9ec49ac1a',

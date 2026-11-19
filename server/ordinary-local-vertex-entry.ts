@@ -24,6 +24,9 @@ import { OrdinaryLocalVertexCommandRequestSchema } from './ordinary-local-codex-
 import { assertOwnedVertexQueueControl } from './ordinary-local-vertex-queue.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import type { AuthSession } from './auth.js';
+import { runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
+import { createLogger } from './logger.js';
+const log = createLogger('local-claude-entry');
 const unavailable = () => Error('Owned Local Claude runtime unavailable');
 export async function continueOwnedLocalVertexQueue(
   sessionId: string,
@@ -230,7 +233,10 @@ export async function startOwnedLocalVertexCommand(
         sourceSnapshots: selected.payload.sourceSnapshots,
         replyToMessageId: selected.payload.replyToMessageId,
         clientMsgId: selected.commandId,
-        operatorConnectionId: options.ownerConnectionId,
+        // Authority is the send's login-bound operation binding; the viewer
+        // stream only routes events and may reconnect during startup.
+        operatorConnectionId: options.operatorConnectionId,
+        ownerConnectionId: options.ownerConnectionId,
         ordinarySdkAuthority: authority,
         ordinarySdkRetrySourceCommandId: selected.sdkRetrySourceCommandId,
         ordinarySdkCommandOwner: (nativeQuery, push, reopen, control) => {
@@ -352,9 +358,23 @@ export async function startOwnedLocalVertexCommand(
       : owner.admit(options.command));
     if (!result.dispatched && !started) owner.close();
     return { ...result, sessionId };
-  } catch {
+  } catch (cause) {
     owner.close();
-    throw unavailable();
+    // Keep the original cause: callers classify auth loss from it, and the
+    // diagnostic names the failed check instead of a bare "unavailable".
+    const failure = Object.assign(unavailable(), { cause });
+    log.warn('Claude startup failed', {
+      code: 'ordinary_claude_startup_failed',
+      stage: 'claude_startup',
+      sessionId,
+      commandId: command.clientMsgId,
+      ...(options.preparationOperationId
+        ? { preparationOperationId: options.preparationOperationId }
+        : {}),
+      resume: !!options.resume,
+      ...runtimeFailureDiagnostics(cause),
+    });
+    throw failure;
   } finally {
     options.signal?.removeEventListener('abort', abortPreparation);
     release?.();
