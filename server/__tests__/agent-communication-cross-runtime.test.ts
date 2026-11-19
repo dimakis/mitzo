@@ -778,6 +778,30 @@ it('reports an idle Claude admission as pending while in flight, never uncertain
   expect(adapter.enqueue).toHaveBeenCalledOnce();
 });
 
+it('never leaves a steer queued when its recipient ends before the admission records it', async () => {
+  const f = fixture();
+  const adapter = f.installClaude('busy');
+  // The real SDK adapter pushes into the live query, then the recipient ends
+  // before this admission resumes: its abort listener ran while still pending.
+  adapter.steer.mockImplementation(async () => {
+    adapter.session.abortController.abort();
+    return 'queued';
+  });
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'claude-worker',
+    text: 'Recipient ends mid-admission.',
+  };
+  await expect(f.execute(input)).resolves.toMatchObject({
+    status: 'uncertain',
+    reason: 'admission_uncertain',
+  });
+  expect(f.events.agentCommunication.findRequest('orchestrator', input.requestId)).toMatchObject({
+    status: 'uncertain',
+  });
+});
+
 it('settles an admission that ends without a delivery fact as uncertain', async () => {
   const f = fixture();
   const adapter = f.installClaude('idle');

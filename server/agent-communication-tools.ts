@@ -690,15 +690,18 @@ export function sessionAgentCommunicationTools(owners: Owners) {
                   : 'rejected';
             if (result === 'accepted')
               owners.events.agentCommunication.recordForHost(message.messageId, 'delivered');
-            else if (result === 'queued')
-              owners.events.agentCommunication.settleAdmission(message.messageId, 'queued');
             else if (result === 'rejected' || result === 'inactive')
               owners.events.agentCommunication.settleAdmission(
                 message.messageId,
                 'failed',
                 'steering_rejected',
               );
+            // Queued is a claim about a live recipient, not a delivery fact.
+            // Recheck synchronously first: if the recipient ended meanwhile, its
+            // abort cleanup already ran and this admission settles uncertain.
             assertAdmissionCurrent();
+            if (result === 'queued')
+              owners.events.agentCommunication.settleAdmission(message.messageId, 'queued');
             return settled();
           }
           const steering = await owners.steer?.(target.session, message, assertAdmissionCurrent);
