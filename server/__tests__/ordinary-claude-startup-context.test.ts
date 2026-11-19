@@ -595,3 +595,64 @@ it('keeps the operator in control when its stream reconnects during Claude start
   await admitted;
   await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
 }, 20_000);
+
+async function ownedEntry(x: Awaited<ReturnType<typeof fixture>>, ownerConnectionId: string) {
+  // The entry constructs its own owner for the same admitted command.
+  x.owner.close();
+  const entry = await import('../ordinary-local-vertex-entry.js');
+  const sessionId = x.f.reservation.conversationId;
+  cleanups.push(() =>
+    x.chat.registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner?.close(),
+  );
+  return () =>
+    entry.startOwnedLocalVertexCommand(
+      { send: x.sent, isOpen: () => false },
+      `${ownerConnectionId}:${sessionId}`,
+      {
+        command: x.f.request,
+        reservation: x.f.reservation,
+        // Login-bound authority retained by the HTTP entry for this operation.
+        operatorConnectionId: x.f.dependencies.operatorConnectionId,
+        // The phone stream that sent the command; never an authority.
+        ownerConnectionId,
+        ownerAuthSessionId: x.f.auth.id,
+      },
+    );
+}
+
+it('starts Claude through the owned entry after the sending stream closed before registration', async () => {
+  const x = await fixture(false, true);
+  // The stream reconnected under a new ID, so this one is no longer bound to the login.
+  const closedStream = 'conn-closed-before-registration';
+  const start = await ownedEntry(x, closedStream);
+  const result = await start();
+  expect(result.sessionId).toBe(x.f.reservation.conversationId);
+  const session = x.chat.registry.findBySessionId(result.sessionId)!.session;
+  // Attachment still names the sending stream so its reconnect can reattach.
+  expect(session.ownerConnectionId).toBe(closedStream);
+  expect(session.ownedLocalAuthSessionId).toBe(x.f.auth.id);
+  await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
+}, 20_000);
+
+it('keeps the original cause and failing stage when owned Claude startup fails', async () => {
+  const x = await fixture(false, true);
+  const start = await ownedEntry(x, 'conn-startup-failure');
+  vi.spyOn(x.chat.eventStore, 'reserveOrdinaryStartup').mockImplementation(() => {
+    throw Error('ORIGINAL_STARTUP_CAUSE');
+  });
+  const failure: unknown = await start().catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(Error);
+  expect((failure as Error).message).toBe('Owned Local Claude runtime unavailable');
+  expect(((failure as Error).cause as Error).message).toBe('ORIGINAL_STARTUP_CAUSE');
+  const { runtimeFailureDiagnostics } = await import('../runtime-failure-diagnostics.js');
+  expect(runtimeFailureDiagnostics(failure).authorityChecks).toContain('claude.owned_startup');
+}, 20_000);
+
+it('refuses owned Claude startup when the retained operator login is revoked', async () => {
+  const x = await fixture(false, true);
+  const start = await ownedEntry(x, 'conn-revoked-login');
+  // Logout or expiry removes the operation's own binding; a stream ID cannot restore it.
+  x.f.detach();
+  await expect(start()).rejects.toThrow();
+  expect(x.calls).toEqual([]);
+}, 20_000);
