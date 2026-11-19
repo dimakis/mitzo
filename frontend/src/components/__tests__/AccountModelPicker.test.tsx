@@ -628,6 +628,28 @@ it('falls back quickly when a legacy session has no event-store metadata', async
   expect(onChange).toHaveBeenLastCalledWith({ model: 'sonnet' });
   expect(apiFetch).toHaveBeenCalledTimes(4);
 });
+
+it('replaces the provisional legacy label once a slow-starting chat persists its metadata', async () => {
+  const notFound = { ok: false, status: 404 } as Response;
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(notFound)
+    .mockResolvedValueOnce(notFound)
+    .mockResolvedValueOnce(notFound)
+    .mockResolvedValueOnce(notFound)
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        accountBinding: { accountId: 'work', accountLabel: 'Work API', model: 'nano' },
+      }),
+    } as Response);
+  render(<AccountModelPicker sessionId="starting" preferredModel="nano" onChange={vi.fn()} />);
+  await screen.findByText('Existing task · legacy account', {}, { timeout: 1500 });
+  await screen.findByText('Work API', {}, { timeout: 3000 });
+  expect(screen.queryByText('Existing task · legacy account')).toBeNull();
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(apiFetch).toHaveBeenCalledTimes(5);
+});
 it('offers model-specific thinking choices and resets them when changing model', async () => {
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
