@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1256-claude-session-launch';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1257-chat-startup-reads';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -408,7 +408,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/client-store.ts':
     '9353d2adffa430e30aca1910ba4c580efe40b8c8b8741c8a252558674330af24',
   '../../frontend/src/components/AccountModelPicker.tsx':
-    'dc12650d59726dea84b8b5ffa99c6dab0e761f5f346d5dc01be3137630c30020',
+    '8a45ddae48e4c33bb1f666a8d9d464413bb65530809fccec2af37c906dc4889a',
   '../../frontend/src/components/ActiveSessionsList.tsx':
     '3cfcb6386c95fbfb0959bd7ef83cff77d6faf561a7aefcddfbd9337b306b16b1',
   '../../frontend/src/components/AdviserSubscriptions.tsx':
@@ -448,7 +448,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '6efb121831e74a40fe2181409b8dde78524a06d7fb222d007fe212530bca30e4',
   '../../frontend/src/components/ChatInput.tsx':
-    'eb93cb08bdbec079da6ec986f1e75569be5aa8f35b2f5ce2e5fff36a174633de',
+    '576900cfde0194775c277e4513d4583d15e732926ec8464c8e55b051595db8dc',
   '../../frontend/src/components/ChatInputHost.css':
     '6ac695e0ec3850781d32e6257738c2900657499c2545303321f200488e3ccc20',
   '../../frontend/src/components/ChatInputHost.tsx':
@@ -624,7 +624,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ShareButton.tsx':
     '3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411',
   '../../frontend/src/components/SharedConversation.tsx':
-    '800e74ff0a0a5823269dde5cf3cbdea30fcacafc49385e947eeeafe2b4e60e87',
+    '3074ad696dcb80e1eba7aa4e9af4a9a6798cd921aedd1c6651fc6edf7eb4eea4',
   '../../frontend/src/components/SlashPicker.tsx':
     '419685fc94e6236f49bf54029bac52a52a479d26cd2e3a6a22f4ec9b28df169b',
   '../../frontend/src/components/SymposiumConversation.tsx':
@@ -704,7 +704,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/WorkspaceControls.tsx':
     '937dc7c2f30abf01450ad9cfbd8377ad304fb004bc7eb18f8143b69327d51837',
   '../../frontend/src/components/__tests__/AccountModelPicker.test.tsx':
-    'a738fe4b2a0cadc4a80cf9c59da01a1d11601558a2328dcf6f4a0fead95e4a8c',
+    '922481793a1e60f46a341bb0e4fc4d5f9a7e314328b3fb767b249ee87c006b20',
   '../../frontend/src/components/__tests__/ApprovalRequestSummary.test.tsx':
     'de68b3c132924a24357c2dcffa1f3ea4c6bdb3dcab7216fc7548b952abea3e82',
   '../../frontend/src/components/__tests__/ApprovalUnknownScope.test.tsx':
@@ -718,7 +718,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx':
     '158933a4001e7d46782df7dcc73f9e0a8aecacf28201ac42c2f7faf6adf2ee6b',
   '../../frontend/src/components/__tests__/ChatInputHost.test.tsx':
-    'abd1c3434714860f70c7dad3ae9ee52fe6231b0ca4a2741d4eaef7a62250d618',
+    'f90ca60bc28ad962ed69c8f464bb9ae40efbef8c3c1a6b4398a1383cc1594583',
   '../../frontend/src/components/__tests__/ChatInputImagePreview.test.tsx':
     '55a80b49ac002700a6ea2d763e4c1ab1ed23bef414de4890614804ac5ca89dfe',
   '../../frontend/src/components/__tests__/ChatInputInterruptReceipt.test.tsx':
@@ -832,7 +832,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
     'ec0441cf1b7c72eb9db4c667ff33cd40c606a709151d156f5b19523c78f617b8',
   '../../frontend/src/components/__tests__/SharedConversationStatus.test.tsx':
-    '5900fc684334c4c996bdb6bd9fedaf56fff0f6e456a98c62692af7cd08824fea',
+    '34a24a3c36333701af0e2221a8e529e7188b477976ae36f836e3fe7ae35d2def',
   '../../frontend/src/components/__tests__/SlashPicker.test.ts':
     '4a6c487222323b56c85119abed1197d3ad6b9ad0a751a485a37627f8a9957933',
   '../../frontend/src/components/__tests__/SlashPickerRuntime.test.tsx':
@@ -908,7 +908,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useSavedChatDrafts.test.tsx':
     '969927999185555e5cc7200e2ef12ed5af2405913b6c5a9c186d093cf3ea7eb8',
   '../../frontend/src/hooks/__tests__/useSessionLaunch.test.tsx':
-    '2650ecccf6ebe3fb3115d8f65070523cda7b48c0a1cdd95145a4bd5704b851e2',
+    '2b2e002598e5f566b40ff5a747aa9446a9bfda2382b8628c12eec3cb7ba5c18e',
   '../../frontend/src/hooks/__tests__/useSessionLaunchDefaults.test.tsx':
     '56ffa7340165a4bb8f34866799b14cdb94f1e84f95c5babfb3acff8ff0ac115c',
   '../../frontend/src/hooks/__tests__/useSessionList.test.ts':
@@ -980,7 +980,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useServiceHealth.ts':
     '807a95678c49e8bdc2dd7d14979d0fd90a2e4364d51c34c2a859ecf0dfc81d4a',
   '../../frontend/src/hooks/useSessionLaunch.ts':
-    '7559c7ce694eb655904b8b2a725ab08e5f6d98a29b18a27d92a1b04ffa4df114',
+    '72e0228e110eee5921e487d4112d01a2dae74dc6a8f7167ca65207a94c5a3763',
   '../../frontend/src/hooks/useSessionLaunchDefaults.ts':
     '7401011f6b5695b59891490a8ef5be90524dc9f0c0dc0eba535c5beafe5dbffd',
   '../../frontend/src/hooks/useSessionList.ts':

@@ -56,6 +56,95 @@ it('keeps a verified fresh ordinary chat quiet without beginning collaboration',
   expect(fetch.mock.calls).toHaveLength(1);
 });
 
+function startingSurface(fetch: ConstructorParameters<typeof MitzoApiClient>[0]) {
+  return render(
+    <SharedConversationHost
+      sourceConversationId="architect"
+      api={new MitzoApiClient(fetch)}
+      clientId="client"
+      authScope={proof()}
+      getVerifiedAuthScope={proof}
+    >
+      <ComposerStatusProvider>
+        <SharedConversationBody
+          sourceConversationId="architect"
+          ordinaryComposer={<p>Ordinary composer</p>}
+          chat={{
+            messages: [
+              {
+                messageId: 'first-prompt',
+                role: 'user',
+                blocks: [{ blockId: 'text', blockType: 'text', content: 'Investigate the logs' }],
+              },
+            ],
+            current: null,
+            running: true,
+            permission: null,
+            onPermissionRespond: () => {},
+          }}
+        >
+          <ComposerStatusRail />
+        </SharedConversationBody>
+      </ComposerStatusProvider>
+    </SharedConversationHost>,
+  );
+}
+const startupRefusal = () =>
+  Response.json({ code: 'unavailable_recipient', error: 'unavailable_recipient' }, { status: 422 });
+
+it('retries a new chat refused during startup and then shows its ordinary transcript', async () => {
+  let refusals = 0;
+  const fetch = vi.fn(async () =>
+    refusals++ < 1
+      ? startupRefusal()
+      : Response.json({ state: 'unstarted', sourceConversationId: 'architect' }),
+  );
+  vi.spyOn(console, 'info').mockImplementation(() => {});
+  startingSurface(fetch);
+  await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  // While the source is still starting, setup remains resolving rather than failed.
+  expect(screen.queryByText('Investigate the logs')).toBeNull();
+  expect(screen.queryByText(/unavailable_recipient/)).toBeNull();
+  await screen.findByText('Investigate the logs', undefined, { timeout: 3000 });
+  expect(screen.queryByText('Checking retained discussion history…')).toBeNull();
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it('names a persistent startup refusal after bounded retries and lets the operator retry', async () => {
+  vi.useFakeTimers();
+  try {
+    let available = false;
+    const fetch = vi.fn(async () =>
+      available
+        ? Response.json({ state: 'unstarted', sourceConversationId: 'architect' })
+        : startupRefusal(),
+    );
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    startingSurface(fetch);
+    for (let i = 0; i < 12; i++) await act(() => vi.advanceTimersByTimeAsync(30_000));
+    // One initial read plus eight bounded startup retries (~90s), then a named failure.
+    expect(fetch).toHaveBeenCalledTimes(9);
+    expect(
+      screen.getByText(
+        'This conversation is not available for collaboration checks yet. Refresh to check again.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/unavailable_recipient/)).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      'Collaboration source setup failed',
+      expect.objectContaining({ code: 'collaboration_source_setup_unavailable' }),
+    );
+    available = true;
+    fireEvent.click(screen.getAllByRole('button', { name: 'Refresh collaboration' })[0]);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByText('Investigate the logs')).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it.each(['setup', 'view'] as const)(
   'puts a genuine %s failure in the existing rail and retries its owner',
   async (stage) => {
