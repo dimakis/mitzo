@@ -276,8 +276,11 @@ import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js'
 import { initializeSessionLaunches, closeSessionLaunches } from './session-launch-controller.js';
 import { createTelosSessionLaunchHost } from './telos-session-launch-host.js';
 import { createTelosAdoptionRuntime } from './telos-adoption-runtime.js';
+import { resolveTelosRepositoryChatSelection } from './telos-repository-chat-selection.js';
+import type { TelosOrdinaryWorkRoleSetupInput } from '@mitzo/protocol';
 import { createTelosSessionProposalRouter } from './telos-session-launch-adapters.js';
 import {
+  qualifySessionLaunchConfig,
   qualifyTelosSessionLaunchConfig,
   prepareTelosSessionSettings,
 } from './session-launch-runtime.js';
@@ -1339,8 +1342,14 @@ const sessionLaunchController = initializeSessionLaunches(
       ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
       sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
       roleHost: (authority) => telosRoleHost(authority.operatorConnectionId, true),
-      qualify: async (configuration, authority) => {
-        await qualifyTelosSessionLaunchConfig(configuration, authority);
+      // Adoption keeps the existing chat's engine (Codex or Claude); creation
+      // qualifies only children Telos worker startup can later start.
+      qualify: async (configuration, authority, options) => {
+        if (options?.adoption) await qualifySessionLaunchConfig(configuration, authority);
+        else await qualifyTelosSessionLaunchConfig(configuration, authority);
+      },
+      adoption: {
+        assertQuiescent: (id, operationId) => telosAdoptionRuntime.assertQuiescent(id, operationId),
       },
       prepareSettings: prepareTelosSessionSettings,
     }),
@@ -2464,6 +2473,43 @@ const telosAdoptionRuntime = createTelosAdoptionRuntime({
   registry,
   native: getCodexConversationStore,
 });
+/** Existing Local Mac Claude chats keep their repository task and settings;
+ * only the host route and retained custody are requalified for adoption. */
+async function resolveTelosRoleSelection(
+  input: TelosOrdinaryWorkRoleSetupInput,
+  signal: AbortSignal,
+  operatorConnectionId?: string,
+) {
+  if (input.settings.workspace.kind === 'ordinary')
+    return resolveTelosOrdinaryWorkspaceSelection(input.settings, signal, operatorConnectionId);
+  if (
+    custodianControllerClient ||
+    custodianOwnerMode ||
+    process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED !== '1'
+  )
+    throw new TelosWorkError('invalid', 'Local Mac Claude chats are unavailable on this host');
+  return resolveTelosRepositoryChatSelection(input, signal, {
+    events: eventStore,
+    workspaces: getOrdinaryWorkspaces(),
+    resolveRuntime: async (settings, continuation) => {
+      const { ordinaryRepositoryRuntimeInventory } =
+        await import('./ordinary-local-codex-entry.js');
+      const { catalog } = ordinaryRepositoryRuntimeInventory(
+        'local',
+        'claude-sdk',
+        settings.binding,
+        continuation,
+      );
+      const resolved = catalog.resolve({
+        account: settings.binding.account,
+        harness: 'claude-sdk',
+        targetId: settings.binding.execution.targetId,
+        mode: settings.selection.permission.mode,
+      });
+      return resolved.status === 'compatible' ? resolved.binding : undefined;
+    },
+  });
+}
 function telosRoleHost(operatorConnectionId?: string, ordinary = false) {
   return createTelosWorkRoleHost({
     dbPath: telosDatabasePath,
@@ -2474,13 +2520,9 @@ function telosRoleHost(operatorConnectionId?: string, ordinary = false) {
     ordinary: {
       adoption: telosAdoptionRuntime,
       resolveSelection: (scope, signal) =>
-        resolveTelosOrdinaryWorkspaceSelection(scope.input.settings, signal, operatorConnectionId),
+        resolveTelosRoleSelection(scope.input, signal, operatorConnectionId),
       authorizeSettings: async (scope, signal) => {
-        await resolveTelosOrdinaryWorkspaceSelection(
-          scope.setup.input.settings,
-          signal,
-          operatorConnectionId,
-        );
+        await resolveTelosRoleSelection(scope.setup.input, signal, operatorConnectionId);
       },
     },
     resolvePreparation: async (scope, signal) => {

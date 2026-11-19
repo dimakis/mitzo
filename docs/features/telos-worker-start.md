@@ -40,6 +40,10 @@ saved runtime selection and an observed live/not-live/unknown state. The separat
 never silently substituted into that receipt. `startExistingWorker` describes
 route eligibility and the missing condition, not permission or provider readiness.
 Mixed engines remain visible; the explicit startup adapter remains Local Mac Codex.
+An adopted Local Mac Claude worker reports `claude_worker_start_unavailable`;
+TelosStartSlice never starts it, and a Claude runtime reaching worker startup is
+refused with that reason before dispatch. It takes its first instruction in its
+own chat or through AgentCommunication.
 
 The sidebar and Conversations page offer Tree navigation with outcome orchestrators,
 feature leads and slice workers. Current canonical assignments determine parents;

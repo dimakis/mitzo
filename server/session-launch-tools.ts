@@ -74,7 +74,12 @@ export async function proposeTelosSession(
       ),
   });
   controller.changed(sourceSessionId);
-  const startupBlocker = sessionLaunchStartupBlocker(record.configuration, 'telos');
+  // Adoption keeps an existing Codex or Claude chat's engine; only creation of
+  // a new Telos child is limited to engines Telos worker startup can start.
+  const startupBlocker = sessionLaunchStartupBlocker(
+    record.configuration,
+    record.telos?.adoption ? 'session' : 'telos',
+  );
   return TelosSessionProposalResponseSchema.parse({
     ...publicSessionLaunchRecord(record),
     handoverDownloadUrl: sessionLaunchHandoverUrl(record.proposalId),
