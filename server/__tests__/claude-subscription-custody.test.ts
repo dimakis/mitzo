@@ -146,15 +146,25 @@ it('runs a deployed release binary for retained custody but refuses an in-place 
   const installed = join(release, 'claude');
   writeFileSync(installed, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
   rmSync(f.executable);
-  const reopened = ClaudeSubscriptionCustody.reopen(custody.snapshot(), f.env, installed);
+  // Production always reopens the original stored snapshot, which names release A.
+  const stored = custody.snapshot();
+  const reopened = ClaudeSubscriptionCustody.reopen(stored, f.env, installed);
   expect(reopened.snapshot().executable.path).toBe(installed);
   expect(reopened.accountIdentity()).toEqual(custody.accountIdentity());
   expect(reopened.accountIdentity()).not.toHaveProperty('executable');
-  // The same installed path replaced in place is not the admitted binary.
-  const current = reopened.snapshot();
+  expect(ClaudeSubscriptionCustody.reopen(stored, f.env, installed).snapshot()).toEqual(
+    reopened.snapshot(),
+  );
+  // The installed binary replaced in place after first use is not this release's
+  // binary, whether reopened from the original or the rebased snapshot.
   rmSync(installed);
   writeFileSync(installed, '#!/bin/sh\necho replaced\nexit 2\n', { mode: 0o700 });
-  expect(() => ClaudeSubscriptionCustody.reopen(current, f.env, installed)).toThrow(
+  for (const snapshot of [stored, reopened.snapshot()])
+    expect(() => ClaudeSubscriptionCustody.reopen(snapshot, f.env, installed)).toThrow(
+      ClaudeSubscriptionSignInError,
+    );
+  // A new chat cannot capture the replacement either.
+  expect(() => ClaudeSubscriptionCustody.capture(f.env, installed)).toThrow(
     ClaudeSubscriptionSignInError,
   );
   // Without an installed SDK (non-Darwin), the retained identity must still match.

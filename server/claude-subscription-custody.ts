@@ -84,6 +84,18 @@ export const claudeSdkInstallation = {
     return process.platform === 'darwin' ? claudeSdkExecutable() : undefined;
   },
 };
+/** First identity this process observed for each SDK binary path. Durable chat
+ * custody can name an earlier release, so the current release's binary is pinned
+ * here instead: every later capture or reopen must observe the same file, and an
+ * in-place replacement after first use fails closed. */
+const pinnedExecutables = new Map<string, ReturnType<typeof identity>>();
+function pinnedExecutable(path: string) {
+  const current = identity(path, false);
+  const pinned = pinnedExecutables.get(path);
+  if (!pinned) pinnedExecutables.set(path, current);
+  else if (JSON.stringify(pinned) !== JSON.stringify(current)) throw unavailable();
+  return current;
+}
 function identity(path: string, directory: boolean) {
   if (!isAbsolute(path) || realpathSync(path) !== path) throw unavailable();
   const stat = lstatSync(path, { bigint: true });
@@ -140,14 +152,15 @@ export class ClaudeSubscriptionCustody {
         kind: 'claude-host-login',
         version: 1,
         ...selected,
-        executable: identity(realpathSync(executable), false),
+        executable: pinnedExecutable(realpathSync(executable)),
       }),
     );
   }
   /** The account and config root are durable chat custody. The SDK binary is the
    * current server's execution authority: each deploy installs it under a new
    * release path, so a chat admitted by an earlier release runs this release's
-   * own binary. An in-place change at the same path still fails closed. */
+   * own binary, pinned for this process. An in-place change at either the
+   * retained or the installed path fails closed. */
   static reopen(
     value: unknown,
     env: Readonly<NodeJS.ProcessEnv>,
@@ -159,7 +172,7 @@ export class ClaudeSubscriptionCustody {
       current !== undefined && current !== retained.executable.path
         ? ClaudeSubscriptionCustodySchema.parse({
             ...retained,
-            executable: identity(current, false),
+            executable: pinnedExecutable(current),
           })
         : retained,
     );

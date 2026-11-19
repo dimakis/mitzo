@@ -2502,7 +2502,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-startup-context.test.ts':
     'ef9a5ed33d3f8a814bcad92e55d7681c0dbfdeca61eb9df7f5d59960bac5a5f6',
   '../__tests__/claude-subscription-custody.test.ts':
-    '523a83ec9d71cc9f5fa53a04358ce7bc037db79cff5384ea0dd3a1c6b75d01fe',
+    '270f461db2e609a28195f1407457369f5371ef9892a0bf1f57cf7887b238edc1',
   '../__tests__/codex-api-provider.test.ts':
     '16b4e9bc67c63ffedd1c6587fe680965c930dbd0e6d8a88f3d4d27607dd78e82',
   '../__tests__/codex-app-server-client.test.ts':
@@ -3761,7 +3761,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-startup-context.ts':
     '3cc22640b2c8eb70f3886224c3fff433b535056d88fea3d3bf12fb950f9edb96',
   '../claude-subscription-custody.ts':
-    '40f154e487978a6ec8245c778bb61cc85fff1069e4a2e3904bdbd668680908a3',
+    'c05bce6c0a5268dcc2e0fe5072bcaf0a1d1d53c2063a55350e239045fb34e0b1',
   '../codex-account.ts': '3cec7e112fae3db683086ff96ec8dde029a6087272f403ce21f65228022eca1c',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
