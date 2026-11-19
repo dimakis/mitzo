@@ -10,9 +10,57 @@ drafts. It creates no replacement, command, credential or execution grant.
 For initial child creation/adoption the source caller still needs the current
 parent lead assignment and an exact direct child/work revision. The selected target must have no existing work role
 or immutable contributor context. Supported callers remain owned Codex Local Mac
-and OpenShell, and Claude Local Mac; the target remains a compatible independent
-Local Mac Codex ordinary workspace. Repository-backed targets and broader engine
-parity are outside this delivery. A proposal is not assignment or readiness.
+and OpenShell, and Claude Local Mac. The target is either a compatible independent
+Local Mac Codex ordinary workspace or an existing idle Local Mac Claude SDK chat
+(see below). A proposal is not assignment or readiness.
+
+## Existing Local Mac Claude chats
+
+Since 19 November 2026 (PR #1395), `existingConversationId` and `replaceOwner`
+also accept an idle Local Mac Claude SDK chat on a Vertex, subscription or API-key
+account, as outcome orchestrator, feature lead or slice worker. The Claude SDK
+engine owns repository workspaces, so the adoption records `workspaceKind:
+repository` and the chat's claimed repository task. The same review card shows the
+chat's retained account, model, thinking, permission mode and agent profile; the
+proposal's `startupBlocker` uses the chat's own engine, not the Codex-only creation
+route. Approval keeps the account, model, workspace, SDK session and history.
+It copies, inherits or transfers no credential, grant or permission, and retains
+former attribution exactly as for Codex.
+
+The custody hash covers the session, repository task identity, retained SDK custody,
+runtime binding and latest consumed command selection. Approval requalifies the
+host's Claude route and the checkout identity instead of an ordinary preparation.
+A Claude chat is idle when it has retained SDK custody and no running execution,
+pending SDK input or uncertain command. A warm idle SDK owner is closed without
+interrupting a turn; its next ordinary command resumes the retained SDK session
+with the new role context. A cold Claude chat needs no retirement, because its
+SDK process lives only inside the query loop that leaves the registry when it
+finalizes. Proposal and approval refuse unsupported targets with named reasons:
+
+| Reason                           | Meaning                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| `existing_chat_busy`             | A turn, queued input or uncertain command exists, or the live owner is closing. |
+| `existing_chat_openshell`        | The chat runs on OpenShell.                                                     |
+| `existing_chat_foreign_operator` | Another operator login created the chat's SDK custody.                          |
+| `existing_chat_incompatible`     | Not an executed Local Mac Codex ordinary or Claude repository chat.             |
+
+A chat proposing itself for `replaceOwner` is mid-turn at proposal, so only
+approval checks that it is idle. After approval `TelosManageItem` overview shows
+the Claude chat as `currentLead` or `currentWorker`. An adopted Claude lead can use
+`TelosCreateSession` for its direct children, including adopting further Claude
+chats. New Telos children are still created only on Local Mac Codex.
+`TelosStartSlice` cannot start a Claude worker: its first-command authority is
+Local Codex only, so the overview reports `startExistingWorker.reason`
+`claude_worker_start_unavailable` and the worker takes its first instruction in its
+own chat or through AgentCommunication. Qualifying the Claude SDK owner for
+TelosStartSlice first-command authority is a recorded follow-up.
+
+Offline tests drive the real proposal, operator review, approval and canonical
+assignment path with real EventStore command, SDK custody and role-context owners:
+a Codex orchestrator adopts a Claude feature lead, that lead adopts a Claude slice
+worker, an idle Claude chat replaces a current owner, and busy, OpenShell,
+foreign-operator and busy-at-approval targets are refused without assignment.
+Only the repository checkout ledger lookup is synthetic in those tests.
 
 ## Reviewed owner replacement
 
@@ -27,7 +75,8 @@ adapters classify only its `read` operation as free of mutation.
 An available ordinary chat can propose replacement through `TelosCreateSession`
 with `replaceOwner: true`, the owned item's ID/current revision and the exact
 `existingConversationId`. The target may be the proposing chat. It must satisfy
-the same supported idle Local Mac Codex workspace and immutable-context checks.
+the same supported idle Local Mac Codex workspace or Local Mac Claude chat and
+immutable-context checks.
 The current owner need not be warm or the proposer. The host derives the role and
 retains the previous canonical conversation and assignment revision for review.
 

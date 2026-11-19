@@ -31,9 +31,11 @@ An existing assigned outcome orchestrator or feature lead can use TelosCreateSes
 direct child item and its current revision. It proposes a distinct assigned feature-lead or slice-worker
 chat with independent child account, model, agent profile, runtime and permissions. Review its exact
 work sources and configuration in this originating chat; no separate manual linking journey is needed.
-The currently supported child is an independent Local Mac Codex session. Caller exposure covers Local
-Mac Claude and Local Mac/OpenShell Codex; Claude on OpenShell remains unsupported. Unsupported child
-routes must return their reason before allocation. Do not copy credentials, permissions or arbitrary
+A newly created child is an independent Local Mac Codex session. existingConversationId can instead
+adopt an existing idle Local Mac Codex or Claude chat, which keeps its own engine, settings and history.
+Caller exposure covers Local Mac Claude and Local Mac/OpenShell Codex; Claude on OpenShell remains
+unsupported. Unsupported child routes and refused adoption targets return their named reason before
+allocation. Do not copy credentials, permissions or arbitrary
 transcripts. Use explicit reviewed source references and a self-contained handoff.
 TelosCreateSession creation/adoption starts no command. For explicit owner replacement from any available
 ordinary chat, set replaceOwner:true, select the owned item itself and existingConversationId (possibly

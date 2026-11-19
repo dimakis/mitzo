@@ -18,6 +18,7 @@ import {
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import { TelosWorkRoleSetup } from './telos-work-role-setup.js';
+import { qualifyTelosRoleWorkspace, telosRoleToolRoute } from './telos-role-settings.js';
 import type { TelosWorkRoleRequest } from './telos-work-routes.js';
 import {
   TelosWorkRoleContextSelectionSchema,
@@ -170,14 +171,9 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
           const { assertAgentToolRoute } = await import('./agent-tool-selection.js');
           request.signal.throwIfAborted();
           request.assertAuthorized();
-          assertAgentToolRoute(selected.agentProfile.definition, 'codex-owned-local');
-          await deps.workspaces().qualifyOrdinaryWorkspace({
-            ...selected,
-            preparationId:
-              TelosOrdinaryWorkRoleSetupInputSchema.parse(input).settings.workspace.preparationId,
-            settings: TelosOrdinaryWorkRoleSetupInputSchema.parse(input).settings,
-            signal: request.signal,
-          });
+          const settings = TelosOrdinaryWorkRoleSetupInputSchema.parse(input).settings;
+          assertAgentToolRoute(selected.agentProfile.definition, telosRoleToolRoute(settings));
+          await qualifyTelosRoleWorkspace(deps.workspaces(), selected, settings, request.signal);
           request.signal.throwIfAborted();
           request.assertAuthorized();
         } catch {

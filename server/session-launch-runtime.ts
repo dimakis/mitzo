@@ -1,3 +1,5 @@
+import { mkdirSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
   createOrdinaryFreshPermission,
@@ -8,6 +10,7 @@ import type { SessionLaunchAuthority, SessionLaunchPort } from './session-launch
 import { SessionLaunchError, type RetainedSessionLaunch } from './session-launch-store.js';
 import type { EventStore } from './event-store.js';
 import { assertSessionLaunchTools } from './session-launch-tools-selection.js';
+import { nativeStartupSessionId } from './ordinary-repository-startup.js';
 
 function assertLaunchChildAdmissible(events: EventStore, id: string) {
   if (events.getSession(id)?.isHidden)
@@ -17,25 +20,72 @@ function assertLaunchChildAdmissible(events: EventStore, id: string) {
   events.removals.assertAdmissible(id);
 }
 
-export const SESSION_LAUNCH_CODEX_ONLY =
-  'Agent-created sessions currently start only on a Local Mac Codex account. Choose a Codex account in review before Approve & start; Claude child sessions are not available yet.';
+/** Account providers a reviewed launch may start, mapped to the same ordinary
+ * Local Mac engine New chat uses for that provider. */
+const LAUNCH_HARNESS_BY_PROVIDER = {
+  'openai-codex': 'codex',
+  'anthropic-vertex': 'claude-sdk',
+  'anthropic-claude': 'claude-sdk',
+  'anthropic-api': 'claude-sdk',
+} as const;
+type LaunchProvider = keyof typeof LAUNCH_HARNESS_BY_PROVIDER;
+type LaunchHarness = (typeof LAUNCH_HARNESS_BY_PROVIDER)[LaunchProvider];
+function isLaunchProvider(provider: string | undefined): provider is LaunchProvider {
+  return !!provider && Object.hasOwn(LAUNCH_HARNESS_BY_PROVIDER, provider);
+}
+/** StartSession may launch Codex or Claude. Telos worker startup still
+ * qualifies only Codex, so Telos child creation stays Codex-only until that
+ * owner can start the same Claude child it would create. */
+export type SessionLaunchScope = 'session' | 'telos';
+
+export const SESSION_LAUNCH_UNSUPPORTED_ACCOUNT =
+  'Agent-created sessions start only on a Local Mac Codex or Claude account. Choose one of those accounts in review before Approve & start.';
+export const TELOS_SESSION_CODEX_ONLY =
+  'Telos worker sessions currently start only on a Local Mac Codex account. Choose a Codex account in review before Approve & start; Claude Telos workers are not available yet.';
+
+function launchHarness(
+  provider: string | undefined,
+  scope: SessionLaunchScope,
+): LaunchHarness | null {
+  const harness = isLaunchProvider(provider) ? LAUNCH_HARNESS_BY_PROVIDER[provider] : null;
+  return scope === 'telos' && harness !== 'codex' ? null : harness;
+}
+function unsupportedAccount(scope: SessionLaunchScope) {
+  return scope === 'telos' ? TELOS_SESSION_CODEX_ONLY : SESSION_LAUNCH_UNSUPPORTED_ACCOUNT;
+}
+function launchHarnessFor(config: SessionLaunchConfig): LaunchHarness {
+  return launchHarness(config.runtime.accountReference?.provider, 'session') ?? 'codex';
+}
 
 /** Proposal-time presentation of static startup limits, including the
- * Codex-only account route. Approve & start still requalifies everything,
+ * supported account routes. Approve & start still requalifies everything,
  * including a missing or changed saved account reference. */
-export function sessionLaunchStartupBlocker(config: SessionLaunchConfig): string | null {
+export function sessionLaunchStartupBlocker(
+  config: SessionLaunchConfig,
+  scope: SessionLaunchScope = 'session',
+): string | null {
   const provider = config.runtime.accountReference?.provider;
   return (
     sessionLaunchConfigurationReason(config) ??
-    (provider && provider !== 'openai-codex' ? SESSION_LAUNCH_CODEX_ONLY : null)
+    (provider && !launchHarness(provider, scope) ? unsupportedAccount(scope) : null)
   );
 }
 
-/** Reuse the same owned ordinary Local Mac Codex admission as New chat and
- * native advisers. No model/provider client or permission grant is created here. */
+/** Telos role setup qualifies only the child it can later start. */
+export function qualifyTelosSessionLaunchConfig(
+  config: SessionLaunchConfig,
+  authority: SessionLaunchAuthority,
+) {
+  return qualifySessionLaunchConfig(config, authority, 'telos');
+}
+
+/** Reuse the same owned ordinary Local Mac admission as New chat and native
+ * advisers: Codex for Codex accounts, the Claude SDK for Claude accounts.
+ * No model/provider client or permission grant is created here. */
 export async function qualifySessionLaunchConfig(
   config: SessionLaunchConfig,
   authority: SessionLaunchAuthority,
+  scope: SessionLaunchScope = 'session',
 ) {
   authority.assertCurrent();
   authority.signal.throwIfAborted();
@@ -56,10 +106,12 @@ export async function qualifySessionLaunchConfig(
   const { loadAccountProfiles } = await import('./account-profiles.js');
   const profiles = loadAccountProfiles();
   const binding = profiles.resolve(account.accountId, account.model);
-  if (binding.provider !== 'openai-codex') throw new SessionLaunchError(SESSION_LAUNCH_CODEX_ONLY);
+  const harness = launchHarness(binding.provider, scope);
+  if (!harness || !isLaunchProvider(binding.provider))
+    throw new SessionLaunchError(unsupportedAccount(scope));
   const reference = {
     accountId: binding.accountId,
-    provider: 'openai-codex' as const,
+    provider: binding.provider,
     profileRevision: binding.profileRevision,
   };
   if (
@@ -71,13 +123,13 @@ export async function qualifySessionLaunchConfig(
     );
   profiles.validateModelSelection(binding, account.model, account.reasoningEffort ?? undefined);
   const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
-  const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
-  const runtime = { account: reference, harness: 'codex' as const, targetId, mode: config.mode };
+  const inventory = ordinaryRepositoryRuntimeInventory('local', harness);
+  const runtime = { account: reference, harness, targetId, mode: config.mode };
   const resolution = inventory.catalog.resolve(runtime);
   const route = inventory.result.routes.find(
     (candidate) =>
       candidate.targetId === targetId &&
-      candidate.harness === 'codex' &&
+      candidate.harness === harness &&
       isDeepStrictEqual(candidate.account, reference) &&
       candidate.modes.some((mode) => mode === config.mode),
   );
@@ -101,6 +153,8 @@ export async function qualifySessionLaunchConfig(
   const { getAgentLibrary } = await import('./agent-library-runtime.js');
   const { readOrdinaryCodexAgentProfile, ordinaryCodexAgentProfileRouteProjection } =
     await import('./ordinary-codex-agent-profile.js');
+  // Same profile projection each engine's ordinary New chat route applies.
+  const toolRoute = harness === 'codex' ? 'codex-owned-local' : 'claude-sdk';
   const profile = readOrdinaryCodexAgentProfile(getAgentLibrary(), agent);
   if (
     !profile ||
@@ -108,13 +162,13 @@ export async function qualifySessionLaunchConfig(
     ordinaryCodexAgentProfileRouteProjection([profile], binding.provider, 'local', undefined, {
       contextRecipes: 'none',
       toolSelection: true,
-      toolRoute: 'codex-owned-local',
+      toolRoute,
     }).agentProfileRejections.length
   )
     throw new SessionLaunchError(
       'The selected agent revision or its context is unavailable for an ordinary Local Mac session.',
     );
-  await assertSessionLaunchTools(config.extraTools, profile.definition);
+  await assertSessionLaunchTools(config.extraTools, profile.definition, toolRoute);
   const selection = {
     version: 1 as const,
     agent,
@@ -133,7 +187,7 @@ export async function prepareTelosSessionSettings(
   config: SessionLaunchConfig,
   authority: SessionLaunchAuthority,
 ) {
-  const selected = await qualifySessionLaunchConfig(config, authority);
+  const selected = await qualifyTelosSessionLaunchConfig(config, authority);
   const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
   const prepared = await getOrdinaryWorkspaces().prepareOrdinaryWorkspace({
     binding: selected.binding,
@@ -141,7 +195,7 @@ export async function prepareTelosSessionSettings(
       runOn: 'local',
       runtime: {
         account: selected.runtime.account,
-        harness: 'codex',
+        harness: selected.runtime.harness,
         targetId: selected.runtime.targetId,
       },
     },
@@ -160,6 +214,111 @@ export async function prepareTelosSessionSettings(
     workspace: { kind: 'ordinary' as const, preparationId: prepared.preparationId },
   };
 }
+/** The Claude SDK engine owns repository workspaces, exactly as its ordinary
+ * New chat does. A reviewed Claude child therefore selects the configured
+ * primary Local Mac repository under a workspace identity derived from the
+ * frozen allocation operation, so every retry and recovery names one workspace. */
+export function sessionLaunchRepositoryWorkspaceId(allocationId: string) {
+  return nativeStartupSessionId(`session-launch-repository:${allocationId}`);
+}
+type QualifiedLaunch = Awaited<ReturnType<typeof qualifySessionLaunchConfig>>;
+interface PreparedLaunchChild {
+  sessionId: string;
+  preparationId: string;
+  workspaceKind: 'ordinary' | 'repository';
+  reservation: Parameters<
+    typeof import('./ordinary-scoped-command.js').dispatchOwnedOrdinaryCommand
+  >[0]['reservation'];
+}
+/** Version-1 prepared repository session: the durable application session and
+ * real host task reservation the Claude SDK owner admits through
+ * `admitPreparedFirst`. No command, SDK process or provider turn exists yet. */
+async function prepareClaudeLaunchChild(
+  record: RetainedSessionLaunch,
+  selected: QualifiedLaunch,
+  authority: SessionLaunchAuthority,
+): Promise<PreparedLaunchChild> {
+  const allocationId = record.allocationId!;
+  const { eventStore, BASE_REPO } = await import('./chat.js');
+  const { getLocalRepositoryWorkspaces } = await import('./repository-workspace-runtime.js');
+  const workspaces = getLocalRepositoryWorkspaces();
+  const workspaceId = sessionLaunchRepositoryWorkspaceId(allocationId);
+  const settings = {
+    binding: selected.runtimeBinding,
+    selection: selected.selection,
+    repositoryWorkspaceId: workspaceId,
+  };
+  let receipt = eventStore.getOrdinarySessionPreparation(allocationId);
+  if (!receipt) {
+    if (record.childSessionId)
+      throw new SessionLaunchError(
+        'Original workspace ownership is unavailable. A replacement workspace cannot be allocated.',
+      );
+    if (!BASE_REPO || !isAbsolute(BASE_REPO))
+      throw new SessionLaunchError('The Local Mac repository task root is unavailable.');
+    // Idempotent for the same identity and selection; never a second checkout.
+    await workspaces.selectLocalRepository(
+      selected.binding,
+      'primary',
+      {
+        runOn: 'local',
+        runtime: {
+          account: selected.runtime.account,
+          harness: 'claude-sdk',
+          targetId: selected.runtime.targetId,
+        },
+      },
+      authority.signal,
+      workspaceId,
+    );
+    authority.assertCurrent();
+    authority.signal.throwIfAborted();
+    const taskRoot = join(BASE_REPO, '.claude', 'repository-tasks');
+    mkdirSync(taskRoot, { recursive: true, mode: 0o700 });
+    receipt = (
+      await workspaces.prepareOrdinarySession(
+        {
+          allocationOperationId: allocationId,
+          id: workspaceId,
+          binding: selected.binding,
+          taskRoot,
+          settings,
+          agentProfile: selected.profile,
+          signal: authority.signal,
+        },
+        eventStore,
+      )
+    ).receipt;
+    authority.assertCurrent();
+    authority.signal.throwIfAborted();
+  }
+  if (
+    receipt.workspaceId !== workspaceId ||
+    !isDeepStrictEqual(receipt.settings, settings) ||
+    (receipt.firstCommandId !== null && receipt.firstCommandId !== record.commandId) ||
+    (record.childSessionId && record.childSessionId !== receipt.sessionId)
+  )
+    throw new SessionLaunchError('Original approved workspace settings changed.');
+  const workspace = workspaces.get(workspaceId);
+  const taskRoot = workspace.hostReservation?.taskRoot;
+  if (!taskRoot || workspace.sandbox)
+    throw new SessionLaunchError(
+      'Original workspace ownership is unavailable. Preserve this startup and recover its existing child.',
+    );
+  return {
+    sessionId: receipt.sessionId,
+    preparationId: workspaceId,
+    workspaceKind: 'repository',
+    reservation: {
+      id: workspaceId,
+      binding: selected.binding,
+      conversationId: receipt.sessionId,
+      taskRoot,
+      runtimeBinding: selected.runtimeBinding,
+      commandFingerprint: receipt.preparationFingerprint,
+    },
+  };
+}
 export function createSessionLaunchPort(): SessionLaunchPort {
   const qualify = qualifySessionLaunchConfig;
   async function assertResumeAbsent(
@@ -171,26 +330,48 @@ export function createSessionLaunchPort(): SessionLaunchPort {
     if (!record.allocationId || !record.commandId)
       throw new SessionLaunchError('Original startup operation required.');
     const { eventStore, registry } = await import('./chat.js');
-    const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
-    const workspace = getOrdinaryWorkspaces(true).getOrdinaryWorkspaceForOperation(
-      record.allocationId,
-    );
-    const preparation = eventStore.getOrdinaryWorkspaceSessionPreparation(record.allocationId);
-    if (!workspace && (preparation || record.childSessionId))
-      throw new SessionLaunchError(
-        'Original workspace ownership is unavailable. Preserve this startup and recover its existing child.',
+    let child: string | null | undefined;
+    if (launchHarnessFor(record.configuration) === 'claude-sdk') {
+      // The repository preparation receipt binds session and workspace in one
+      // transaction; without it a retained child cannot be proven ours.
+      const preparation = eventStore.getOrdinarySessionPreparation(record.allocationId);
+      if (!preparation && record.childSessionId)
+        throw new SessionLaunchError(
+          'Original workspace ownership is unavailable. Preserve this startup and recover its existing child.',
+        );
+      if (
+        preparation &&
+        (preparation.workspaceId !== sessionLaunchRepositoryWorkspaceId(record.allocationId) ||
+          (record.childSessionId && record.childSessionId !== preparation.sessionId))
+      )
+        throw new SessionLaunchError('Original workspace identity changed.');
+      child = preparation?.sessionId ?? record.childSessionId;
+    } else {
+      const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
+      const workspace = getOrdinaryWorkspaces(true).getOrdinaryWorkspaceForOperation(
+        record.allocationId,
       );
-    if (workspace && preparation && workspace.conversationId !== preparation.sessionId)
-      throw new SessionLaunchError('Original workspace identity changed.');
-    const child = workspace?.conversationId ?? preparation?.sessionId ?? record.childSessionId;
+      const preparation = eventStore.getOrdinaryWorkspaceSessionPreparation(record.allocationId);
+      if (!workspace && (preparation || record.childSessionId))
+        throw new SessionLaunchError(
+          'Original workspace ownership is unavailable. Preserve this startup and recover its existing child.',
+        );
+      if (workspace && preparation && workspace.conversationId !== preparation.sessionId)
+        throw new SessionLaunchError('Original workspace identity changed.');
+      child = workspace?.conversationId ?? preparation?.sessionId ?? record.childSessionId;
+    }
     if (child) {
       assertLaunchChildAdmissible(eventStore, child);
       if (registry.findBySessionId(child))
         throw new SessionLaunchError('The child startup is still active. Open its chat.');
       const { getCodexConversationStore } = await import('./codex-chat-session.js');
       // Presence is intentionally stricter than a missing ACK: even an empty
-      // retained native conversation belongs to ordinary runtime recovery.
-      if (getCodexConversationStore().hasConversation(child))
+      // retained native conversation (Codex) or SDK custody (Claude) belongs to
+      // ordinary runtime recovery. Either engine's record blocks a replacement.
+      if (
+        getCodexConversationStore().hasConversation(child) ||
+        eventStore.getOrdinaryLocalVertexCustody(child)
+      )
         throw new SessionLaunchError(
           'This child already has native execution history. Open its existing chat to recover it.',
         );
@@ -211,6 +392,76 @@ export function createSessionLaunchPort(): SessionLaunchPort {
     if (!record.allocationId || !record.commandId)
       throw new SessionLaunchError('Frozen launch operation required.');
     const selected = await qualify(record.configuration, authority);
+    const { eventStore } = await import('./chat.js');
+    if (selected.runtime.harness !== launchHarnessFor(record.configuration))
+      throw new SessionLaunchError('The selected child runtime changed. Review it again.');
+    const retainedClaudeChild =
+      selected.runtime.harness === 'claude-sdk'
+        ? (record.childSessionId ??
+          eventStore.getOrdinarySessionPreparation(record.allocationId)?.sessionId)
+        : undefined;
+    if (retainedClaudeChild) assertLaunchChildAdmissible(eventStore, retainedClaudeChild);
+    const child =
+      selected.runtime.harness === 'claude-sdk'
+        ? await prepareClaudeLaunchChild(record, selected, authority)
+        : await prepareCodexLaunchChild(record, selected, authority, recover);
+    authority.assertCurrent();
+    authority.signal.throwIfAborted();
+    assertLaunchChildAdmissible(eventStore, child.sessionId);
+    eventStore.upsertSession({ sessionId: child.sessionId, summary: record.title });
+    eventStore.markManuallyRenamed(child.sessionId);
+    onPrepared(child.sessionId, child.preparationId);
+    const { dispatchOwnedOrdinaryCommand } = await import('./ordinary-scoped-command.js');
+    const { NullTransport } = await import('./null-transport.js');
+    const { retainedNativeHostToolOperator } = await import('./native-host-tool-operator.js');
+    authority.assertCurrent();
+    authority.signal.throwIfAborted();
+    await dispatchOwnedOrdinaryCommand({
+      transport: new NullTransport(),
+      clientId: `session-launch:${record.proposalId}`,
+      sessionId: child.sessionId,
+      commandId: record.commandId,
+      command: {
+        clientMsgId: record.commandId,
+        capabilityRevision: selected.inventory.result.capabilityRevision,
+        runtime: selected.runtime,
+        selection: selected.selection,
+        payload: { text: record.prompt },
+      },
+      reservation: child.reservation,
+      operatorConnectionId: authority.operatorConnectionId,
+      // Claude SDK startup reads the selected profile and binds tool approval
+      // through this owner, as New chat does; onSessionPrepared then replaces
+      // it with the retained login before the approve request finishes.
+      ...(selected.runtime.harness === 'claude-sdk'
+        ? { ownerConnectionId: authority.operatorConnectionId }
+        : {}),
+      ownerAuthSessionId: authority.authSessionId,
+      signal: authority.signal,
+      continuation: false,
+      existingOwner: false,
+      workspaceKind: child.workspaceKind,
+      preparationOperationId: record.allocationId,
+      onSessionPrepared(session) {
+        // chat's owning startup has already retained this login separately
+        // from the one-request UI binding. Every ordinary tool adapter needs
+        // that same durable identity after the approve response finishes.
+        const retainedOperator = retainedNativeHostToolOperator(session);
+        if (!retainedOperator)
+          throw new SessionLaunchError('Retained session operator unavailable.');
+        session.ownerConnectionId = retainedOperator;
+      },
+    });
+  }
+  /** Version-2 ordinary workspace session, admitted by the Codex owner's
+   * `admitPreparedOrdinaryWorkspaceFirst`. */
+  async function prepareCodexLaunchChild(
+    record: RetainedSessionLaunch,
+    selected: QualifiedLaunch,
+    authority: SessionLaunchAuthority,
+    recover: boolean,
+  ): Promise<PreparedLaunchChild> {
+    if (!record.allocationId) throw new SessionLaunchError('Frozen launch operation required.');
     const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
     const { ordinaryWorkspaceTaskRoot } = await import('./ordinary-workspace-runtime.js');
     const { eventStore } = await import('./chat.js');
@@ -255,7 +506,7 @@ export function createSessionLaunchPort(): SessionLaunchPort {
           runOn: 'local',
           runtime: {
             account: selected.runtime.account,
-            harness: 'codex',
+            harness: selected.runtime.harness,
             targetId: selected.runtime.targetId,
           },
         },
@@ -300,26 +551,10 @@ export function createSessionLaunchPort(): SessionLaunchPort {
         settings: workspace.settings,
       },
     );
-    eventStore.upsertSession({ sessionId: workspace.conversationId, summary: record.title });
-    eventStore.markManuallyRenamed(workspace.conversationId);
-    onPrepared(workspace.conversationId, workspace.preparationId);
-    const { dispatchOwnedOrdinaryCommand } = await import('./ordinary-scoped-command.js');
-    const { NullTransport } = await import('./null-transport.js');
-    const { retainedNativeHostToolOperator } = await import('./native-host-tool-operator.js');
-    authority.assertCurrent();
-    authority.signal.throwIfAborted();
-    await dispatchOwnedOrdinaryCommand({
-      transport: new NullTransport(),
-      clientId: `session-launch:${record.proposalId}`,
+    return {
       sessionId: workspace.conversationId,
-      commandId: record.commandId,
-      command: {
-        clientMsgId: record.commandId,
-        capabilityRevision: selected.inventory.result.capabilityRevision,
-        runtime: selected.runtime,
-        selection: selected.selection,
-        payload: { text: record.prompt },
-      },
+      preparationId: workspace.preparationId,
+      workspaceKind: 'ordinary',
       reservation: {
         id: workspace.id,
         binding: selected.binding,
@@ -328,23 +563,7 @@ export function createSessionLaunchPort(): SessionLaunchPort {
         runtimeBinding: workspace.settings.binding,
         commandFingerprint: workspace.preparationFingerprint,
       },
-      operatorConnectionId: authority.operatorConnectionId,
-      ownerAuthSessionId: authority.authSessionId,
-      signal: authority.signal,
-      continuation: false,
-      existingOwner: false,
-      workspaceKind: 'ordinary',
-      preparationOperationId: record.allocationId,
-      onSessionPrepared(session) {
-        // chat's owning startup has already retained this login separately
-        // from the one-request UI binding. Every ordinary tool adapter needs
-        // that same durable identity after the approve response finishes.
-        const retainedOperator = retainedNativeHostToolOperator(session);
-        if (!retainedOperator)
-          throw new SessionLaunchError('Retained session operator unavailable.');
-        session.ownerConnectionId = retainedOperator;
-      },
-    });
+    };
   }
   return {
     async validate(config, authority) {
@@ -361,44 +580,80 @@ export function createSessionLaunchPort(): SessionLaunchPort {
       authority.signal.throwIfAborted();
       const { eventStore, registry } = await import('./chat.js');
       if (!record.allocationId || !record.commandId) return { accepted: false };
-      const prepared = eventStore.getOrdinaryWorkspaceSessionPreparation(record.allocationId);
+      const claude = launchHarnessFor(record.configuration) === 'claude-sdk';
+      const repositoryPrepared = claude
+        ? eventStore.getOrdinarySessionPreparation(record.allocationId)
+        : undefined;
+      const ordinaryPrepared = claude
+        ? undefined
+        : eventStore.getOrdinaryWorkspaceSessionPreparation(record.allocationId);
+      const prepared = repositoryPrepared
+        ? {
+            sessionId: repositoryPrepared.sessionId,
+            preparationId: repositoryPrepared.workspaceId,
+          }
+        : ordinaryPrepared
+          ? {
+              sessionId: ordinaryPrepared.sessionId,
+              preparationId: ordinaryPrepared.settings.workspace.preparationId,
+            }
+          : undefined;
       if (!prepared) {
-        const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
         // Workspace reservation may have committed before the session metadata.
         // Reading that owner never allocates/retries or grants a provider turn.
-        const reservation = getOrdinaryWorkspaces(true).getOrdinaryWorkspaceForOperation(
-          record.allocationId,
-        );
+        // A Claude repository selected without its session receipt holds no
+        // session or command, and a retry reuses the same derived identity.
+        const reservation = claude
+          ? undefined
+          : (await import('./repository-workspace-runtime.js'))
+              .getOrdinaryWorkspaces(true)
+              .getOrdinaryWorkspaceForOperation(record.allocationId);
         authority.assertCurrent();
         authority.signal.throwIfAborted();
         return { accepted: false, uncertain: Boolean(reservation) || record.state === 'starting' };
       }
       const command = eventStore.getSendCommand(record.commandId);
       const admission = eventStore.getOrdinaryCommandAdmission(record.commandId);
-      const { getCodexConversationStore } = await import('./codex-chat-session.js');
       const meta = eventStore.getSession(prepared.sessionId);
-      const native = getCodexConversationStore();
-      const retainedCommand =
-        meta?.accountBinding && native.hasConversation(prepared.sessionId)
-          ? native
-              .commands(prepared.sessionId, meta.accountBinding)
-              .find((candidate) => candidate.id === record.commandId)
-          : undefined;
-      // Ordinary assembly may expand a /skill into provider prompt text. Its
-      // original intent and exact command ID still fence the reviewed launch.
-      const acknowledged =
-        meta?.accountBinding &&
-        retainedCommand &&
-        (retainedCommand.intent ?? retainedCommand.prompt) === record.prompt &&
-        retainedCommand.model === record.configuration.runtime.account?.model &&
-        (retainedCommand.reasoningEffort ?? null) ===
-          (record.configuration.runtime.account?.reasoningEffort ?? null)
-          ? native.acceptedProviderTurnForCommand(
-              prepared.sessionId,
-              meta.accountBinding,
-              record.commandId,
-            )
-          : undefined;
+      const reviewedModel = record.configuration.runtime.account?.model;
+      const reviewedThinking = record.configuration.runtime.account?.reasoningEffort ?? null;
+      let acknowledged: unknown;
+      if (claude) {
+        // The SDK owner marks an input consumed only after pushing it into the
+        // live query under an execution admission for this exact command.
+        const sdk = eventStore.getOrdinaryLocalVertexCommandAdmission(record.commandId);
+        acknowledged =
+          meta?.accountBinding &&
+          sdk?.state === 'consumed' &&
+          eventStore.getOrdinaryLocalVertexCustody(prepared.sessionId) &&
+          command?.payload.text === record.prompt &&
+          sdk.selection.model === reviewedModel &&
+          sdk.selection.thinking === reviewedThinking &&
+          eventStore.getExecutionAdmission(prepared.sessionId, record.commandId);
+      } else {
+        const { getCodexConversationStore } = await import('./codex-chat-session.js');
+        const native = getCodexConversationStore();
+        const retainedCommand =
+          meta?.accountBinding && native.hasConversation(prepared.sessionId)
+            ? native
+                .commands(prepared.sessionId, meta.accountBinding)
+                .find((candidate) => candidate.id === record.commandId)
+            : undefined;
+        // Ordinary assembly may expand a /skill into provider prompt text. Its
+        // original intent and exact command ID still fence the reviewed launch.
+        acknowledged =
+          meta?.accountBinding &&
+          retainedCommand &&
+          (retainedCommand.intent ?? retainedCommand.prompt) === record.prompt &&
+          retainedCommand.model === reviewedModel &&
+          (retainedCommand.reasoningEffort ?? null) === reviewedThinking
+            ? native.acceptedProviderTurnForCommand(
+                prepared.sessionId,
+                meta.accountBinding,
+                record.commandId,
+              )
+            : undefined;
+      }
       return {
         accepted:
           command?.sessionId === prepared.sessionId &&
@@ -406,7 +661,7 @@ export function createSessionLaunchPort(): SessionLaunchPort {
           Boolean(acknowledged),
         uncertain: !acknowledged && !registry.findBySessionId(prepared.sessionId),
         childSessionId: prepared.sessionId,
-        preparationId: prepared.settings.workspace.preparationId,
+        preparationId: prepared.preparationId,
       };
     },
   };

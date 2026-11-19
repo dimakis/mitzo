@@ -193,31 +193,28 @@ describe('StartSession proposal tool', () => {
       }),
     );
   });
-  it('returns the Codex-only startupBlocker at proposal for a saved Claude account', async () => {
-    const f = fixture();
-    const claude = structuredClone(configuration);
-    claude.runtime.accountReference = {
-      accountId: 'a',
-      provider: 'anthropic-claude',
-      profileRevision: '1',
-    } as never;
-    f.defaults.get.mockReturnValue({ revision: 1, configuration: claude });
-    const result = await f.tools.execute(input, new AbortController().signal, {
-      turnId: 'turn',
-      callId: 'call',
-    });
-    expect(result).toMatchObject({
+  it('proposes a saved Claude account without a startupBlocker and blocks an unsupported one', async () => {
+    const proposeWith = async (provider: string) => {
+      const f = fixture();
+      const saved = structuredClone(configuration);
+      saved.runtime.accountReference = {
+        accountId: 'a',
+        provider,
+        profileRevision: '1',
+      } as never;
+      f.defaults.get.mockReturnValue({ revision: 1, configuration: saved });
+      return f.tools.execute(input, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'call',
+      });
+    };
+    const claude = await proposeWith('anthropic-claude');
+    expect(claude).toMatchObject({ state: 'pending' });
+    expect(claude.startupBlocker).toBeUndefined();
+    expect(await proposeWith('google-vertex')).toMatchObject({
       state: 'pending',
-      startupBlocker: expect.stringMatching(/only on a Local Mac Codex account/),
+      startupBlocker: expect.stringMatching(/Local Mac Codex or Claude account/),
     });
-    expect(
-      (
-        await fixture().tools.execute(input, new AbortController().signal, {
-          turnId: 'turn',
-          callId: 'call',
-        })
-      ).startupBlocker,
-    ).toBeUndefined();
   });
   it('does not create proposals for a stale or unverified tool invocation', async () => {
     const f = fixture();

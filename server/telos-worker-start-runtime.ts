@@ -96,6 +96,12 @@ export async function startAllocatedTelosWorker(
       accepted: (id, binding, commandId) =>
         Boolean(native.acceptedProviderTurnForCommand(id, binding, commandId)),
       qualify: async (settings, workerId) => {
+        if (settings.binding.harness.implementation === 'claude-sdk')
+          // First-command authority is Local Codex only. A Claude worker takes
+          // its first instruction in its own chat or through AgentCommunication.
+          throw Error(
+            'claude_worker_start_unavailable: TelosStartSlice cannot start a Claude worker yet. Send its first instruction from its chat or with AgentCommunication.',
+          );
         if (
           settings.binding.execution.location !== 'local' ||
           settings.binding.harness.implementation !== 'codex' ||

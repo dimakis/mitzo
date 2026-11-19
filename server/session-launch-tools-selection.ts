@@ -6,6 +6,7 @@ import { SessionLaunchError } from './session-launch-store.js';
 export async function assertSessionLaunchTools(
   names: readonly string[],
   definition: SymposiumProfileDefinition,
+  route: 'codex-owned-local' | 'claude-sdk' = 'codex-owned-local',
 ) {
   if (!names.length) return;
   const { agentToolCatalog } = await import('./agent-tool-catalog.js');
@@ -44,16 +45,16 @@ export async function assertSessionLaunchTools(
     ordinaryNativeTelosArtifactTools(definition.tools !== undefined).map((tool) => tool.name),
   );
   const selectedProfile = {};
-  bindAgentToolSelection(selectedProfile, definition, 'codex-owned-local');
+  bindAgentToolSelection(selectedProfile, definition, route);
   for (const name of names) {
     if (roleTools.has(name))
       throw new SessionLaunchError(
         `Additional tool ${name} requires a retained Telos role. Use reviewed Telos role setup; a new ordinary chat cannot inherit that role.`,
       );
     const tool = catalog.find((entry) => entry.name === name);
-    if (!tool?.routes.includes('codex-owned-local'))
+    if (!tool?.routes.includes(route))
       throw new SessionLaunchError(
-        `Additional tool ${name} is unavailable for Local Mac Codex. Review the tool selection.`,
+        `Additional tool ${name} is unavailable for Local Mac ${route === 'claude-sdk' ? 'Claude' : 'Codex'}. Review the tool selection.`,
       );
     if (artifactNames.has(name) && !exposedArtifacts.has(name))
       throw new SessionLaunchError(
