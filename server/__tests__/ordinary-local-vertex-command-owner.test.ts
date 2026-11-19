@@ -436,6 +436,10 @@ it('retains Stop while a result is settling even without a native interrupt targ
   await vi.waitFor(() => expect(release).toBeTypeOf('function'));
   await f.owner.stop(randomUUID());
   expect(f.store.getSession('session')?.executionPhase).toBe('STOPPING');
+  // A repeated Stop (or the bound) while this result settles must not close
+  // the query: the in-flight settlement already ends the turn as stopped.
+  expect(f.owner.escalateStop()).toBeUndefined();
+  expect(f.query.abort).not.toHaveBeenCalled();
   release();
   await result;
   expect(f.store.getSession('session')).toMatchObject({

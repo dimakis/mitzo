@@ -6436,7 +6436,7 @@ export function stopOrdinaryChat(clientId: string): void {
       const timer = setTimeout(() => {
         const current = eventStore.getSession(sessionId);
         if (current?.executionPhase === 'STOPPING' && current.executionId === execution)
-          escalate('timeout');
+          if (!escalate('timeout')) outcome('already_stopping', { trigger: 'timeout' });
       }, ordinarySdkStopEscalation.timeoutMs);
       timer.unref?.();
       outcome('requested');

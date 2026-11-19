@@ -151,7 +151,15 @@ export class OrdinaryLocalVertexCommandOwner {
    * outcome stays unconfirmed: no result was observed, so none is recorded. */
   escalateStop(): { commandId: string; inputAcknowledged: boolean } | undefined {
     const active = this.#active;
-    if (!active || this.#failed || !this.#stoppingActive() || !this.owners.assertCurrentSync)
+    // An observed result is already settling this exact turn (as stopped);
+    // closing the query now would turn that settlement into a runtime failure.
+    if (
+      !active ||
+      this.#failed ||
+      this.#resultObserved ||
+      !this.#stoppingActive() ||
+      !this.owners.assertCurrentSync
+    )
       return undefined;
     assertOrdinarySynchronousFence(active.commandId, () => this.owners.assertCurrentSync!());
     const transition = this.owners.store.transitionExecution(
