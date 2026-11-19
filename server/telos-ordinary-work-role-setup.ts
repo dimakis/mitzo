@@ -6,6 +6,7 @@ import {
   type TelosOrdinaryWorkRoleSetupIntent,
   type AccountBinding,
   type AgentLibraryVersion,
+  type OrdinaryWorkspaceSettings,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
@@ -17,6 +18,9 @@ import {
 import { runTelosWorkRoleSetup } from './telos-work-role-setup.js';
 import {
   adoptTelosExistingChat,
+  qualifyTelosRoleWorkspace,
+  TelosAdoptionRefusal,
+  telosRoleToolRoute,
   type TelosAdoptionRuntime,
 } from './telos-existing-chat-adoption.js';
 export type TelosOrdinaryWorkRoleScope = {
@@ -64,13 +68,8 @@ export class TelosOrdinaryWorkRoleSetup {
       const selected = structuredClone(
         await this.deps.resolveSelection(structuredClone({ actor, input }), signal),
       );
-      assertAgentToolRoute(selected.agentProfile.definition, 'codex-owned-local');
-      await this.deps.workspaces.qualifyOrdinaryWorkspace({
-        ...selected,
-        preparationId: input.settings.workspace.preparationId,
-        settings: input.settings,
-        signal,
-      });
+      assertAgentToolRoute(selected.agentProfile.definition, telosRoleToolRoute(input.settings));
+      await qualifyTelosRoleWorkspace(this.deps.workspaces, selected, input.settings, signal);
       signal.throwIfAborted();
       return selected;
     };
@@ -81,13 +80,20 @@ export class TelosOrdinaryWorkRoleSetup {
         throw new TelosWorkError('conflict', 'Reviewed existing-chat adoption is unavailable');
       const retained = this.deps.work.prepareOrdinaryRoleSetup(input, actor);
       const scope = { actor, setup: retained.setup };
-      await this.deps.workspaces.revalidateOrdinaryWorkspace({
-        id: input.adoption.workspaceId,
-        conversationId: input.adoption.conversationId,
-        binding: qualified.binding,
-        taskRoot: qualified.taskRoot,
-        signal,
-      });
+      if (input.adoption.workspaceKind === 'repository') {
+        // The Claude SDK chat keeps its claimed repository task; requalify its
+        // exact checkout identity instead of an ordinary workspace reservation.
+        const cwd = this.deps.events.getSession(input.adoption.conversationId)?.cwd;
+        if (!cwd) throw new TelosAdoptionRefusal('existing_chat_incompatible');
+        await this.deps.workspaces.validateHostTask(input.adoption.conversationId, cwd);
+      } else
+        await this.deps.workspaces.revalidateOrdinaryWorkspace({
+          id: input.adoption.workspaceId,
+          conversationId: input.adoption.conversationId,
+          binding: qualified.binding,
+          taskRoot: qualified.taskRoot,
+          signal,
+        });
       return adoptTelosExistingChat({
         ...scope,
         work: this.deps.work,
@@ -102,6 +108,11 @@ export class TelosOrdinaryWorkRoleSetup {
           this.deps.retainContext({ ...scope, conversationId }, signal),
       });
     }
+    const settings = input.settings;
+    // Repository settings exist only for reviewed adoption of an existing chat.
+    if (settings.workspace.kind !== 'ordinary')
+      throw new TelosWorkError('invalid', 'New Telos children start only in an ordinary workspace');
+    const ordinarySettings = settings as OrdinaryWorkspaceSettings;
     const assertRetained = (scope: TelosOrdinaryWorkRoleScope) => {
       const receipt = this.deps.events.getOrdinaryWorkspaceSessionPreparation(
         scope.setup.allocationOperationId,
@@ -172,13 +183,13 @@ export class TelosOrdinaryWorkRoleSetup {
         await authorize();
         const reserved = await this.deps.workspaces.reserveOrdinaryWorkspace({
           ...selected,
-          preparationId: input.settings.workspace.preparationId,
+          preparationId: ordinarySettings.workspace.preparationId,
           allocationOperationId: scope.setup.allocationOperationId,
-          settings: input.settings,
+          settings: ordinarySettings,
           signal,
         });
         await authorize();
-        if (!isDeepStrictEqual(reserved.settings, input.settings))
+        if (!isDeepStrictEqual(reserved.settings, ordinarySettings))
           throw new TelosWorkError('conflict', 'Original ordinary role settings required');
         return this.deps.events.prepareOrdinaryWorkspaceSession(
           {
@@ -187,14 +198,14 @@ export class TelosOrdinaryWorkRoleSetup {
             cwd: reserved.directory,
             accountBinding: selected.binding,
             agentProfile: selected.agentProfile,
-            selectedModel: input.settings.selection.model,
-            reasoningEffort: input.settings.selection.thinking,
-            mode: input.settings.selection.permission.mode,
+            selectedModel: ordinarySettings.selection.model,
+            reasoningEffort: ordinarySettings.selection.thinking,
+            mode: ordinarySettings.selection.permission.mode,
           },
           {
             allocationOperationId: scope.setup.allocationOperationId,
             preparationFingerprint: reserved.preparationFingerprint,
-            settings: input.settings,
+            settings: ordinarySettings,
           },
         );
       },

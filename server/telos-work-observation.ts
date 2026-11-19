@@ -166,13 +166,17 @@ export function telosWorkContext(
       conversationId: targetId ?? null,
       reason: !targetId
         ? 'worker_setup_required'
-        : !sameAllocation
-          ? 'current_worker_differs_from_allocation'
-          : latestAllocation?.state !== 'chat_ready'
-            ? 'recover_original_allocation'
-            : !supported
-              ? 'worker_start_route_unavailable'
-              : 'request_exact_start_approval',
+        : target && 'engine' in target && target.engine === 'claude-sdk'
+          ? // An adopted Claude worker receives its first instruction from its
+            // own chat or AgentCommunication; TelosStartSlice admits Codex only.
+            'claude_worker_start_unavailable'
+          : !sameAllocation
+            ? 'current_worker_differs_from_allocation'
+            : latestAllocation?.state !== 'chat_ready'
+              ? 'recover_original_allocation'
+              : !supported
+                ? 'worker_start_route_unavailable'
+                : 'request_exact_start_approval',
     },
   };
 }

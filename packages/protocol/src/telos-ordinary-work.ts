@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { OrdinaryWorkspaceSettingsSchema } from './ordinary-workspace.js';
+import { SessionRuntimeBindingV2Schema } from './session-runtime-binding.js';
+import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
 import {
   TelosWorkRoleSetupInputSchema,
   TelosWorkRoleSetupIntentSchema,
@@ -12,9 +14,21 @@ import { TelosWorkRolePresentationRefSchema } from './telos-work-role-presentati
 export const TelosExistingChatAdoptionSchema = z.strictObject({
   conversationId: TelosWorkIdSchema,
   workspaceId: z.uuid(),
+  /** Absent for an ordinary workspace (Codex). `repository` selects an existing
+   * Local Mac Claude SDK chat, whose engine owns repository workspaces only. */
+  workspaceKind: z.literal('repository').optional(),
   expectedEpoch: z.number().int().nonnegative().safe(),
   custodyHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
+/** Reviewed latest admitted settings of an adopted repository-backed Claude chat.
+ * Adoption-only: no allocation, preparation or command is derived from it. */
+export const TelosRepositoryChatSettingsSchema = z.strictObject({
+  version: z.literal(2),
+  binding: SessionRuntimeBindingV2Schema,
+  selection: OrdinaryLocalCommandSelectionSchema,
+  workspace: z.strictObject({ kind: z.literal('repository'), workspaceId: z.uuid() }),
+});
+export type TelosRepositoryChatSettings = z.infer<typeof TelosRepositoryChatSettingsSchema>;
 /** Exact former responsibility, bound to the operator's immutable review. */
 export const TelosOwnerReplacementSchema = z.strictObject({
   conversationId: TelosWorkIdSchema,
@@ -24,13 +38,23 @@ export const TelosOrdinaryWorkRoleSetupInputSchema = z
   .strictObject({
     ...TelosWorkRoleSetupInputSchema.shape,
     version: z.literal(2),
-    settings: OrdinaryWorkspaceSettingsSchema,
+    settings: z.union([OrdinaryWorkspaceSettingsSchema, TelosRepositoryChatSettingsSchema]),
     adoption: TelosExistingChatAdoptionSchema.optional(),
     replacement: TelosOwnerReplacementSchema.optional(),
   })
   .refine(
     (value) => !value.adoption || value.createOnly === true || Boolean(value.replacement),
     'Existing-chat adoption requires an unassigned role or explicit owner replacement',
+  )
+  .refine(
+    (value) =>
+      value.settings.workspace.kind === 'ordinary'
+        ? value.adoption?.workspaceKind === undefined
+        : value.adoption?.workspaceKind === 'repository' &&
+          value.adoption.workspaceId === value.settings.workspace.workspaceId &&
+          value.settings.binding.harness.implementation === 'claude-sdk' &&
+          value.settings.binding.execution.location === 'local',
+    'Repository settings are limited to adoption of the exact existing Local Mac Claude chat',
   )
   .refine(
     (value) =>

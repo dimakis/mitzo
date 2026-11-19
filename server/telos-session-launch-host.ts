@@ -9,7 +9,10 @@ import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import {
   observeTelosAdoptionTarget,
+  TelosAdoptionRefusal,
+  telosAdoptionSettings,
   telosAdoptionTransition,
+  type TelosAdoptionRuntime,
 } from './telos-existing-chat-adoption.js';
 import { TelosWorkError, TelosWorkStore } from './telos-work-store.js';
 import { TelosItemStore } from './telos-item-store.js';
@@ -34,7 +37,15 @@ export interface TelosSessionLaunchDependencies {
   ordinaryConversation(id: string): boolean;
   sourceConversation(id: string): boolean;
   roleHost(authority: SessionLaunchAuthority): ReturnType<typeof createTelosWorkRoleHost>;
-  qualify(configuration: SessionLaunchConfig, authority: SessionLaunchAuthority): Promise<void>;
+  /** `adoption` qualifies an existing chat's retained settings on its own
+   * engine (Codex or Claude); creation qualifies only startable children. */
+  qualify(
+    configuration: SessionLaunchConfig,
+    authority: SessionLaunchAuthority,
+    options?: { adoption: boolean },
+  ): Promise<void>;
+  /** Proposal-time idle check; approval rechecks under the adoption hold. */
+  adoption?: Pick<TelosAdoptionRuntime, 'assertQuiescent'>;
   prepareSettings(
     configuration: SessionLaunchConfig,
     authority: SessionLaunchAuthority,
@@ -67,6 +78,22 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
     kind: 'operator' as const,
     id: authority.authSessionId,
   });
+  /** Named adoption refusals reach the proposing agent as review errors. */
+  const observeAdoption = (conversationId: string, authority: SessionLaunchAuthority) => {
+    if (!deps.workspaces) throw new SessionLaunchError('Existing-chat adoption is unavailable.');
+    try {
+      return observeTelosAdoptionTarget(
+        deps.events,
+        deps.workspaces(),
+        conversationId,
+        authority.authSessionId,
+      );
+    } catch (error) {
+      if (error instanceof TelosWorkError)
+        throw new SessionLaunchError(error.message, 409, { cause: error });
+      throw error;
+    }
+  };
   const current = (authority: SessionLaunchAuthority) => {
     authority.signal.throwIfAborted();
     authority.assertCurrent();
@@ -165,13 +192,21 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
         throw new SessionLaunchError('Original adoption admission release remains unconfirmed.');
     }
     const assigned = operation.receipt.work.assignments.find((a) => a.role === input.role);
-    const preparation = deps.events.getOrdinaryWorkspaceSessionPreparation(
-      input.adoption
-        ? deps.workspaces!().getOrdinaryWorkspace(input.adoption.workspaceId).allocationOperationId
-        : operation.setup.allocationOperationId,
-    );
     const childSessionId = assigned?.conversation.conversationId;
     const session = childSessionId ? deps.events.getSession(childSessionId) : undefined;
+    const repositoryAdoption = input.adoption?.workspaceKind === 'repository';
+    // An adopted Claude chat retains its repository task; it never had an
+    // ordinary preparation. Its retained workspace identity is the evidence.
+    const preparation = repositoryAdoption
+      ? session?.repositoryWorkspaceId === input.adoption!.workspaceId
+        ? { sessionId: session.sessionId }
+        : undefined
+      : deps.events.getOrdinaryWorkspaceSessionPreparation(
+          input.adoption
+            ? deps.workspaces!().getOrdinaryWorkspace(input.adoption.workspaceId)
+                .allocationOperationId
+            : operation.setup.allocationOperationId,
+        );
     const context = childSessionId
       ? resolveTelosWorkRoleContext(
           deps.events,
@@ -189,7 +224,8 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
       // Adoption retains the reviewed latest admitted settings in the canonical
       // role intent. Allocation settings predate legitimate later selections.
       // Creation still requires its exact original allocation selection.
-      (!input.adoption && !isDeepStrictEqual(preparation.settings, input.settings)) ||
+      (!input.adoption &&
+        !('settings' in preparation && isDeepStrictEqual(preparation.settings, input.settings))) ||
       !isDeepStrictEqual(context, input.contextSelection)
     )
       throw new SessionLaunchError(
@@ -212,7 +248,10 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
     return {
       state: 'assigned',
       childSessionId,
-      preparationId: input.settings.workspace.preparationId,
+      preparationId:
+        input.settings.workspace.kind === 'ordinary'
+          ? input.settings.workspace.preparationId
+          : input.settings.workspace.workspaceId,
       itemId: input.itemId,
       role: assigned.role,
       assignmentRevision: assigned.revision,
@@ -249,8 +288,8 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
           const unapplied = (): undefined => {
             current(authority);
             if (
-              observeTelosAdoptionTarget(deps.events, deps.workspaces!(), selected.conversationId)
-                .custodyHash !== selected.custodyHash
+              observeAdoption(selected.conversationId, authority).custodyHash !==
+              selected.custodyHash
             )
               throw new SessionLaunchError(
                 'Original adoption custody changed; retain the hold for reconciliation.',
@@ -304,15 +343,10 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
       assertScope(record, authority);
       if (record.telos?.adoption) {
         const selected = record.telos.adoption;
-        if (!deps.workspaces)
-          throw new SessionLaunchError('Existing-chat adoption is unavailable.');
-        const current = observeTelosAdoptionTarget(
-          deps.events,
-          deps.workspaces(),
-          selected.conversationId,
-        );
+        const current = observeAdoption(selected.conversationId, authority);
         if (
           current.custodyHash !== selected.custodyHash ||
+          current.workspaceKind !== selected.workspaceKind ||
           !isDeepStrictEqual(edits.configuration, record.configuration)
         )
           throw new SessionLaunchError(
@@ -323,7 +357,9 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
         throw new SessionLaunchError(
           'Select tools through the child agent profile. Additional launch tools are not supported by reviewed Telos role setup.',
         );
-      await deps.qualify(edits.configuration, authority);
+      await deps.qualify(edits.configuration, authority, {
+        adoption: Boolean(record.telos?.adoption),
+      });
       assertScope(record, authority);
       if (!retained(record, authority)?.receipt) {
         const reviewed = record.telosReview!;
@@ -347,9 +383,7 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
       let setup = deps.store.get(record.proposalId, 'user').telosSetup;
       if (!setup) {
         const settings = record.telos?.adoption
-          ? deps.events.getOrdinaryWorkspaceConversationSettings(
-              record.telos.adoption.conversationId,
-            )
+          ? telosAdoptionSettings(deps.events, record.telos.adoption.conversationId)
           : await deps.prepareSettings(record.configuration, authority);
         if (!settings) throw new SessionLaunchError('Original existing-chat settings unavailable.');
         assertScope(record, authority);
@@ -407,15 +441,27 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
           throw new SessionLaunchError(
             'Select a distinct compatible existing chat with its retained settings; adoption cannot override configuration.',
           );
-        const selected = observeTelosAdoptionTarget(
-          deps.events,
-          deps.workspaces(),
-          input.existingConversationId,
-        );
+        const selected = observeAdoption(input.existingConversationId, authority);
         usingWork((work) => work.assertConversationAvailableForAdoption(selected.conversationId));
-        const settings = deps.events.getOrdinaryWorkspaceConversationSettings(
-          selected.conversationId,
-        )!;
+        // Advisory at proposal; approval rechecks under the adoption hold. A chat
+        // proposing itself is necessarily mid-turn now, so only approval decides.
+        try {
+          if (selected.conversationId !== sourceSessionId)
+            deps.adoption?.assertQuiescent(selected.conversationId, input.requestId);
+        } catch (error) {
+          throw new SessionLaunchError(
+            error instanceof TelosAdoptionRefusal
+              ? error.message
+              : new TelosAdoptionRefusal('existing_chat_busy').message,
+            409,
+            { cause: error },
+          );
+        }
+        const settings = telosAdoptionSettings(deps.events, selected.conversationId);
+        if (!settings)
+          throw new SessionLaunchError(
+            new TelosAdoptionRefusal('existing_chat_incompatible').message,
+          );
         adoption = {
           ...selected,
           title: deps.events.getSession(selected.conversationId)?.summary || 'Existing chat',

@@ -2,7 +2,6 @@ import {
   StartSessionInputSchema,
   TelosCreateSessionInputSchema,
   resolveSessionLaunchConfig,
-  sessionLaunchConfigurationReason,
   sessionLaunchHandoverUrl,
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
@@ -28,7 +27,7 @@ export const sessionLaunchDefinitions = [
   {
     name: 'StartSession',
     description:
-      'Propose a new ordinary Mitzo chat using saved defaults and optional overrides. Put the complete self-contained handover in prompt; do not rely on a temporary file path. The retained request provides handoverDownloadUrl for exact Markdown download, even before startup. The user reviews and edits configuration, title and handoff before Approve & start. A pending proposal has not allocated or started a chat. Reuse the exact requestId and arguments after uncertainty. Starts only independent Local Mac Codex sessions: a Claude or other non-Codex account returns startupBlocker at proposal and cannot be approved until a Codex account is chosen. Additional tools must already be exposed by the selected agent profile; selection grants no permissions. Unsupported account, context or workspace choices return startupBlocker and remain editable in review.',
+      'Propose a new ordinary Mitzo chat using saved defaults and optional overrides. Put the complete self-contained handover in prompt; do not rely on a temporary file path. The retained request provides handoverDownloadUrl for exact Markdown download, even before startup. The user reviews and edits configuration, title and handoff before Approve & start. A pending proposal has not allocated or started a chat. Reuse the exact requestId and arguments after uncertainty. Starts independent Local Mac Codex or Claude sessions, each on the engine New chat uses for that account; any other account returns startupBlocker at proposal and cannot be approved until a Codex or Claude account is chosen. Additional tools must already be exposed by the selected agent profile; selection grants no permissions. Unsupported account, context or workspace choices return startupBlocker and remain editable in review.',
     input_schema: z.toJSONSchema(StartSessionInputSchema),
   },
   telosSessionLaunchDefinition,
@@ -75,7 +74,12 @@ export async function proposeTelosSession(
       ),
   });
   controller.changed(sourceSessionId);
-  const startupBlocker = sessionLaunchConfigurationReason(record.configuration);
+  // Adoption keeps an existing Codex or Claude chat's engine; only creation of
+  // a new Telos child is limited to engines Telos worker startup can start.
+  const startupBlocker = sessionLaunchStartupBlocker(
+    record.configuration,
+    record.telos?.adoption ? 'session' : 'telos',
+  );
   return TelosSessionProposalResponseSchema.parse({
     ...publicSessionLaunchRecord(record),
     handoverDownloadUrl: sessionLaunchHandoverUrl(record.proposalId),
