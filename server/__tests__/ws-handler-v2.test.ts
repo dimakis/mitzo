@@ -1232,6 +1232,53 @@ describe('handleSwitchSession', () => {
     expect(custody).toHaveBeenCalledWith('admitted');
   });
 
+  it('treats an acknowledged first send as starting during repository and worktree setup', async () => {
+    // Real store: the early-start record is the only state written before the 202.
+    const store = new EventStore(':memory:');
+    try {
+      store.ordinaryEarlyStarts.begin({
+        clientMsgId: 'first-send',
+        sessionId: 'acknowledged',
+        workspaceId: 'repository',
+        authSessionId: 'phone-login',
+        wireFingerprint: 'a'.repeat(64),
+      });
+      const ctx = createContext({ eventStore: store });
+      const owner = mockTransport();
+      const stranger = mockTransport();
+      ctx.connRegistry.register('reconnected-phone', owner);
+      ctx.connRegistry.register('unauthenticated', stranger);
+      claimTransportConnection('reconnected-phone', 'phone-login');
+      await handleSwitchSession(
+        'reconnected-phone',
+        { type: 'switch_session', sessionId: 'acknowledged' },
+        ctx,
+      );
+      expect(owner.sent.filter((event) => event.type === 'error')).toEqual([]);
+      expect(ctx.connRegistry.get('reconnected-phone')?.watchedSessions.has('acknowledged')).toBe(
+        true,
+      );
+      expect(ctx.connRegistry.get('reconnected-phone')?.activeSession).toBe('acknowledged');
+      // Another stream without that operator's login still gets "not found".
+      await handleSwitchSession(
+        'unauthenticated',
+        { type: 'switch_session', sessionId: 'acknowledged' },
+        ctx,
+      );
+      expect(stranger.sent).toContainEqual(
+        expect.objectContaining({ type: 'error', error: 'Session not found: acknowledged' }),
+      );
+      // A failed start is no longer starting.
+      store.ordinaryEarlyStarts.fail('first-send', {
+        runtimeFailureCode: 'runtime_unavailable',
+        diagnosticId: '00000000-0000-4000-8000-000000000000',
+      });
+      expect(store.ordinaryEarlyStarts.preparingForSession('acknowledged')).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  });
+
   it('sets active session and sends session metadata from event store', async () => {
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue({

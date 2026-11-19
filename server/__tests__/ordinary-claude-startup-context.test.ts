@@ -656,3 +656,21 @@ it('refuses owned Claude startup when the retained operator login is revoked', a
   await expect(start()).rejects.toThrow();
   expect(x.calls).toEqual([]);
 }, 20_000);
+
+it('reports a logout between worktree creation and registration as auth_revoked', async () => {
+  const x = await fixture(false, true);
+  const start = await ownedEntry(x, 'conn-logout-during-startup');
+  const { revokeAuthSession } = await import('../auth.js');
+  const claim = x.f.workspace.claimReservedHostTask.bind(x.f.workspace);
+  vi.spyOn(x.f.workspace, 'claimReservedHostTask').mockImplementation(async (...args) => {
+    const claimed = await claim(...args);
+    revokeAuthSession(x.f.auth);
+    return claimed;
+  });
+  const failure: unknown = await start().catch((error: unknown) => error);
+  // The closed owner keeps the classified login loss, not a bare "unavailable".
+  const { findSessionRuntimeError } = await import('../session-runtime-error.js');
+  expect(findSessionRuntimeError(failure)?.code).toBe('auth_revoked');
+  expect(x.chat.registry.findBySessionId(x.f.reservation.conversationId)).toBeFalsy();
+  expect(x.calls).toEqual([]);
+}, 20_000);

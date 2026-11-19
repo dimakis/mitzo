@@ -3,6 +3,7 @@ import { AgentLibraryVersionSchema, type AgentProfileSelection } from '@mitzo/pr
 import { registerAuthSession, isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import { readBuiltinAgentLibraryProfile } from './builtin-agent-library-profile.js';
 export { readBuiltinAgentLibraryProfile } from './builtin-agent-library-profile.js';
 
@@ -15,8 +16,11 @@ export function captureAgentLibraryAuthorization(
 ) {
   const auth = connectionId ? operators.get(connectionId) : undefined;
   if (!auth || auth.expiresAt <= Date.now())
-    throw new OperatorAuthorizationError(
-      'Interactive operator authentication is required for this operation',
+    throw annotateAuthorityFailure(
+      new OperatorAuthorizationError(
+        'Interactive operator authentication is required for this operation',
+      ),
+      'operator_connection',
     );
   return {
     auth,
