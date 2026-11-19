@@ -1,6 +1,6 @@
 import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ownedVertexRuntimeFixture } from './fixtures/owned-local-vertex-runtime.js';
 import {
@@ -135,8 +135,13 @@ it('continues an idle chat after a deploy installs the SDK binary at a new path'
 it('still refuses a replaced Claude config root after a deploy', async () => {
   const { f, create } = await deployedChat(false);
   const config = join(f.root, 'personal-claude');
-  await rm(config, { recursive: true });
+  // Keep the original directory alive until its replacement exists. Linux
+  // filesystems immediately reuse a freed inode number, so delete-then-create
+  // can yield an identical dev/ino and not model a replacement at all.
+  const original = `${config}.original`;
+  await rename(config, original);
   await mkdir(config, { mode: 0o700 });
+  await rm(original, { recursive: true });
   await expect(
     create('changed').admitResume({ ...f.request, clientMsgId: 'changed' }),
   ).rejects.toThrow();
