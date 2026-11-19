@@ -174,6 +174,13 @@ it('ignores a previous conversation response and clears relationship data on log
     ),
   );
   expect(view.result.current.origin?.sessionId).toBe('second-source');
+  // The retired read must not reopen the current chat's startup window: a later
+  // 404 after its successful read is still reported, with links retained.
+  vi.mocked(apiFetch).mockImplementation(async () => new Response('', { status: 404 }));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  act(() => view.result.current.refresh());
+  await waitFor(() => expect(view.result.current.error).toBeTruthy());
+  expect(view.result.current.origin?.sessionId).toBe('second-source');
   act(() => window.dispatchEvent(new Event(AUTH_LOST_EVENT)));
   expect(view.result.current.origin).toBeUndefined();
 });

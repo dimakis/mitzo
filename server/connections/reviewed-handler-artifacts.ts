@@ -908,7 +908,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useSavedChatDrafts.test.tsx':
     '969927999185555e5cc7200e2ef12ed5af2405913b6c5a9c186d093cf3ea7eb8',
   '../../frontend/src/hooks/__tests__/useSessionLaunch.test.tsx':
-    '038347ea746826221d24ff2f6856a19ef9e9ae2a363ec63346285c87646a7614',
+    '2b2e002598e5f566b40ff5a747aa9446a9bfda2382b8628c12eec3cb7ba5c18e',
   '../../frontend/src/hooks/__tests__/useSessionLaunchDefaults.test.tsx':
     '56ffa7340165a4bb8f34866799b14cdb94f1e84f95c5babfb3acff8ff0ac115c',
   '../../frontend/src/hooks/__tests__/useSessionList.test.ts':
@@ -980,7 +980,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useServiceHealth.ts':
     '807a95678c49e8bdc2dd7d14979d0fd90a2e4364d51c34c2a859ecf0dfc81d4a',
   '../../frontend/src/hooks/useSessionLaunch.ts':
-    'b6814ff5b4278b7565fcf84c007a0eafe705c257c19129cdd081c7ba00d2bf26',
+    '72e0228e110eee5921e487d4112d01a2dae74dc6a8f7167ca65207a94c5a3763',
   '../../frontend/src/hooks/useSessionLaunchDefaults.ts':
     '7401011f6b5695b59891490a8ef5be90524dc9f0c0dc0eba535c5beafe5dbffd',
   '../../frontend/src/hooks/useSessionList.ts':

@@ -70,6 +70,8 @@ export function useSessionLaunch(sessionId: string | null | undefined, enabled =
       signal: controller.signal,
     })
       .then(async (response) => {
+        // A retired read (session change, unmount, auth loss) owns no retry state.
+        if (!live || controller.signal.aborted) return;
         if (startupReads.current.sessionId !== sessionId)
           startupReads.current = { sessionId, misses: 0 };
         // A just-accepted chat is selected before its row exists. Until its first
@@ -79,15 +81,16 @@ export function useSessionLaunch(sessionId: string | null | undefined, enabled =
           startupReads.current.misses < STARTUP_READ_DELAYS_MS.length
         ) {
           const delay = STARTUP_READ_DELAYS_MS[startupReads.current.misses++];
-          if (live) retryTimer = window.setTimeout(refresh, delay);
+          retryTimer = window.setTimeout(refresh, delay);
           return;
         }
         if (!response.ok) throw new Error(`session_launch_read_http_${response.status}`);
-        startupReads.current = { sessionId, misses: STARTUP_READ_DELAYS_MS.length };
         const data: LaunchList = await response.json();
         if (!Array.isArray(data.requests)) throw new Error('session_launch_read_invalid');
         if (data.links) data.links = data.links.map((link) => SessionChatLinkSchema.parse(link));
         if (live && !controller.signal.aborted) {
+          // Only the current session's authoritative read ends its startup window.
+          startupReads.current = { sessionId, misses: STARTUP_READ_DELAYS_MS.length };
           setSnapshot((previous) => ({
             sessionId,
             data,
