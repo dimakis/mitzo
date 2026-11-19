@@ -414,182 +414,216 @@ function SessionAccountModelPicker({
         if (disposed) return response;
       }
     }
-    void fetchMetadata()
-      .then(async (response) => {
-        if (sessionId && response.status === 404) {
-          if (!disposed) {
-            setBindingLabel('Existing task · legacy account');
-            setFixedSummary({
-              sessionType: 'chat',
-              profile: 'Legacy account',
-              model: 'Model unknown',
-              thinking: 'Thinking: unknown',
-            });
-            setFixedSession(true);
-            callbacks.current.onChange({ model: preferredModel });
-          }
-          return;
-        }
-        if (!response.ok)
-          throw new Error(
-            scope === 'symposium'
-              ? 'Symposium account catalog unavailable. Retry to continue.'
-              : 'Account information unavailable. Retry to continue.',
-          );
-        const data = await response.json();
+    const reportFailure = (err: unknown) => {
+      if (!disposed) {
+        setError(err instanceof Error ? err.message : 'Account information unavailable.');
+      }
+    };
+    // A real legacy session never gains metadata, so it keeps the quick fallback.
+    // A just-accepted chat can take several seconds to persist its row; observe it
+    // on a bounded schedule and replace the provisional legacy label once it exists.
+    async function reprobeStartingSession() {
+      for (const delay of [1000, 2000, 4000, 8000, 15000, 30000, 30000]) {
+        await new Promise<void>((resolve) => {
+          const finish = () => {
+            clearTimeout(timer);
+            controller.signal.removeEventListener('abort', finish);
+            resolve();
+          };
+          const timer = setTimeout(finish, delay);
+          controller.signal.addEventListener('abort', finish, { once: true });
+        });
         if (disposed) return;
-        if (sessionId && data.sessionType === 'symposium') {
-          setBindingLabel('Choose an agent stream to write to that agent.');
+        let response: Response;
+        try {
+          response = await apiFetch(url, { signal: controller.signal });
+        } catch (cause) {
+          if (disposed) return;
+          console.info('Session metadata re-probe failed', {
+            code: 'session_metadata_reprobe_failed',
+            stage: 'metadata_reprobe',
+            sessionId,
+            cause: cause instanceof Error ? cause.name : 'UnknownError',
+          });
+          continue;
+        }
+        if (disposed) return;
+        if (response.status === 404) continue;
+        // Unavailable metadata after startup is reported through the ordinary path.
+        setFixedSession(false);
+        setFixedSummary(null);
+        await applyResponse(response);
+        return;
+      }
+    }
+    async function applyResponse(response: Response) {
+      if (sessionId && response.status === 404) {
+        if (!disposed) {
+          setBindingLabel('Existing task · legacy account');
           setFixedSummary({
-            sessionType: 'symposium',
-            profile: 'Symposium',
-            model: 'Accounts and models per agent',
+            sessionType: 'chat',
+            profile: 'Legacy account',
+            model: 'Model unknown',
+            thinking: 'Thinking: unknown',
           });
           setFixedSession(true);
+          callbacks.current.onChange({ model: preferredModel });
+          void reprobeStartingSession().catch(reportFailure);
+        }
+        return;
+      }
+      if (!response.ok)
+        throw new Error(
+          scope === 'symposium'
+            ? 'Symposium account catalog unavailable. Retry to continue.'
+            : 'Account information unavailable. Retry to continue.',
+        );
+      const data = await response.json();
+      if (disposed) return;
+      if (sessionId && data.sessionType === 'symposium') {
+        setBindingLabel('Choose an agent stream to write to that agent.');
+        setFixedSummary({
+          sessionType: 'symposium',
+          profile: 'Symposium',
+          model: 'Accounts and models per agent',
+        });
+        setFixedSession(true);
+        return;
+      }
+      if (sessionId) {
+        const modelSelection = z
+          .object({
+            model: z.string(),
+            models: modelsSchema,
+            reasoningEffort: z.string().nullable().optional(),
+          })
+          .safeParse(data.modelSelection);
+        if (data.accountBinding && modelSelection.success) {
+          const account = {
+            id: data.accountBinding.accountId,
+            label: data.accountBinding.accountLabel,
+            models: modelSelection.data.models,
+          };
+          setAccounts([account]);
+          const next = withThinking(
+            {
+              accountId: account.id,
+              model: modelSelection.data.model,
+              reasoningEffort: modelSelection.data.reasoningEffort,
+            },
+            account,
+          );
+          // Persisted session settings are authoritative even when catalog capabilities are missing.
+          if (modelSelection.data.reasoningEffort !== undefined)
+            next.reasoningEffort = modelSelection.data.reasoningEffort;
+          setSelection(next);
+          if (callbacks.current.onSessionHydrated)
+            callbacks.current.onSessionHydrated(next, sessionId);
+          else callbacks.current.onChange(explicitSelection ? null : next);
+        } else {
+          const next = data.accountBinding
+            ? { accountId: data.accountBinding.accountId, model: data.accountBinding.model }
+            : { model: preferredModel };
+          setFixedSession(true);
+          setFixedSummary({
+            sessionType: 'chat',
+            profile: data.accountBinding?.accountLabel ?? 'Legacy account',
+            model: 'Model unknown',
+            thinking: 'Thinking: unknown',
+          });
+          if (
+            callbacks.current.onSessionHydrated &&
+            typeof next.accountId === 'string' &&
+            next.accountId &&
+            next.model
+          )
+            callbacks.current.onSessionHydrated(next, sessionId);
+          else callbacks.current.onChange(explicitSelection ? null : next);
+        }
+        setBindingLabel(
+          data.accountBinding ? data.accountBinding.accountLabel : 'Existing task · legacy account',
+        );
+      } else {
+        const parsed = legacy
+          ? modelsSchema
+              .transform((models) => [{ id: '', label: 'Legacy server account', models }])
+              .safeParse(data)
+          : catalogSchema.safeParse(data);
+        if (!parsed.success)
+          throw new Error('Invalid account information. Retry or check the server configuration.');
+        const catalog: Account[] = allowedAccountIds
+          ? parsed.data.filter((account) => allowedAccountIds.includes(account.id))
+          : parsed.data;
+        if (!catalog.length) {
+          setEmpty(true);
           return;
         }
-        if (sessionId) {
-          const modelSelection = z
-            .object({
-              model: z.string(),
-              models: modelsSchema,
-              reasoningEffort: z.string().nullable().optional(),
-            })
-            .safeParse(data.modelSelection);
-          if (data.accountBinding && modelSelection.success) {
-            const account = {
-              id: data.accountBinding.accountId,
-              label: data.accountBinding.accountLabel,
-              models: modelSelection.data.models,
-            };
-            setAccounts([account]);
-            const next = withThinking(
-              {
-                accountId: account.id,
-                model: modelSelection.data.model,
-                reasoningEffort: modelSelection.data.reasoningEffort,
-              },
-              account,
-            );
-            // Persisted session settings are authoritative even when catalog capabilities are missing.
-            if (modelSelection.data.reasoningEffort !== undefined)
-              next.reasoningEffort = modelSelection.data.reasoningEffort;
-            setSelection(next);
-            if (callbacks.current.onSessionHydrated)
-              callbacks.current.onSessionHydrated(next, sessionId);
-            else callbacks.current.onChange(explicitSelection ? null : next);
-          } else {
-            const next = data.accountBinding
-              ? { accountId: data.accountBinding.accountId, model: data.accountBinding.model }
-              : { model: preferredModel };
-            setFixedSession(true);
-            setFixedSummary({
-              sessionType: 'chat',
-              profile: data.accountBinding?.accountLabel ?? 'Legacy account',
-              model: 'Model unknown',
-              thinking: 'Thinking: unknown',
-            });
-            if (
-              callbacks.current.onSessionHydrated &&
-              typeof next.accountId === 'string' &&
-              next.accountId &&
-              next.model
-            )
-              callbacks.current.onSessionHydrated(next, sessionId);
-            else callbacks.current.onChange(explicitSelection ? null : next);
-          }
-          setBindingLabel(
-            data.accountBinding
-              ? data.accountBinding.accountLabel
-              : 'Existing task · legacy account',
-          );
-        } else {
-          const parsed = legacy
-            ? modelsSchema
-                .transform((models) => [{ id: '', label: 'Legacy server account', models }])
-                .safeParse(data)
-            : catalogSchema.safeParse(data);
-          if (!parsed.success)
-            throw new Error(
-              'Invalid account information. Retry or check the server configuration.',
-            );
-          const catalog: Account[] = allowedAccountIds
-            ? parsed.data.filter((account) => allowedAccountIds.includes(account.id))
-            : parsed.data;
-          if (!catalog.length) {
-            setEmpty(true);
-            return;
-          }
-          setAccounts(catalog);
-          if (requiredSelection) {
-            const account = catalog.find((entry) => entry.id === requiredSelection.accountId);
-            if (
-              !account ||
-              account.modelDiscovery?.stale ||
-              !account.models.some((entry) => entry.id === requiredSelection.model)
-            )
-              throw new Error(
-                'Prepared account or model is unavailable. Refresh accounts before sending.',
-              );
-            const next = withThinking(requiredSelection, account);
-            setSelection(next);
-            setNeedsConfirmation(false);
-            callbacks.current.onChange(next);
-            return;
-          }
-          const deviceDefault = scope === 'chat' && !legacy ? getDefaultAccountModel() : null;
-          const eligibleDefault =
-            !allowedAccountIds || allowedAccountIds.includes(deviceDefault?.accountId ?? '')
-              ? deviceDefault
-              : null;
-          const retained =
-            (attempt && selectionRef.current?.model ? selectionRef.current : null) ??
-            initialSelection;
-          const previous = retained ?? eligibleDefault;
+        setAccounts(catalog);
+        if (requiredSelection) {
+          const account = catalog.find((entry) => entry.id === requiredSelection.accountId);
           if (
-            !legacy &&
-            previous &&
-            !catalog.some(
-              (a) => a.id === previous.accountId && a.models.some((m) => m.id === previous.model),
-            )
-          ) {
-            setSelection(previous);
-            setDraftUnavailable(true);
-            callbacks.current.onUnavailable?.();
-            return;
-          }
-          const first =
-            catalog.find((a) => a.id === previous?.accountId) ??
-            (preferWorkOpenAI
-              ? catalog.find((a) => /\bwork\b/i.test(a.label) && /openai/i.test(a.label))
-              : undefined) ??
-            catalog[0];
-          const choices = pickerModels(first.id, first.models, retained?.model);
-          const next = {
-            ...(!legacy ? { accountId: first.id } : {}),
-            model: choices.some((m) => m.id === (previous?.model ?? preferredModel))
-              ? (previous?.model ?? preferredModel)
-              : (choices[0]?.id ?? ''),
-          };
-          const selected = withThinking(
-            { ...next, reasoningEffort: previous?.reasoningEffort },
-            first,
-          );
-          const confirm =
-            !draftOnly && scope === 'chat' && !legacy && (!previous || needsConfirmation);
-          setNeedsConfirmation(confirm);
-          setDraftUnavailable(false);
-          setSelection(selected);
-          callbacks.current.onChange(
-            !selected.model || explicitSelection || confirm ? null : selected,
-          );
+            !account ||
+            account.modelDiscovery?.stale ||
+            !account.models.some((entry) => entry.id === requiredSelection.model)
+          )
+            throw new Error(
+              'Prepared account or model is unavailable. Refresh accounts before sending.',
+            );
+          const next = withThinking(requiredSelection, account);
+          setSelection(next);
+          setNeedsConfirmation(false);
+          callbacks.current.onChange(next);
+          return;
         }
-      })
-      .catch((err: unknown) => {
-        if (!disposed) {
-          setError(err instanceof Error ? err.message : 'Account information unavailable.');
+        const deviceDefault = scope === 'chat' && !legacy ? getDefaultAccountModel() : null;
+        const eligibleDefault =
+          !allowedAccountIds || allowedAccountIds.includes(deviceDefault?.accountId ?? '')
+            ? deviceDefault
+            : null;
+        const retained =
+          (attempt && selectionRef.current?.model ? selectionRef.current : null) ??
+          initialSelection;
+        const previous = retained ?? eligibleDefault;
+        if (
+          !legacy &&
+          previous &&
+          !catalog.some(
+            (a) => a.id === previous.accountId && a.models.some((m) => m.id === previous.model),
+          )
+        ) {
+          setSelection(previous);
+          setDraftUnavailable(true);
+          callbacks.current.onUnavailable?.();
+          return;
         }
-      });
+        const first =
+          catalog.find((a) => a.id === previous?.accountId) ??
+          (preferWorkOpenAI
+            ? catalog.find((a) => /\bwork\b/i.test(a.label) && /openai/i.test(a.label))
+            : undefined) ??
+          catalog[0];
+        const choices = pickerModels(first.id, first.models, retained?.model);
+        const next = {
+          ...(!legacy ? { accountId: first.id } : {}),
+          model: choices.some((m) => m.id === (previous?.model ?? preferredModel))
+            ? (previous?.model ?? preferredModel)
+            : (choices[0]?.id ?? ''),
+        };
+        const selected = withThinking(
+          { ...next, reasoningEffort: previous?.reasoningEffort },
+          first,
+        );
+        const confirm =
+          !draftOnly && scope === 'chat' && !legacy && (!previous || needsConfirmation);
+        setNeedsConfirmation(confirm);
+        setDraftUnavailable(false);
+        setSelection(selected);
+        callbacks.current.onChange(
+          !selected.model || explicitSelection || confirm ? null : selected,
+        );
+      }
+    }
+    void fetchMetadata().then(applyResponse).catch(reportFailure);
     return () => {
       disposed = true;
       controller.abort();
