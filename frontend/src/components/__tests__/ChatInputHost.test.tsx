@@ -66,6 +66,30 @@ it('reports retained recovery controls to the current page status owner during q
   expect(recover).toHaveBeenCalledOnce();
 });
 
+it('shows one Stop for a running ordinary turn while collaboration setup only gates sending', async () => {
+  const stop = vi.fn();
+  render(
+    <MemoryRouter>
+      <ChatInputHost sessionId="source">
+        <SharedConversationComposerContext.Provider
+          value={{
+            sourceConversationId: 'source',
+            props: { sendDisabledReason: 'Checking discussion recipients…' },
+          }}
+        >
+          <ComposerStatusProvider>
+            <ChatInput sessionId="source" running onSend={() => false} onStop={stop} />
+          </ComposerStatusProvider>
+        </SharedConversationComposerContext.Provider>
+      </ChatInputHost>
+    </MemoryRouter>,
+  );
+  const stopButton = await screen.findByRole('button', { name: 'Stop generation' });
+  expect(screen.queryByRole('button', { name: 'Stop original agent' })).toBeNull();
+  fireEvent.click(stopButton);
+  expect(stop).toHaveBeenCalledOnce();
+});
+
 it('moves the same ordinary input between responsive owners with unsaved rich edits and focus intact', async () => {
   const draft = {
     ...createChatDraft(),
