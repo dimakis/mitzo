@@ -13,6 +13,7 @@ import { createSdkRepositoryCallbacks } from '../sdk-repository-callback.js';
 import { credentialSdkBoundary } from '../credential-sdk-boundary.js';
 import { registerSdkLocalRepositoryTools } from '../sdk-local-repository-tools.js';
 import { join } from 'node:path';
+import { rm } from 'node:fs/promises';
 
 const mocked = vi.hoisted(() => ({
   spawn: vi.fn(),
@@ -77,6 +78,7 @@ async function sdkRepositoryReadFixture() {
     environment: () => owner.environment(),
     sourceWriteRoots: [],
     assertCurrent: () => owner.assertEffect(selected.commandId),
+    assertToolCurrent: () => owner.assertToolEffect(selected.commandId),
     assertCurrentSync: () => owner.assertStart(selected.commandId),
   });
   const child = Object.assign(new EventEmitter(), {
@@ -105,8 +107,70 @@ async function sdkRepositoryReadFixture() {
       if (!state.current) throw Error('Query retired');
     },
   });
-  return { f, selected, custody, authority, projection, callbacks, state };
+  return { f, owner, selected, custody, authority, projection, callbacks, state };
 }
+
+it('runs claimed checkout validation per tool and workspace reservation only in the deep proof', async () => {
+  const { f, authority } = await sdkRepositoryReadFixture();
+  const { resetSdkAuthorityCheckCounts, sdkAuthorityCheckCounts } =
+    await import('../sdk-authority-observation.js');
+  resetSdkAuthorityCheckCounts();
+  const reserve = vi.spyOn(f.workspace, 'reserveHostTask');
+  const validate = vi.spyOn(f.workspace, 'validateHostTask');
+  const signal = new AbortController().signal;
+  await authority.assertToolCurrent(signal, 'mcp');
+  await authority.assertToolCurrent(signal, 'hook');
+  // The Codex per-tool model: claimed checkout validation, no reservation and
+  // no repository credential digest (`claude auth status` or keychain).
+  expect(reserve).not.toHaveBeenCalled();
+  expect(validate).toHaveBeenCalledTimes(2);
+  await authority.assertCurrent(signal, 'prompt_release');
+  expect(reserve).toHaveBeenCalledOnce();
+  expect(sdkAuthorityCheckCounts()).toEqual({
+    'tool:mcp': 1,
+    'tool:hook': 1,
+    'deep:prompt_release': 1,
+  });
+});
+
+it.each([
+  'the callback is stopped',
+  'the owner is stopped',
+  'the operator logs out',
+  'the owner is closed',
+  'the startup receipt is missing',
+  'the retained custody changes',
+  'the credential identity changes',
+  'the claimed checkout changes',
+] as const)('refuses a per-tool callback when %s', async (change) => {
+  const { f, owner, custody, authority } = await sdkRepositoryReadFixture();
+  const call = new AbortController();
+  await authority.assertToolCurrent(call.signal, 'mcp');
+  const reserve = vi.spyOn(f.workspace, 'reserveHostTask');
+  if (change === 'the callback is stopped') call.abort(Error('Stop'));
+  else if (change === 'the owner is stopped') f.signal.abort(Error('Stop'));
+  else if (change === 'the operator logs out') {
+    const { revokeAuthSession } = await import('../auth.js');
+    revokeAuthSession(f.auth);
+  } else if (change === 'the owner is closed') owner.close();
+  else if (change === 'the startup receipt is missing')
+    vi.spyOn(f.events, 'getSendCommand').mockReturnValue(undefined);
+  else if (change === 'the retained custody changes')
+    vi.spyOn(f.events, 'getOrdinaryLocalVertexCustody').mockReturnValue({
+      ...custody,
+      sdkSessionId: 'another-sdk-session',
+    });
+  else if (change === 'the credential identity changes') {
+    const env = owner.environment();
+    vi.spyOn(owner, 'environment').mockReturnValue({
+      ...env,
+      ANTHROPIC_VERTEX_PROJECT_ID: 'another-project',
+    });
+  } else await rm(join(custody.cwd, '.git'), { recursive: true, force: true });
+  await expect(authority.assertToolCurrent(call.signal, 'mcp')).rejects.toThrow();
+  // Refusal never falls back to the deep proof.
+  expect(reserve).not.toHaveBeenCalled();
+});
 
 it('binds repository reads to actual SDK ACK, immutable workspace/account, query and complete OS projection', async () => {
   const { f, selected, custody, authority, projection, callbacks, state } =
