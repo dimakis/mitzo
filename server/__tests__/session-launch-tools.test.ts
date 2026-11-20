@@ -5,6 +5,43 @@ vi.mock('../agent-library-transport.js', () => ({
   captureAgentLibraryAuthorization: () => ({ auth: { id: 'login' }, assertCurrent: vi.fn() }),
 }));
 vi.mock('../agent-tool-selection.js', () => ({ agentToolAllowed: () => true }));
+// Host configuration: account profiles and the ordinary Local Mac inventory
+// New chat uses. enMaas is an OpenAI-compatible API account on Local Codex.
+const host = vi.hoisted(() => {
+  const ref = (accountId: string, provider: string) => ({
+    accountId,
+    provider,
+    profileRevision: '1',
+  });
+  const accounts: Record<string, ReturnType<typeof ref>> = {
+    a: ref('a', 'openai-codex'),
+    enmaas: ref('enmaas', 'openai'),
+    claude: ref('claude', 'anthropic-claude'),
+    gemini: ref('gemini', 'google-vertex'),
+  };
+  const modes = ['ask', 'agent', 'auto'];
+  const routes = [
+    { account: accounts.a, harness: 'codex', targetId: 'host', modes },
+    { account: accounts.enmaas, harness: 'codex', targetId: 'host-mac-codex', modes },
+    { account: accounts.claude, harness: 'claude-sdk', targetId: 'host-mac-vertex', modes },
+  ];
+  return { ref, accounts, routes };
+});
+vi.mock('../account-profiles.js', () => ({
+  loadAccountProfiles: () => ({
+    resolve: (accountId: string) => {
+      const account = host.accounts[accountId];
+      if (!account) throw Error('Unknown account');
+      return { ...account, accountLabel: accountId, model: 'm' };
+    },
+  }),
+}));
+vi.mock('../ordinary-local-codex-entry.js', () => ({
+  ordinaryRepositoryRuntimeInventory: (location: string, harness: string) => {
+    if (location !== 'local') throw Error('unavailable');
+    return { result: { routes: host.routes.filter((route) => route.harness === harness) } };
+  },
+}));
 const configuration = {
   version: 1,
   runtime: {
@@ -214,6 +251,78 @@ describe('StartSession proposal tool', () => {
     expect(await proposeWith('google-vertex')).toMatchObject({
       state: 'pending',
       startupBlocker: expect.stringMatching(/Local Mac Codex or Claude account/),
+    });
+  });
+  describe('enMaas account chosen by the proposing agent', () => {
+    // The operator's saved default: a Claude account on the Claude SDK host.
+    const claudeDefault = structuredClone(configuration);
+    claudeDefault.runtime.account = { accountId: 'claude', model: 'opus', reasoningEffort: 'high' };
+    claudeDefault.runtime.accountReference = host.accounts.claude as never;
+    claudeDefault.runtime.execution = { location: 'local', targetId: 'host-mac-vertex' };
+    const enMaas = { accountId: 'enmaas', model: 'rits/deepseek-ai/DeepSeek-V4.1-Flash-1017' };
+    const propose = async (
+      tool: 'StartSession' | 'TelosCreateSession',
+      runtime: Record<string, unknown>,
+    ) => {
+      const f = fixture();
+      f.defaults.get.mockReturnValue({ revision: 1, configuration: claudeDefault });
+      const result = await f.tools.execute(
+        {
+          ...input,
+          overrides: { runtime },
+          ...(tool === 'TelosCreateSession'
+            ? { itemId: 'selected-slice', expectedRevision: 'a'.repeat(64) }
+            : {}),
+        },
+        new AbortController().signal,
+        { turnId: 'turn', callId: 'call' },
+        tool,
+      );
+      return { result, saved: f.store.propose.mock.calls[0][0].configuration };
+    };
+    it.each(['StartSession', 'TelosCreateSession'] as const)(
+      '%s resolves an account-only override to the Local Codex host New chat uses',
+      async (tool) => {
+        const { result, saved } = await propose(tool, { account: enMaas });
+        expect(saved.runtime.accountReference).toEqual(host.accounts.enmaas);
+        expect(saved.runtime.execution).toEqual({ location: 'local', targetId: 'host-mac-codex' });
+        expect(saved.runtime.account).toMatchObject(enMaas);
+        expect(result.startupBlocker).toBeUndefined();
+      },
+    );
+    it.each(['StartSession', 'TelosCreateSession'] as const)(
+      '%s blocks an agent-supplied host that does not run the account engine',
+      async (tool) => {
+        const { result, saved } = await propose(tool, {
+          account: enMaas,
+          execution: { targetId: 'host-mac-vertex' },
+        });
+        expect(saved.runtime.execution.targetId).toBe('host-mac-vertex');
+        expect(result.startupBlocker).toMatch(/requested host does not run this account's engine/);
+      },
+    );
+    it('still refuses accounts New chat cannot start locally, with a named reason', async () => {
+      for (const tool of ['StartSession', 'TelosCreateSession'] as const)
+        expect(
+          (await propose(tool, { account: { accountId: 'gemini', model: 'g' } })).result
+            .startupBlocker,
+        ).toMatch(/Local Mac Codex/);
+      expect(
+        (await propose('TelosCreateSession', { account: { accountId: 'claude', model: 'opus' } }))
+          .result.startupBlocker,
+      ).toMatch(/Telos worker sessions currently start only on a Local Mac Codex account/);
+      expect(
+        (await propose('StartSession', { account: { accountId: 'missing', model: 'x' } })).result
+          .startupBlocker,
+      ).toMatch(/not configured on this Mac/);
+      expect(
+        (
+          await propose('StartSession', {
+            account: enMaas,
+            execution: { location: 'openshell' },
+          })
+        ).result.startupBlocker,
+      ).toMatch(/require Local Mac/);
     });
   });
   it('does not create proposals for a stale or unverified tool invocation', async () => {

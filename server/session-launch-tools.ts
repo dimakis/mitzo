@@ -6,6 +6,7 @@ import {
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
   type SessionLaunchConfig,
+  type StartSessionInput,
 } from '@mitzo/protocol';
 import { z } from 'zod';
 import { checkSkillPolicy, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
@@ -16,7 +17,11 @@ import type { ProfileToolCall } from './session-profile-tools.js';
 import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { publicSessionLaunchRecord } from './session-launch-store.js';
 import { SessionLaunchError } from './session-launch-store.js';
-import { sessionLaunchStartupBlocker } from './session-launch-runtime.js';
+import {
+  resolveSessionLaunchProposalRoute,
+  sessionLaunchStartupBlocker,
+  type SessionLaunchScope,
+} from './session-launch-runtime.js';
 import type { SessionLaunchAuthority } from './session-launch-service.js';
 import {
   telosSessionLaunchDefinition,
@@ -59,31 +64,52 @@ export async function proposeTelosSession(
     : await controller.telos.propose(sourceSessionId, input, authority);
   authority.assertCurrent();
   authority.signal.throwIfAborted();
+  // Adoption keeps an existing chat's retained settings; only a new child's
+  // agent-edited account or host is resolved as New chat would resolve it.
+  const route =
+    previous?.configuration || selected.configuration
+      ? null
+      : await proposedSessionLaunchConfig(controller, input.overrides, 'telos');
+  authority.assertCurrent();
+  authority.signal.throwIfAborted();
   const record = controller.launches.store.propose({
     ...input,
     ...selected,
     operatorId: 'user',
     sourceSessionId,
     originalInput: input,
-    configuration:
-      previous?.configuration ??
-      selected.configuration ??
-      resolveSessionLaunchConfig(
-        controller.defaults.get('user').configuration ?? initialSessionLaunchConfig(),
-        input.overrides,
-      ),
+    configuration: previous?.configuration ?? selected.configuration ?? route!.configuration,
   });
   controller.changed(sourceSessionId);
   // Adoption keeps an existing Codex or Claude chat's engine; only creation of
   // a new Telos child is limited to engines Telos worker startup can start.
-  const startupBlocker = sessionLaunchStartupBlocker(
-    record.configuration,
-    record.telos?.adoption ? 'session' : 'telos',
-  );
+  const startupBlocker =
+    sessionLaunchStartupBlocker(
+      record.configuration,
+      record.telos?.adoption ? 'session' : 'telos',
+    ) ?? route?.blocker;
   return TelosSessionProposalResponseSchema.parse({
     ...publicSessionLaunchRecord(record),
     handoverDownloadUrl: sessionLaunchHandoverUrl(record.proposalId),
     ...(startupBlocker ? { startupBlocker } : {}),
+  });
+}
+
+/** Saved defaults plus agent overrides, with an edited account or named host
+ * resolved to the Local Mac route New chat uses for that account. */
+async function proposedSessionLaunchConfig(
+  controller: SessionLaunchController,
+  overrides: StartSessionInput['overrides'],
+  scope: SessionLaunchScope,
+) {
+  const configuration = resolveSessionLaunchConfig(
+    controller.defaults.get('user').configuration ?? initialSessionLaunchConfig(),
+    overrides,
+  );
+  const targetId = overrides?.runtime?.execution?.targetId;
+  return resolveSessionLaunchProposalRoute(configuration, {
+    scope,
+    targetSupplied: typeof targetId === 'string',
   });
 }
 
@@ -187,12 +213,12 @@ export function sessionLaunchTools(options: {
         'user',
         input.requestId,
       );
-      const configuration =
-        previous?.configuration ??
-        resolveSessionLaunchConfig(
-          controller.defaults.get('user').configuration ?? initialSessionLaunchConfig(),
-          input.overrides,
-        );
+      const route = previous
+        ? null
+        : await proposedSessionLaunchConfig(controller, input.overrides, 'session');
+      current();
+      captured.assertCurrent();
+      const configuration = previous?.configuration ?? route!.configuration;
       const record = controller.launches.store.propose({
         operatorId: 'user',
         sourceSessionId: options.sessionId,
@@ -203,7 +229,7 @@ export function sessionLaunchTools(options: {
       current();
       captured.assertCurrent();
       controller.changed(options.sessionId);
-      const startupBlocker = sessionLaunchStartupBlocker(record.configuration);
+      const startupBlocker = sessionLaunchStartupBlocker(record.configuration) ?? route?.blocker;
       return {
         ...publicSessionLaunchRecord(record),
         handoverDownloadUrl: sessionLaunchHandoverUrl(record.proposalId),
