@@ -1078,7 +1078,7 @@ jobs:
         if: ${{ !cancelled() && steps['compiled-prerequisites'].outcome == 'success' }}
         run: >-
           npm test -- --shard=${{ matrix.shard }}/4
-          --reporter=default --reporter=json
+          --reporter=default --reporter=json --reporter=github-actions
           --outputFile=unit-results/report-${{ matrix.shard }}.json
       - name: Retain unit shard evidence
         if: ${{ !cancelled() }}
