@@ -3052,7 +3052,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-responses-preparation.test.ts':
     '8f9c5d3b3ba18d05a4319769d731ece393fb2485035b7feac239f876c4c2695e',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
-    'dff1600660037af32fa0c594ba4f027fbf5fce8e973f6d329cb85d1b3502bdb7',
+    'de5559dbc613c14ea4c9c7fdcb3e1fe76b86bee6ebe54d08c5b458647686ed8b',
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
     'f54b300c69668515af4ee5a8c2d43834f4f8e40341be9a078e97ab9b1c7f9e45',
   '../__tests__/ordinary-local-vertex-sdk-effects.test.ts':
@@ -4248,7 +4248,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-capabilities.ts':
     'b52640a77edea3e89f3e131a8b60d70dd2d037749b91c0622bc6405d05e8ce82',
   '../ordinary-local-vertex-command-owner.ts':
-    'a81389e22a35138ea86201b3d2f5f4da7d696a6bc6acdb873903473d3ca2e101',
+    'b64d9013a7cb0ccff2aab22f1a5264bcaa4a42846b506df464b5229dcc93dd10',
   '../ordinary-local-vertex-custody.ts':
     '7f1ce782be5190881004a63aacf58d8df69acb0fe46d9bfe952c436cf6c2aed9',
   '../ordinary-local-vertex-entry.ts':

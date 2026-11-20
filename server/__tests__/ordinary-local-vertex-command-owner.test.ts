@@ -771,6 +771,41 @@ it('still fails a foreign result identity when no Stop is in progress', async ()
   );
   expect(f.query.abort).toHaveBeenCalledOnce();
 });
+it('settles a never-yielded input as cancelled when Stop escalates during settings preparation', async () => {
+  const f = setup();
+  let release!: () => void;
+  let preparing = false;
+  const settings = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.query.applySettings = vi.fn(async () => {
+    preparing = true;
+    await settings;
+  });
+  const observed = f.owner.enqueue('first').then(
+    () => 'accepted',
+    () => 'refused',
+  );
+  await vi.waitFor(() => expect(preparing).toBe(true));
+  expect(f.store.getOrdinaryLocalVertexCommandAdmission('first')?.state).toBe('uncertain');
+  f.store.transitionExecution(f.store.getExecutionAdmission('session', 'first')!.token, 'STOPPING');
+  // Repeated Stop and the bounded timeout both escalate through this owner call.
+  expect(f.owner.escalateStop()).toEqual({ commandId: 'first', inputAcknowledged: false });
+  // The input was proven never yielded, so it settles cancelled instead of
+  // leaving an unconfirmed dispatch that blocks continuation and cold resume.
+  expect(f.store.hasUncertainOrdinaryCommand('session')).toBe(false);
+  expect(f.store.getOrdinaryLocalVertexCommandAdmission('first')?.state).toBe('consumed');
+  expect(f.store.getSendCommand('first')?.error).toBe('Cancelled before SDK dispatch');
+  expect(f.store.getSession('session')).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+  release();
+  await observed;
+  expect(f.query.push).not.toHaveBeenCalled();
+  expect(f.store.hasUncertainOrdinaryCommand('session')).toBe(false);
+  expect(f.owner.escalateStop()).toBeUndefined();
+});
 it('escalates a turn still STOPPING by closing its query and settling it stopped', async () => {
   const f = setup(undefined, true);
   await f.owner.enqueue('first');
