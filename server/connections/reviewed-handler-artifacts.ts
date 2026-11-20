@@ -4463,7 +4463,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a5be44c87dc13b4d8622b1ce0b880bbe0ca5172f8f8da19384ba99c3fb11898d',
   '../sdk-late-steer-hold.ts': '88117dc1e75988131bd7c3d76a07dce377e4461a6804c6343a46586afd2e850c',
   '../sdk-local-repository-tools.ts':
-    '6d6639c117334f5102b8e1c46b126232b8fdfdc1413ec18ab6c9053db1f16976',
+    'a0ce78091ecbe6dd19be6f68da81de068cde3b2607bbae805d54967dd2fc50df',
   '../sdk-persistence-diagnostics.ts':
     'a55a64d3ecdce52ca6664cbfae1f874d41a99c5f6c19646d76b03e27d92b95d9',
   '../sdk-query-retirement.ts': 'a4f82c8f91373d89da95cf52c7e107914118b0cc755116c9817365b71d9b1bc9',
