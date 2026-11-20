@@ -238,6 +238,90 @@ it('leaves a closed or replaced runtime alone when the bound elapses', async () 
   );
 });
 
+it('keeps the escalation bound when the native interrupt report is rejected', async () => {
+  chat.ordinarySdkStopEscalation.timeoutMs = 500;
+  const f = await wedgedTurn('rejected');
+  // The execution is already STOPPING when the native report fails, so the
+  // Stop can never be delivered; only the bound can settle the turn.
+  f.native.interrupt.mockRejectedValue(Error('native interrupt unavailable'));
+  chat.stopOrdinaryChat(f.clientId);
+  await vi.waitFor(() =>
+    expect(stopOutcomes('rejected').map((ctx) => ctx.code)).toContain('ordinary_sdk_stop_failed'),
+  );
+  // The rejected report is a diagnostic, not a settlement: the turn is still
+  // STOPPING and must stay bounded rather than waiting forever.
+  expect(f.store.getSession('rejected')?.executionPhase).toBe('STOPPING');
+  await vi.waitFor(() => expect(f.native.abort).toHaveBeenCalledOnce());
+  expect(f.store.getSession('rejected')).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+  expect(stopOutcomes('rejected').at(-1)).toMatchObject({
+    code: 'ordinary_sdk_stop_escalated',
+    trigger: 'timeout',
+  });
+});
+
+it('settles a Stop deferred before its input echo instead of leaving it pending', async () => {
+  const sessionId = 'deferred';
+  const store = chat.eventStore;
+  const meta = {
+    sessionId,
+    repositoryWorkspaceId: 'workspace',
+    cwd: root,
+    accountBinding: { ...binding.account, accountLabel: 'Personal', model: 'first' },
+  };
+  store.admitOrdinaryLocalVertexCommand(meta, binding, command(`${sessionId}-first`));
+  const native = { interrupt: vi.fn(async () => true), abort: vi.fn() };
+  const owners = {
+    store,
+    sessionId,
+    assertCurrent: vi.fn(),
+    assertCurrentSync: vi.fn(),
+    turnEvidence: new OrdinarySdkTurnEvidence(store, sessionId, 'sdk-thread'),
+    ownsClaim: (id: string) =>
+      store.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed',
+    query: {
+      setModel: vi.fn(async () => {}),
+      setMaxThinkingTokens: vi.fn(async () => {}),
+      push: vi.fn(async () => {}),
+      captureInterruptTarget: () => ({}),
+      interruptIfCurrent: native.interrupt,
+      abort: native.abort,
+    },
+    settings: () => ({ model: 'first', thinkingTokens: null }),
+  };
+  const owner = new OrdinaryLocalVertexCommandOwner(owners);
+  await owner.enqueue(`${sessionId}-first`);
+  // The input yielded but its echo never arrived, so Stop is retained.
+  owner.assertInputCurrent(`${sessionId}-first`);
+  let settled = false;
+  const stopping = owner.stop('retained-stop').then(() => {
+    settled = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(settled).toBe(false);
+  // The turn ends without that echo; its result settles the original command,
+  // so the retained Stop is honoured for this execution rather than left
+  // pending where a later echo could consume it.
+  await owner.resultObserved(undefined, false, { dispatchSuccessor: false });
+  await vi.waitFor(() => expect(settled).toBe(true));
+  expect(store.getSession(sessionId)).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+  expect(native.interrupt).not.toHaveBeenCalled();
+  expect(native.abort).not.toHaveBeenCalled();
+  // The continuation resumes cold and starts clean: its echo must not consume
+  // the old Stop, so nothing interrupts it.
+  store.admitOrdinaryLocalVertexContinuation(meta, binding, command(`${sessionId}-next`));
+  expect(await nextMessageRuns(sessionId, owners)).toEqual([`${sessionId}-next`]);
+  expect(store.getSession(sessionId)?.executionPhase).toBe('RUNNING');
+  expect(native.interrupt).not.toHaveBeenCalled();
+  expect(native.abort).not.toHaveBeenCalled();
+  await stopping;
+});
+
 it('does not escalate when the stopped turn settles within the bound', async () => {
   chat.ordinarySdkStopEscalation.timeoutMs = 20;
   const f = await wedgedTurn('settled');

@@ -6450,7 +6450,19 @@ export function stopOrdinaryChat(clientId: string): void {
       void turns.stop(requestId).then(
         () => outcome('accepted'),
         (cause: unknown) => {
-          clearTimeout(timer);
+          // Stop already moved this execution to STOPPING before awaiting the
+          // native interrupt, so a rejected or uncertain report must not drop
+          // the escalation bound: keep it while that exact execution is still
+          // stopping, and clear it only once something else has settled it.
+          let stillStopping = true;
+          try {
+            const current = eventStore.getSession(sessionId);
+            stillStopping =
+              current?.executionPhase === 'STOPPING' && current.executionId === execution;
+          } catch {
+            // Unknown state: the timer's own guards make a late escalation safe.
+          }
+          if (!stillStopping) clearTimeout(timer);
           outcome('failed', runtimeFailureDiagnostics(cause));
           reportRetainedRuntimeFailure({
             store: eventStore,
