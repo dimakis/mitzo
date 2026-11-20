@@ -551,6 +551,8 @@ Mitzo includes a local observability stack for debugging and performance analysi
 | Loki    | http://localhost:3200  | Log aggregation backend            |
 | MLflow  | http://localhost:5050  | Experiment tracking                |
 
+Loki keeps its data in the named volume `mitzo-loki-data`, so logs survive redeploys that start the stack from a new folder. Jaeger, Grafana and MLflow still use `.`-relative folders. If Loki queries fail with `mkdir /loki/data: no such file or directory`, recreate it with `docker compose up -d --force-recreate loki` from the current release.
+
 ### Quick start
 
 ```bash
