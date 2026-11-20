@@ -792,6 +792,41 @@ it.each([false, true])(
 );
 
 it.each([false, true])(
+  'reports schema-invalid Telos arguments separately from permission denials (explicit=%s)',
+  async (explicit) => {
+    const f = await fixture(explicit);
+    // The link form requires reportsToMembershipId; omitting it used to read as
+    // "Telos tool unavailable under current session permissions".
+    const sentinel = 'sentinel-no-membership-id';
+    const denyMessage = (name: string, input: Record<string, unknown>) => {
+      const decision = telosSdkPermission(name, input, 'client', f.registry, f.session);
+      expect(decision?.behavior).toBe('deny');
+      return decision?.behavior === 'deny' ? decision.message : undefined;
+    };
+    const invalid = denyMessage('mcp__telos__TelosManageTeam', {
+      operation: 'link',
+      itemId: 'studio',
+      requestId: sentinel,
+      expectedRevision: 'a'.repeat(64),
+      conversationId: 'conversation',
+      displayName: 'Worker',
+      role: 'reviewer',
+      responsibility: 'Review',
+    });
+    expect(invalid).toMatch(/^Invalid TelosManageTeam arguments\. /);
+    expect(invalid).toContain('reportsToMembershipId: must be string.');
+    expect(invalid).not.toContain(sentinel);
+    f.session.activeSkillPolicy = new Set(['Read']);
+    expect(
+      denyMessage('mcp__telos__TelosManageItem', { operation: 'read', itemId: 'studio' }),
+    ).toBe('Telos tool unavailable under current session permissions');
+    expect(denyMessage('mcp__telos__NotATelosTool', { operation: 'read' })).toBe(
+      'Telos tool unavailable under current session permissions',
+    );
+  },
+);
+
+it.each([false, true])(
   'executes MCP calls on first turn, successor and cold continuation (explicit=%s)',
   async (explicit) => {
     const f = await fixture(explicit);

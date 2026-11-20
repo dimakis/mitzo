@@ -62,6 +62,7 @@ import { localRepositoryToolSchemas } from './session-local-repository-tools.js'
 import { inputSchema as repositoryPreparationInput } from './local-repository-preparation-input.js';
 import { ReadToolOutputInput, localEfficiencyToolDefinitions } from './local-agent-efficiency.js';
 import { projectToolOutput, readToolOutputPage } from './tool-output-projection.js';
+import { invalidToolArgumentsMessage } from './tool-input-error.js';
 
 const prefix = 'mcp__mitzo-connections__';
 /** Keep SDK auto-admission and the mandatory PreToolUse route fence aligned.
@@ -136,6 +137,10 @@ export function sdkInformationInstructions(session: ManagedSession): string {
     .map(([, text]) => '\n' + text)
     .join('');
 }
+const connectionDenied = () => ({
+  behavior: 'deny' as const,
+  message: 'Connection tool is unavailable under current session permissions',
+});
 /** Only this server's validated handlers bypass the SDK's generic MCP prompt; connection grants still force their own card. */
 export function credentialSdkPermission(
   name: string,
@@ -146,20 +151,23 @@ export function credentialSdkPermission(
 ) {
   if (!name.startsWith(prefix)) return undefined;
   const short = name.slice(prefix.length) as keyof typeof schemas;
+  if (!Object.hasOwn(schemas, short)) return connectionDenied();
+  // Google owns strict operation validation before any preparation. Invalid
+  // arguments must reach that diagnostic, rather than masquerade as denial.
+  // Everywhere else a schema rejection is an argument error, not a decision
+  // about this session's authority: conflating them hid a malformed requestId
+  // behind a permissions message.
+  if (short !== 'GoogleWorkspaceRead') {
+    const invalidArguments = invalidToolArgumentsMessage(short, schemas[short], input);
+    if (invalidArguments) return { behavior: 'deny' as const, message: invalidArguments };
+  }
   if (
-    !Object.hasOwn(schemas, short) ||
-    // Google owns strict operation validation before any preparation. Invalid
-    // arguments must reach that diagnostic, rather than masquerade as denial.
-    (short !== 'GoogleWorkspaceRead' && !schemas[short].safeParse(input).success) ||
     !agentToolAllowed(session, name) ||
     registry.get(clientId) !== session ||
     session.abortController.signal.aborted ||
     checkSkillPolicy(registry, clientId, name) === 'deny'
   )
-    return {
-      behavior: 'deny' as const,
-      message: 'Connection tool is unavailable under current session permissions',
-    };
+    return connectionDenied();
   if (
     effectivePermissionMode(session) === 'ask' &&
     ((short === 'ConnectionRequest' &&
