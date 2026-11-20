@@ -30,7 +30,7 @@ describe('observability stack config', () => {
     const compose = yaml.load(readFileSync(resolve(ROOT, 'docker-compose.yml'), 'utf8')) as {
       services: Record<
         string,
-        { volumes: string[]; environment: Record<string, string>; command: string[] }
+        { volumes: string[]; image: string; environment: Record<string, string>; command: string[] }
       >;
       volumes: Record<string, unknown>;
       'x-podman': { in_pod: boolean };
@@ -39,11 +39,16 @@ describe('observability stack config', () => {
       expect(compose.services[svc].volumes.some((v: string) => v.startsWith(`${svc}-data:`))).toBe(
         true,
       );
+      for (const mount of compose.services[svc].volumes)
+        if (mount.includes('MITZO_OBSERVABILITY_CONFIG_DIR'))
+          expect(mount.endsWith(':ro')).toBe(true);
       expect(compose.volumes[`${svc}-data`]).toEqual({ external: true, name: `mitzo-${svc}-data` });
     }
     expect(compose['x-podman'].in_pod).toBe(false);
-    expect(compose.services.grafana.environment.GF_FEATURE_TOGGLES_ENABLE).toContain(
-      'jaegerEnableGrpcEndpoint',
+    expect(compose.services.jaeger.image).toBe('jaegertracing/jaeger:2.20.0');
+    expect(compose.services.grafana.environment.GF_FEATURE_TOGGLES_ENABLE).toBe('');
+    expect(compose.services.grafana.environment.GF_PLUGINS_PREINSTALL_SYNC).toBe(
+      'jaeger@13.0.8,loki@13.2.5',
     );
     expect(compose.services.mlflow.command).toContain('--artifacts-destination');
     expect(compose.services.mlflow.command).toContain('mlflow-artifacts:/');
@@ -152,7 +157,7 @@ describe('observability stack config', () => {
       dashboard.panels
         .flatMap((panel: { targets?: Array<{ queryType?: string }> }) => panel.targets ?? [])
         .some((query: { queryType?: string }) => query.queryType === 'search'),
-    ).toBe(false);
+    ).toBe(true);
     expect(dashboard.links).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

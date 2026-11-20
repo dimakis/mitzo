@@ -147,11 +147,26 @@
       }
     },
     {
+      "id": 7,
+      "title": "Traces — Recent Operations",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 30 },
+      "datasource": { "type": "jaeger", "uid": "jaeger" },
+      "targets": [
+        {
+          "queryType": "search",
+          "service": "mitzo",
+          "limit": 30,
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "id": 8,
       "title": "Trace-Correlated Logs",
       "description": "Log lines that carry a trace_id — click TraceID to jump to Jaeger",
       "type": "logs",
-      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 30 },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 38 },
       "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
       "targets": [
         {

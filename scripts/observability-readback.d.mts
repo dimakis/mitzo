@@ -13,6 +13,7 @@ export interface ObservabilityServiceResult {
   applicationRuns?: number;
   datasources?: number;
   proxyRecentRecords?: Record<string, number>;
+  traceViewer?: 'verified' | 'unverified-no-traces';
   role?: string;
 }
 export interface ObservabilityOptions {

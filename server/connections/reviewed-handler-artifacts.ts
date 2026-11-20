@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1263-persistent-observability';
+  'v1.0.1264-persistent-observability';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,9 +25,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
-    'c35e4e1415079b1fd0d9e492b1f3c80f1d893567301805b9f7e4100544a556c2',
+    'c12cacf7d340f84e3d520f402d70282ae38075c9bcf55481712e7682212d2272',
   '../../infra/grafana/provisioning/dashboards/json/mitzo-observability.json':
-    '92746b5fb5b28e5d32d0f8a02a9aa0443ced3c36f7f2a5f6808aea7a70338c0c',
+    '66726c8d132555d62821e320b339584e9f77d1f310b7dd68e7c574492194b353',
   '../../infra/grafana/provisioning/datasources/datasources.yaml':
     '2d8c098f03801d6c41d3ee5e1aeeb2792b87d30b9b7b1a8f2c252875474bcf85',
   '../../infra/jaeger-v2-config.yaml':
@@ -35,18 +35,18 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../infra/loki-config.yaml':
     '9685a73e8302d888da24385c5a03a9541888c8fc4e19979de4bee25f796a9ade',
   '../../scripts/__tests__/observability-readback.test.ts':
-    'e44575f959514871165e5faafc139577872092ae84c2c342712a6c69f283fc12',
+    '6ef8ea9b718fb99dc4c195cf75e36504e4971ec254681ea97ad38a5a46616c3d',
   '../../scripts/observability-readback.d.mts':
-    '84deabfed8103e699f48f92920dd17daf383313a80cfb7b8358d261e8927b9bd',
+    'f0a0da712049856d29d2d680062f33cbf63e2e802d7069de6eb11bfcafebdbfb',
   '../../scripts/observability-readback.mjs':
-    '45f03635cfd5b90fc0eb71c480ca7d3b7c48028cf1205014b7bfbe75d5daf49a',
+    '7205dc109bd4ec59a3fc5c759412e2c2e6b37f485262828fc59c59a3c9963aef',
   '../../scripts/observability-config.d.mts':
     '20a742092a5c9bc52bb945c8292033f869ed15b15c51e288ae2c52b6079ee540',
   '../../scripts/observability-config.mjs':
     'cef4caae5b6a3b7e5b76a28a92e98828c13cc1e050879e9ee48b6b595526e291',
   '../../scripts/ensure-observability.sh':
     'e139aff0d046f0d1450cee744cb7f68365c5fb933a9cec02c731e4fa6ef30e6a',
-  '../../docker-compose.yml': '8dc2aa73ae87e4a4ce6c9f393d9c0fd095ae29a8f3d5cea0b396ff507135779d',
+  '../../docker-compose.yml': '0dd8ab9844b2106e04a11720ef38bee18361443c0c0536cc64cce6cc047a57cf',
   '../../.github/actions/ci-canonical-browser/action.yml':
     '9d8078c37f814b4a1b6d00768f33c8c5a114c962afb31156735f6ece4d477a99',
   '../../.github/actions/ci-native-fixture/action.yml':
@@ -2676,7 +2676,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-runtime-authority.test.ts':
     '3979d8c1a16fe58b5e2ad0bbd2bdbb55eaadef46f75ec3671ccbcb46285a8dca',
   '../__tests__/credential-sdk-tools.test.ts':
-    '7e9246145951c14f8326d4d5eb3b1875dbf5a24dafac17a642adb5f8dbf9e699',
+    '9bb4d732efb91622a91759587db653e92056054d120f2ed72120692c4edc43cd',
   '../__tests__/credential-setup-application.test.ts':
     '39683a04282c3149a17886b424218dc93bfa48bf208340f2f0a5736ad609f372',
   '../__tests__/credential-setup-continuation.test.ts':
@@ -3593,7 +3593,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-sdk-source.test.ts':
     'd4a46546ef2519d8e61d6a0e0ffc219b37a986d94e4f1602c133ef4e8efdc2e2',
   '../__tests__/telos-sdk-tools.test.ts':
-    '173307804fa6054818b953950a7a3409df13771cc01e18f06ed9742e453bc425',
+    '7dc29f11484d1db17af0ff0160a1583968e66ffdfe425297f5c40823f10e97d8',
   '../__tests__/telos-session-coordination.test.ts':
     '7ed5aebeb6ad541a49b35f1f62d6b8a4db881012e894e562fef47b4f5be6a314',
   '../__tests__/telos-session-launch-adapters.test.ts':
@@ -3919,7 +3919,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-boundary.ts':
     'a91fda3e868e020304722e2a78488ef41de421cc9635790a19a8e0a75c75edda',
-  '../credential-sdk-tools.ts': 'fbea4f827b1d3ff956ded36b69ecf97c546c1a6227ac506fd75c2a06989b18de',
+  '../credential-sdk-tools.ts': '83bbca535c43e1364da18462d2fb34ffde6e0698541dc070224f95d70c725f8b',
   '../credential-setup-application.ts':
     '6882cdc7036ec0c019392a5bf398aca9f196579d013c15f209815d0430cebd41',
   '../credential-setup-continuation.ts':
@@ -4770,7 +4770,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-save-consent.ts': '632a83a02a23c0394329253ec014ef91a24ccc388a13fb9d83059b00132811cd',
   '../telos-schema.ts': '4fea5d42e7f2d44b4de905ede77d8a2a1f5993170dd40e38c48dbfc026563d5d',
   '../telos-sdk-definitions.ts': 'f3b20b90e8f1bea646ab32847b592ce0736f662e1e6b26b094ec8396f9469871',
-  '../telos-sdk-tools.ts': '6950acb24dde2099b50eefea0d4def855f32c0af5119e38d5b446d596ec23185',
+  '../telos-sdk-tools.ts': '38f385ea28361e91a474a824e4764fe4dc61e880484954e178a1b674f50e57a5',
   '../telos-session-coordination.ts':
     '56cbcec02dd9f084b90f0a88e4fd0ccbb8b08a162f002907392f61ed4ad90fbc',
   '../telos-session-launch-adapters.ts':
@@ -4855,7 +4855,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '7e3756c1f9ddbb4893e53571cf28ed7e1105dbbc3a2c216a7c1e62a1ed10ca6e',
   '../tool-failure-reporting.ts':
     '0357dafda9c5361509b4123e67281cec1eb3bcf52b1fad3cb0cd9667b78fed10',
-  '../tool-input-error.ts': '84137699ec55ee4ff47c1516e567f3ea605b1f76a51e9d1600b6a56ddb41eb5b',
+  '../tool-input-error.ts': 'd29e6c9b132f90c139b86807c555a7a078de5359448696719e0b136194336dff',
   '../tool-library-sdk.ts': '70892ff54af3d956807d6c6b3ee5e74eef3d0060de7510fe29cdb050c9f96c63',
   '../tool-output-projection.ts':
     'e7c787e1dfbf4c9817e25a2834338db383e67a2964b799e9e973df74bf445cca',

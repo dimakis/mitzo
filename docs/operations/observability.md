@@ -54,12 +54,19 @@ results and distinguish these diagnostics from application learning runs.
 
 The existing Loki UID is explicitly pinned so retained dashboards and links
 remain compatible. Log TraceID links open Grafana's Jaeger trace viewer, and
-trace-to-log navigation filters by the same trace ID. Jaeger 2.21 uses the v3 API;
-Grafana needs `jaegerEnableGrpcEndpoint`. Its supported trace-ID lookup works,
-but the legacy Grafana search query still returns 404. The dashboard therefore
-uses correlated logs plus **Search traces** in Jaeger's own UI, rather than a
-broken recent-traces table. MLflow remains an experiment UI, not a runtime trace
-store. Grafana plugin auto-updates at startup are disabled for repeatable operation.
+trace-to-log navigation filters by the same trace ID. The qualified pair is Jaeger
+2.20.0 with Grafana's Jaeger plugin 13.0.8 (Loki plugin 13.2.5), using the legacy
+query API. Plugins are pinned and startup auto-updates disabled. Native trace-ID
+viewing, search and the existing recent-traces table remain available.
+
+Jaeger 2.21 removes APIs used by Grafana search. Enabling Grafana's experimental
+v3 query feature restores health checks but plugin 13.0.8 fails to decode valid
+boolean attributes in real traces. A successful health response or raw proxy
+query therefore does not establish a working trace viewer. The checker also
+requests a native Grafana trace frame whenever a trace is available. Upgrade this
+pair only after qualifying boolean attributes, search, native frames, correlation
+and retained-store readback against an isolated copy. MLflow remains an experiment
+UI, with runtime traces in Jaeger.
 
 Default dashboard links use host-local ports (Grafana 3002, Jaeger 16686, MLflow
 5050). For another device, save reachable public URLs before startup in

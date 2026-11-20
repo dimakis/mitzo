@@ -79,7 +79,9 @@ export async function verifyObservability({
     } catch (error) {
       const code =
         error instanceof Error &&
-        /^(HTTP_\d{3}|INVALID_READBACK|NO_RECENT_DATA|DATASOURCE_UNAVAILABLE)$/.test(error.message)
+        /^(HTTP_\d{3}|INVALID_READBACK|NO_RECENT_DATA|DATASOURCE_UNAVAILABLE|TRACE_VIEWER_UNAVAILABLE)$/.test(
+          error.message,
+        )
           ? error.message
           : 'READBACK_UNAVAILABLE';
       const cause = error?.cause ?? error;
@@ -139,6 +141,7 @@ export async function verifyObservability({
       const sources = await json('grafana', '/api/datasources');
       demand(Array.isArray(sources));
       const proxyRecentRecords = {};
+      let traceViewer = 'unverified-no-traces';
       for (const type of ['loki', 'jaeger']) {
         const source = sources.find((item) => item.type === type);
         demand(source?.uid, 'DATASOURCE_UNAVAILABLE');
@@ -153,8 +156,40 @@ export async function verifyObservability({
         );
         validReadback(type, data);
         proxyRecentRecords[type] = activity('grafana', timestamps(type, data)).recentRecords;
+        if (type === 'jaeger') {
+          const traceId = spans(data)[0]?.traceId;
+          if (traceId) {
+            demand(typeof traceId === 'string' && /^[0-9a-f]{32}$/i.test(traceId));
+            const native = await json('grafana', '/api/ds/query', {
+              queries: [
+                {
+                  refId: 'A',
+                  datasource: { type: 'jaeger', uid: source.uid },
+                  query: traceId,
+                  intervalMs: 1000,
+                  maxDataPoints: 1000,
+                },
+              ],
+              from: String(since),
+              to: String(now),
+            });
+            const frames = native.results?.A?.frames;
+            demand(
+              Array.isArray(frames) &&
+                frames.some(
+                  (frame) =>
+                    frame.schema?.fields?.some((field) => field.name === 'traceID') &&
+                    frame.data?.values?.some(
+                      (column) => Array.isArray(column) && column.length > 0,
+                    ),
+                ),
+              'TRACE_VIEWER_UNAVAILABLE',
+            );
+            traceViewer = 'verified';
+          }
+        }
       }
-      return { datasources: 2, proxyRecentRecords };
+      return { datasources: 2, proxyRecentRecords, traceViewer };
     }),
     check('mlflow', async () => {
       const data = await json('mlflow', '/api/2.0/mlflow/experiments/search', {

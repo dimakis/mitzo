@@ -47,7 +47,12 @@ import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.j
 import { decideTelosApproval } from './telos-approval-policy.js';
 import { captureTelosProgressConsent } from './telos-progress-consent.js';
 import type { TelosSaveConsent } from './telos-save-consent.js';
+import { invalidToolArgumentsMessage } from './tool-input-error.js';
 
+const telosDenied = () => ({
+  behavior: 'deny' as const,
+  message: 'Telos tool unavailable under current session permissions',
+});
 /** The registered handler owns operation approval, just as other SDK helpers do. */
 export function telosSdkPermission(
   name: string,
@@ -57,19 +62,20 @@ export function telosSdkPermission(
   session: ManagedSession,
 ) {
   if (!name.startsWith(telosSdkPrefix)) return undefined;
-  const schema = telosSdkSchemas[name.slice(telosSdkPrefix.length) as keyof typeof telosSdkSchemas];
+  const short = name.slice(telosSdkPrefix.length) as keyof typeof telosSdkSchemas;
+  const schema = telosSdkSchemas[short];
+  if (!schema) return telosDenied();
+  // A rejected payload is an argument error, not a decision about authority.
+  // Reporting both the same way sent callers after a permissions regression.
+  const invalidArguments = invalidToolArgumentsMessage(String(short), schema, input);
+  if (invalidArguments) return { behavior: 'deny' as const, message: invalidArguments };
   if (
-    !schema ||
-    !schema.safeParse(input).success ||
     !agentToolAllowed(session, name) ||
     registry.get(clientId) !== session ||
     session.abortController.signal.aborted ||
     checkSkillPolicy(registry, clientId, name) === 'deny'
   )
-    return {
-      behavior: 'deny' as const,
-      message: 'Telos tool unavailable under current session permissions',
-    };
+    return telosDenied();
   return { behavior: 'allow' as const, updatedInput: input };
 }
 

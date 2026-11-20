@@ -23,6 +23,15 @@ const fixtures: Record<string, unknown> = {
       ],
     },
   },
+  '/api/ds/query': {
+    results: {
+      A: {
+        frames: [
+          { schema: { fields: [{ name: 'traceID' }] }, data: { values: [['a'.repeat(32)]] } },
+        ],
+      },
+    },
+  },
   '/api/health': { database: 'ok' },
   '/api/datasources': [
     { uid: 'loki', type: 'loki' },
@@ -82,6 +91,19 @@ describe('observability readback', () => {
       ok: false,
       code: 'NO_RECENT_DATA',
       stage: path,
+    });
+  });
+  it('rejects a native trace-viewer failure even when the raw proxy data is readable', async () => {
+    const result = await verifyObservability({
+      fetchImpl: fakeFetch({ '/api/ds/query': { results: { A: { status: 500, frames: [] } } } }),
+      now,
+      requireRecent: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.services.grafana).toMatchObject({
+      ok: false,
+      code: 'TRACE_VIEWER_UNAVAILABLE',
+      stage: '/api/ds/query',
     });
   });
   it('preserves the traces-only startup path without querying unrelated services', async () => {
