@@ -17,6 +17,9 @@ import { sdkPersistenceFailure } from '../sdk-persistence-diagnostics.js';
 import type { Span as OTelSpan } from '@opentelemetry/api';
 
 const persistenceWarning = vi.hoisted(() => ({ cause: undefined as Error | undefined }));
+const queryLoopLogs = vi.hoisted(
+  () => [] as { level: string; message: string; context?: Record<string, unknown> }[],
+);
 vi.mock('../logger.js', async (original) => {
   const module = await original<typeof import('../logger.js')>();
   return {
@@ -25,7 +28,12 @@ vi.mock('../logger.js', async (original) => {
       const logger = module.createLogger(name);
       return {
         ...logger,
+        info(message: string, context?: Record<string, unknown>) {
+          if (name === 'query-loop') queryLoopLogs.push({ level: 'info', message, context });
+          logger.info(message, context);
+        },
         warn(message: string, context?: Record<string, unknown>) {
+          if (name === 'query-loop') queryLoopLogs.push({ level: 'warn', message, context });
           if (
             name === 'query-loop' &&
             message === 'Claude native persistence was not confirmed' &&
@@ -898,6 +906,90 @@ describe('runQueryLoop', () => {
     expect(onTerminalOutcome).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'provider failed after initialization' }),
     );
+  });
+
+  it('names an uncertain operation and its original request ID, and the next safe step, on the phone', async () => {
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'result',
+          session_id: 'uncertain-chat',
+          tool_failure_notice: true,
+          tool_failure: {
+            code: 'internal_failure',
+            phase: 'execution',
+            effectStatus: 'unknown',
+            recovery: 'inspect_operation',
+          },
+          uncertain_operations: [
+            { tool: 'TelosCreateChild', toolUseId: 'use-1', requestId: 'req-9' },
+            { tool: 'Bash', toolUseId: 'use-2' },
+          ],
+        },
+      ]),
+      clientId,
+      registry,
+      abortController,
+    );
+    const notice = transport.sent.find(
+      (event) =>
+        event.type === 'error' &&
+        typeof event.error === 'string' &&
+        event.error.includes('TelosCreateChild'),
+    );
+    expect(notice).toBeDefined();
+    const text = String(notice!.error);
+    expect(text).toContain('req-9');
+    expect(text).toContain('same request ID');
+    expect(text).toContain('Bash');
+    expect(text).toMatch(/not replayed|nothing was replayed/i);
+    // Never presented as success.
+    expect(text).not.toMatch(/succeeded|completed successfully/i);
+  });
+
+  it('logs a named diagnostic when the provider stream ends in an abort, instead of ending silently', async () => {
+    queryLoopLogs.length = 0;
+    const stream: AsyncIterable<Record<string, unknown>> = {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          abortController.abort(new Error('owner closed the chat'));
+          throw Object.assign(new Error('SDK query aborted'), { name: 'AbortError' });
+        },
+      }),
+    };
+    await runQueryLoop(stream, clientId, registry, abortController);
+    const entry = queryLoopLogs.find((log) => log.context?.code === 'query_loop_aborted');
+    expect(entry).toBeDefined();
+    expect(entry!.level).toBe('info');
+    expect(entry!.context).toMatchObject({
+      stage: 'provider_stream',
+      clientId,
+      reason: 'Error',
+      correlationId: expect.any(String),
+    });
+    // The sanitized cause class is named; no message text is copied into the log.
+    expect(JSON.stringify(entry!.context)).not.toContain('owner closed the chat');
+  });
+
+  it('logs a structured diagnostic for an unexpected provider stream error', async () => {
+    queryLoopLogs.length = 0;
+    const stream: AsyncIterable<Record<string, unknown>> = {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          throw new TypeError('provider stream broke');
+        },
+      }),
+    };
+    await runQueryLoop(stream, clientId, registry, abortController);
+    const entry = queryLoopLogs.find((log) => log.context?.code === 'query_loop_stream_failed');
+    expect(entry).toBeDefined();
+    expect(entry!.level).toBe('warn');
+    expect(entry!.context).toMatchObject({
+      stage: 'provider_stream',
+      clientId,
+      errorName: 'TypeError',
+      correlationId: expect.any(String),
+    });
   });
 
   it('reports an error result before the provider stream closes', async () => {
