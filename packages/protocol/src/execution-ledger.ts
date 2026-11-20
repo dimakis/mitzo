@@ -599,6 +599,11 @@ export class ExecutionLedger<Row extends ExecutionSessionRow> {
 
   /** Terminalize only non-terminal executions orphaned by a process restart. */
   recoverOrphanedExecutions(options: { excludeSymposium?: boolean } = {}): number {
+    return this.recoverOrphanedExecutionTokens(options).length;
+  }
+
+  /** Same recovery, returning each execution this restart terminalized. */
+  recoverOrphanedExecutionTokens(options: { excludeSymposium?: boolean } = {}): ExecutionToken[] {
     const rows = this.db!.prepare(
       `SELECT session_id, execution_id, execution_generation
        FROM sessions
@@ -610,7 +615,7 @@ export class ExecutionLedger<Row extends ExecutionSessionRow> {
       execution_id: string;
       execution_generation: number;
     }>;
-    let recovered = 0;
+    const recovered: ExecutionToken[] = [];
     for (const row of rows) {
       const token: ExecutionToken = {
         sessionId: row.session_id,
@@ -624,7 +629,7 @@ export class ExecutionLedger<Row extends ExecutionSessionRow> {
         this.owner.transitionProviderAttempt(attempt.token, 'TERMINAL', 'ambiguous');
       }
       const result = this.owner.transitionExecution(token, 'TERMINAL', 'server_restart');
-      if (result.applied) recovered++;
+      if (result.applied) recovered.push(token);
     }
     return recovered;
   }

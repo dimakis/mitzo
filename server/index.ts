@@ -96,6 +96,7 @@ import {
   WORKTREE_CLEANUP_INTERVAL_MS,
 } from './constants.js';
 import { createLogger } from './logger.js';
+import { recoverAfterRestart } from './restart-interruption.js';
 import {
   app,
   installSymposiumProductionHost,
@@ -1399,6 +1400,11 @@ async function shutdown(signal: string) {
 
   terminalService.detachAll();
   server.close();
+  // End live turns before cleanup that can wait for minutes: launchd kills the
+  // server after its exit timeout, and a killed server cannot stop the detached
+  // CLI process groups. Startup recovery then ends each cut turn recoverably.
+  const interruptedTurns = registry.abortOrdinaryRuntimeOwners();
+  if (interruptedTurns) log.info('Live turns interrupted for shutdown', { interruptedTurns });
   await terminalPlanAdviserHost?.close();
   lifecycleAbort.abort();
   await knowledgePrewarming?.close();
@@ -1501,10 +1507,9 @@ checkPort(PORT).then(async (inUse) => {
 
     // Recover sessions left in incomplete states after crash/restart (Transport SSOT P0).
     // Must run before reconcileSessionsBackground() so reconciliation sees ENDED states.
-    // recoverStaleSessions() logs internally — no need to log here.
-    eventStore.recoverStaleSessions({ excludeSymposium: custodianControllerMode });
-    eventStore.recoverOrphanedExecutions({ excludeSymposium: custodianControllerMode });
-    eventStore.recoverPendingSendCommands({ excludeSymposium: custodianControllerMode });
+    // Turns the restart cut end in a named recoverable state; unconfirmed Claude
+    // SDK commands are settled so the next message is admitted. Nothing replays.
+    recoverAfterRestart(eventStore, { excludeSymposium: custodianControllerMode });
 
     const repositoryMaintenance = startupRepositoryMaintenanceEnabled();
     // Eagerly reconcile sessions so the first /api/sessions request is fast and accurate.

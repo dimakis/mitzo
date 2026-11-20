@@ -244,6 +244,27 @@ export type SymposiumSeatTerminalCreateReceiptV1 = z.infer<
   typeof SymposiumSeatTerminalCreateReceiptV1Schema
 >;
 
+/** A Claude SDK command a server restart left unconfirmed, and its settled outcome. */
+export interface RestartedOrdinarySdkCommand {
+  sessionId: string;
+  commandId: string;
+  outcome: 'delivered' | 'not_delivered' | 'unknown';
+}
+/** A top-level tool call whose result was never recorded. */
+export interface UnsettledToolCall {
+  toolUseId: string;
+  toolName: string;
+  input?: string;
+}
+const RESTARTED_SDK_COMMAND_ERRORS: Record<RestartedOrdinarySdkCommand['outcome'], string | null> =
+  {
+    delivered: null,
+    not_delivered:
+      'Mitzo restarted before this message reached the agent. Nothing was sent; send it again if you still need it.',
+    unknown:
+      'Mitzo restarted while this message was being delivered, so the agent may not have received it. Check its reply before sending it again.',
+  };
+
 export interface SymposiumSeatSandboxRecord {
   artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   sessionId: string;
@@ -2900,6 +2921,106 @@ export class EventStore {
     }
   }
 
+  /** Claude SDK commands an earlier process claimed but never confirmed as
+   * delivered. Each has a named outcome from durable evidence only, and is
+   * settled so it no longer refuses every later message. Nothing is replayed.
+   * - delivered: the CLI echoed the input before the restart.
+   * - not_delivered: no execution began. The SDK owner starts an execution
+   *   before writing input, so the CLI never received it.
+   * - unknown: an execution began without an echo; the input may have reached
+   *   the CLI. The user decides whether to send it again. */
+  settleRestartedOrdinarySdkCommands(options: { excludeSymposium?: boolean } = {}): {
+    settled: RestartedOrdinarySdkCommand[];
+    unsettled: Array<{ sessionId: string; commandId: string; cause: unknown }>;
+  } {
+    const rows = this.db!.prepare(
+      `SELECT c.client_msg_id, c.session_id FROM send_commands c
+       WHERE json_extract(c.ordinary_admission,'$.state')='uncertain' AND c.session_id != ''
+       AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
+         AND (s.session_type='symposium' OR s.symposium_config IS NOT NULL)))
+       ORDER BY c.rowid`,
+    ).all(options.excludeSymposium ? 1 : 0) as Array<{ client_msg_id: string; session_id: string }>;
+    const settled: RestartedOrdinarySdkCommand[] = [];
+    const unsettled: Array<{ sessionId: string; commandId: string; cause: unknown }> = [];
+    for (const row of rows) {
+      try {
+        const outcome = this.db!.transaction(() => {
+          const admission = this.getOrdinaryLocalVertexCommandAdmission(row.client_msg_id);
+          if (admission?.state !== 'uncertain') return;
+          const outcome: RestartedOrdinarySdkCommand['outcome'] = this.getOrdinarySdkTurnEvents(
+            row.session_id,
+            row.client_msg_id,
+          ).some((event) => event.type === 'ordinary_sdk_turn_accepted')
+            ? 'delivered'
+            : this.getExecutionAdmission(row.session_id, row.client_msg_id)
+              ? 'unknown'
+              : 'not_delivered';
+          this.db!.prepare(
+            'UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?',
+          ).run(JSON.stringify({ ...admission, state: 'consumed' }), row.client_msg_id);
+          const error = RESTARTED_SDK_COMMAND_ERRORS[outcome];
+          if (error) {
+            this.failSendCommand(row.client_msg_id, error);
+            this.append(row.session_id, 'error', {
+              type: 'error',
+              v: 2,
+              sessionId: row.session_id,
+              clientMsgId: row.client_msg_id,
+              error,
+            });
+          }
+          return outcome;
+        }).immediate();
+        if (outcome)
+          settled.push({ sessionId: row.session_id, commandId: row.client_msg_id, outcome });
+      } catch (cause) {
+        // One unreadable historical receipt must not abort startup or hide the
+        // others; it keeps refusing its own conversation and is reported.
+        unsettled.push({ sessionId: row.session_id, commandId: row.client_msg_id, cause });
+      }
+    }
+    return { settled, unsettled };
+  }
+
+  /** The command that owns one execution generation. */
+  getExecutionCommandId(token: ExecutionToken): string | undefined {
+    return (
+      this.db!.prepare(
+        'SELECT client_msg_id FROM execution_admissions WHERE session_id=? AND execution_id=? AND generation=?',
+      ).get(token.sessionId, token.executionId, token.generation) as
+        { client_msg_id: string } | undefined
+    )?.client_msg_id;
+  }
+
+  /** Top-level tool calls of one execution with no recorded result, in call
+   * order. Undefined when the execution's start event is not retained. */
+  getUnsettledToolCalls(token: ExecutionToken): UnsettledToolCall[] | undefined {
+    const start = this.db!.prepare(
+      `SELECT seq FROM events WHERE session_id=? AND type='execution_state_changed'
+       AND json_extract(payload,'$.executionId')=? AND json_extract(payload,'$.generation')=?
+       AND json_extract(payload,'$.phase')='RUNNING' ORDER BY seq LIMIT 1`,
+    ).get(token.sessionId, token.executionId, token.generation) as { seq: number } | undefined;
+    if (!start) return;
+    const calls = new Map<string, UnsettledToolCall>();
+    const rows = this.db!.prepare(
+      `SELECT type, payload FROM events WHERE session_id=? AND seq>?
+       AND type IN ('block_end','tool_result') ORDER BY seq`,
+    ).all(token.sessionId, start.seq) as Array<{ type: string; payload: string }>;
+    for (const row of rows) {
+      const event = JSON.parse(row.payload) as Record<string, unknown>;
+      const toolUseId = typeof event.toolId === 'string' ? event.toolId : undefined;
+      if (!toolUseId) continue;
+      if (row.type === 'tool_result') calls.delete(toolUseId);
+      else if (event.blockType === 'tool_use')
+        calls.set(toolUseId, {
+          toolUseId,
+          toolName: typeof event.toolName === 'string' ? event.toolName : 'unknown',
+          ...(typeof event.input === 'string' ? { input: event.input } : {}),
+        });
+    }
+    return [...calls.values()];
+  }
+
   /** Retention is acknowledged separately from provider startup admission. */
   setSendCommandPreparing(clientMsgId: string, preparing: boolean): void {
     this.db!.prepare('UPDATE send_commands SET preparing=? WHERE client_msg_id=?').run(
@@ -4162,6 +4283,11 @@ export class EventStore {
   /** Terminalize only non-terminal executions orphaned by a process restart. */
   recoverOrphanedExecutions(options: { excludeSymposium?: boolean } = {}): number {
     return this.executionLedger.recoverOrphanedExecutions(options);
+  }
+
+  /** Same recovery, returning each execution this restart terminalized. */
+  recoverOrphanedExecutionTokens(options: { excludeSymposium?: boolean } = {}): ExecutionToken[] {
+    return this.executionLedger.recoverOrphanedExecutionTokens(options);
   }
 
   /** Persist a seat-attributed event only when its provenance matches the active config. */

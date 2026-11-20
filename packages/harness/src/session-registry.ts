@@ -559,6 +559,26 @@ export class SessionRegistry {
   }
 
   /**
+   * Shutdown's first step: end ordinary drivers and pending startups before any
+   * slower cleanup, so a supervisor kill cannot leave their native CLI process
+   * groups running without the server. Contributor drivers and publication
+   * queues keep their own drain. Returns the number of owners aborted.
+   */
+  abortOrdinaryRuntimeOwners(): number {
+    let aborted = 0;
+    for (const clientId of [...this.startups.keys()]) {
+      this.abort(clientId);
+      aborted++;
+    }
+    for (const [clientId, session] of [...this.sessions]) {
+      if (!session.ordinaryRuntimeOwner || session.contributorExecutionOwner) continue;
+      this.abort(clientId);
+      aborted++;
+    }
+    return aborted;
+  }
+
+  /**
    * Clean up all sessions and timers. Used for graceful shutdown.
    */
   dispose(): void {
