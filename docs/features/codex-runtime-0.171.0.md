@@ -17,6 +17,12 @@ with an empty isolated home and compared byte for byte with the previous fixture
 none changed. The fixture, exact-artifact gate and CI downloader now select the
 same new executable. No credentials or production configuration were used.
 
+The native web-search contract was also regenerated from the official binary's
+experimental JSON schema. Search approval and lifecycle fields are unchanged;
+the obsolete `currentTime/read` request is absent. This repairs the unit shard's
+stale 0.160.0 contract version. The no-inference lifecycle probe checks start,
+resume and fork configuration boundaries without issuing a provider turn.
+
 The official executable is 298,198,944 bytes, exceeding the former 256 MiB
 native-custody ceiling. The inspector now admits files up to 384 MiB while still
 streaming at most 1 MiB per read and checking every byte, inode, link count,

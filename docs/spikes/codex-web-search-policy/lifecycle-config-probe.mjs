@@ -2,6 +2,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { URL } from 'node:url';
+import process from 'node:process';
+import { setTimeout, clearTimeout } from 'node:timers';
 import readline from 'node:readline';
 
 const supportedCodexVersion = readFileSync(
@@ -41,10 +44,24 @@ const done = (code, detail) => {
   finished = true;
   clearTimeout(timer);
   server.kill();
-  rmSync(root, { recursive: true, force: true });
-  process.stdout.write(`CODEX_WEB_SEARCH_LIFECYCLE=${code ? 'fail' : 'pass'} ${detail}\n`);
+  let cleanupFailure;
+  try {
+    // The signalled app-server may still be finishing an atomic rollout write.
+    // Retry that bounded removal race, and never erase the protocol outcome.
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    cleanupFailure = error;
+  }
+  const outcome = code || (cleanupFailure ? 1 : 0);
+  process.stdout.write(`CODEX_WEB_SEARCH_LIFECYCLE=${outcome ? 'fail' : 'pass'} ${detail}\n`);
   if (code && stderr) process.stderr.write(stderr.slice(0, 4000));
-  process.exit(code);
+  if (cleanupFailure) {
+    const errorCode = /^[A-Z_]{1,40}$/.test(cleanupFailure.code ?? '')
+      ? cleanupFailure.code
+      : 'UNKNOWN';
+    process.stderr.write(`CODEX_WEB_SEARCH_CLEANUP=fail code=${errorCode}\n`);
+  }
+  process.exit(outcome);
 };
 const timer = setTimeout(() => done(1, 'timeout'), 15_000);
 
@@ -61,7 +78,7 @@ readline.createInterface({ input: server.stdout }).on('line', (line) => {
   try {
     message = JSON.parse(line);
   } catch {
-    return;
+    return done(1, 'invalid-json-rpc');
   }
   if (message.id === 0) {
     if (message.error) return done(1, `initialize:${message.error.message ?? 'unknown'}`);

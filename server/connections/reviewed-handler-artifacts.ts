@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1269-codex-0.171.0';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1270-codex-0.171.0';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -132,6 +132,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1ce453628c3e0fbef6850e53193a3b9981978832f79555661a5eacbdce5f503e',
   '../../docs/operations/startup-transcript-observability.md':
     '5c3502abc3063094074f681b52f74c0874c2744890a22ab925bc20522c27f074',
+  '../../docs/spikes/codex-web-search-policy/app-server-contract.json':
+    'a1ff6e7065d991f1356fe7ac5c4516e5f99521cb543cebea0aa095dbb9199b89',
+  '../../docs/spikes/codex-web-search-policy/lifecycle-config-probe.mjs':
+    '32f64823e27f7d187f3f5bc082a38f418d18936d30d80eee6df5f36dd4e0fada',
   '../../docs/spikes/openshell-codex/compile-agent-context.mjs':
     '75cc1a653dbb7d4c20ffbeab8fafcf20b19110ff64110a548d30c65305da20be',
   '../../docs/spikes/openshell-codex/prepare-mgmt-knowledge.sh':
@@ -2576,6 +2580,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b1c8e91d829457da56051541d431d78e6f4be6b433df568d14dcee8ef60e1478',
   '../__tests__/codex-native-execution-receipts.test.ts':
     'a0b6f9b1abf9a994ec5ee08f4befcd09862044ab1a7566022692275af297e436',
+  '../__tests__/codex-web-search-contract.test.ts':
+    '9650a58f752e585539342f34f6b86bc42f4659e604a91a2979936aeaba682e09',
   '../__tests__/codex-native-permission-protocol.test.ts':
     'ba795d0500b4199e41484891ee8625fc72e372f548afe681e30f12c4750e7df9',
   '../__tests__/codex-ordinary-packet.test.ts':

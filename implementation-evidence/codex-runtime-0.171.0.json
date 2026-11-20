@@ -125,6 +125,16 @@
     "nextCursor": null
   },
   "permissionTypes": "All reduced generatedTypes in the native permission fixture are byte-identical between 0.160.0 and 0.171.0.",
+  "webSearchContract": {
+    "schemaSource": "official pinned executable; app-server generate-json-schema --experimental",
+    "reducer": "scripts/reduce-codex-contract.mjs",
+    "removedServerRequests": ["currentTime/read"],
+    "preExecutionSearchApprovalMethod": null,
+    "lifecycleProbe": "pass: start=disabled resume=live:accepted fork=disabled:accepted",
+    "providerTurnsStarted": 0,
+    "account": "empty isolated home; no login",
+    "deployedImageQualified": false
+  },
   "subagentSchema": {
     "codexCliVersion": "0.171.0",
     "evidence": "generated_protocol_only",
