@@ -6,6 +6,7 @@ import {
   assertTurnCallbackEffects,
   observeAssistantFollowUp,
   withUncertainOutcomeNotice,
+  describeToolCall,
 } from '../turn-callbacks.js';
 it('does not accept cloned or structural data as original effect evidence', () => {
   const result = retainCallbackOutcome(
@@ -135,4 +136,72 @@ it('still fails an SDK turn whose callback settles unknown only after the result
   finish();
   await work;
   await blocked;
+});
+it('describes a tool call by its top-level request ID only, never other input values', () => {
+  const described = describeToolCall(
+    'mcp__telos__TelosCreateChild',
+    { requestId: 'create-slice-10', summary: 'private plan', nested: { requestId: 'inner' } },
+    { toolUseId: 'use-1', requestHash: 'hash-1' },
+  );
+  expect(described).toEqual({
+    tool: 'mcp__telos__TelosCreateChild',
+    toolUseId: 'use-1',
+    requestHash: 'hash-1',
+    requestId: 'create-slice-10',
+  });
+  expect(JSON.stringify(described)).not.toContain('private plan');
+  expect(JSON.stringify(described)).not.toContain('inner');
+  for (const requestId of [42, 'has space', '', 'x'.repeat(201), { a: 1 }])
+    expect(describeToolCall('Tool', { requestId }, {})).not.toHaveProperty('requestId');
+});
+it('retains which operations are uncertain, with their original request IDs, and never replays them', async () => {
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  let runs = 0;
+  await callbacks.track(
+    async () => {
+      runs++;
+      return { isError: true, content: 'Telos item operation unavailable' };
+    },
+    undefined,
+    describeToolCall(
+      'TelosCreateChild',
+      { requestId: 'req-1', summary: 'secret' },
+      { toolUseId: 'u1' },
+    ),
+  );
+  await callbacks
+    .track(
+      async () => {
+        throw Error('private failure after effects');
+      },
+      undefined,
+      describeToolCall('TelosUpdateItem', { requestId: 'req-2' }, { toolUseId: 'u2' }),
+    )
+    .catch(() => {});
+  // A refusal the owner settled is not uncertain and is not listed.
+  await callbacks.track(
+    async () => retainCallbackOutcome({ isError: true, content: 'expired' }, 'settled'),
+    undefined,
+    describeToolCall('TelosCreateFeature', { requestId: 'req-3' }, {}),
+  );
+  expect(callbacks.uncertainOperations).toEqual([
+    { tool: 'TelosCreateChild', toolUseId: 'u1', requestId: 'req-1' },
+    { tool: 'TelosUpdateItem', toolUseId: 'u2', requestId: 'req-2' },
+  ]);
+  const notice = withUncertainOutcomeNotice({ type: 'result' }, callbacks) as Record<
+    string,
+    unknown
+  >;
+  expect(notice).toMatchObject({
+    tool_failure_notice: true,
+    uncertain_operations: [
+      { tool: 'TelosCreateChild', requestId: 'req-1' },
+      { tool: 'TelosUpdateItem', requestId: 'req-2' },
+    ],
+  });
+  expect(JSON.stringify(notice)).not.toContain('secret');
+  expect(runs).toBe(1);
+  // Following up in text explains them, as before.
+  observeAssistantFollowUp(assistant([{ type: 'text', text: 'Checking state.' }]), callbacks);
+  expect(callbacks.uncertainOperations).toEqual([]);
 });

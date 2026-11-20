@@ -45,6 +45,7 @@ import {
 import type { AccountUseBinding } from './account-use-store.js';
 import { providerFailureTelemetry } from './provider-failure.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
+import { uncertainOperationsNotice } from './uncertain-operations-notice.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { ClaudeMessageRetractions } from './claude-message-retractions.js';
 import { retainRuntimeFailure } from './runtime-failure-diagnostics.js';
@@ -1113,11 +1114,15 @@ async function _runQueryLoopInner(
           const providerFailure = isError ? result.provider_failure : undefined;
           if (msg.tool_failure_notice === true && !providerFailure) {
             const failure = ToolFailureSchema.safeParse(msg.tool_failure);
+            // Name the uncertain operation and its original request ID when known.
+            const operations = uncertainOperationsNotice(msg.uncertain_operations);
             emit(
               v2('error', {
-                error: failure.success
-                  ? toolFailureAction(failure.data)
-                  : 'The last tool did not finish successfully and the agent ended the turn without a follow-up. You can send a message to continue. Check the tool result before retrying.',
+                error:
+                  operations ??
+                  (failure.success
+                    ? toolFailureAction(failure.data)
+                    : 'The last tool did not finish successfully and the agent ended the turn without a follow-up. You can send a message to continue. Check the tool result before retrying.'),
               }),
             );
           }
@@ -2260,6 +2265,28 @@ async function _runQueryLoopInner(
         code: SpanStatusCode.ERROR,
         message: err instanceof Error ? err.message : 'unknown',
       });
+      // Every caught stream failure leaves a structured diagnostic. An expected
+      // abort (user Stop, owner close, retirement) is not an error, but it still
+      // gets a named reason: a silent end hid the cause of a dead chat.
+      const failureCorrelationId = randomUUID();
+      if (abortController.signal.aborted && !timedOut && !findSessionRuntimeError(err)) {
+        const reason: unknown = abortController.signal.reason;
+        log.info('query loop stopped by abort', {
+          code: 'query_loop_aborted',
+          stage: 'provider_stream',
+          clientId,
+          sessionId: resolvedSessionId,
+          reason:
+            findSessionRuntimeError(reason)?.code ??
+            (reason instanceof Error
+              ? reason.name
+              : reason === undefined
+                ? 'unspecified'
+                : typeof reason),
+          errorName: err instanceof Error ? err.name : typeof err,
+          correlationId: failureCorrelationId,
+        });
+      }
       const currentSession = currentOwnerSession();
       if (currentSession) {
         const failureSessionId = resolvedSessionId ?? currentSession.sessionId;
@@ -2287,7 +2314,15 @@ async function _runQueryLoopInner(
           const message =
             runtimeFailure?.publicMessage() ??
             (err instanceof Error ? err.message : 'Unknown error');
-          log.warn('query loop error', { clientId, error: message });
+          log.warn('query loop error', {
+            clientId,
+            error: message,
+            code: 'query_loop_stream_failed',
+            stage: 'provider_stream',
+            sessionId: failureSessionId,
+            errorName: err instanceof Error ? err.name : typeof err,
+            correlationId: failureCorrelationId,
+          });
           if (runtimeFailure && initialPromptAccepted && failureSessionId && store)
             reportRetainedRuntimeFailure({
               store,

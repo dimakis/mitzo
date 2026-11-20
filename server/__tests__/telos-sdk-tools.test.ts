@@ -163,6 +163,9 @@ async function fixture(
     expireApproval: () => {
       expire = true;
     },
+    renewApproval: () => {
+      expire = false;
+    },
     deny: () => {
       approved = false;
     },
@@ -508,13 +511,20 @@ it.each([
     expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toHaveLength(before.length + 1);
     expect(TelosItemStore.prototype.createFeatureGuarded).toHaveBeenCalledTimes(1);
     // The model already saw the failure: the turn completes with the uncertainty surfaced.
-    await expect(sdk.terminal()).resolves.toMatchObject({
+    const terminal = await sdk.terminal();
+    expect(terminal).toMatchObject({
       value: {
         type: 'result',
         tool_failure_notice: true,
         tool_failure: { effectStatus: 'unknown' },
+        // The operator is told WHICH operation is uncertain and the ORIGINAL request ID,
+        // so a retry reuses it instead of minting a new one. Nothing was replayed.
+        uncertain_operations: [{ tool: 'TelosCreateFeature', requestId: 'refused-feature' }],
       },
     });
+    // Only identity leaves the callback: never other input values.
+    expect(JSON.stringify(terminal.value)).not.toContain('Must not exist');
+    expect(JSON.stringify(terminal.value)).not.toContain('Offline');
   } else if (refusal === 'rolled-back-write') {
     expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(before);
     expect(TelosItemStore.prototype.createFeatureGuarded).toHaveBeenCalledTimes(1);
@@ -1119,6 +1129,44 @@ it.each([false, true])(
     });
   },
 );
+
+it('keeps the chat usable: after an expired approval the next turn completes and the same request can be re-requested', async () => {
+  // Regression guard (passes on main): an expiry must not end or poison the chat.
+  // Each turn is a fresh native query over the same chat, registry and database.
+  const f = await fixture();
+  const sdk = await ordinaryClient(f);
+  const before = f.db.prepare('SELECT * FROM items ORDER BY id').all();
+  const feature = {
+    requestId: 'expired-then-renewed',
+    summary: 'Created exactly once',
+    intent: 'Expiry recovery',
+    rationale: 'Same request ID after a fresh approval',
+    acceptanceCriteria: ['Exactly one item'],
+    note: 'Offline',
+  };
+  f.expireApproval();
+  const expired = await sdk.client.callTool({ name: 'TelosCreateFeature', arguments: feature });
+  expect(expired.isError).toBe(true);
+  expect(f.value(expired).failure).toMatchObject({
+    code: 'approval_expired',
+    effectStatus: 'not_started',
+  });
+  expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(before);
+  // The expiry is a settled refusal: it is not listed as an uncertain operation.
+  const first = await sdk.terminal();
+  expect(first).toMatchObject({ value: { type: 'result' } });
+  expect(first.value).not.toHaveProperty('tool_failure_notice');
+  expect(first.value).not.toHaveProperty('uncertain_operations');
+  // Next turn, same chat: a fresh approval of the SAME request now succeeds.
+  f.renewApproval();
+  const next = await ordinaryClient(f);
+  const renewed = await next.client.callTool({ name: 'TelosCreateFeature', arguments: feature });
+  expect(renewed.isError).toBeFalsy();
+  expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toHaveLength(before.length + 1);
+  await expect(next.terminal()).resolves.toMatchObject({ value: { type: 'result' } });
+  // A further re-request of that original ID is deduplicated, never a second item.
+  expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toHaveLength(before.length + 1);
+});
 
 it.each([undefined, 1])(
   'refuses retained private artifact bytes through SDK and HTTP (revision=%s)',

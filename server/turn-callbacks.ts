@@ -4,7 +4,39 @@ import { toolFailure } from '@mitzo/protocol';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createLogger } from './logger.js';
 const log = createLogger('turn-callbacks');
-export type TurnCallbackRunner = <T>(operation: () => Promise<T>) => Promise<T>;
+/** Identity of one tool call, kept so an uncertain effect can be named to the
+ * operator. Only the tool, its call identity and a top-level request ID are
+ * carried: other input fields can hold private content. */
+export interface CallbackDescriptor {
+  tool: string;
+  toolUseId?: string;
+  requestHash?: string;
+  requestId?: string;
+}
+export type TurnCallbackRunner = <T>(
+  operation: () => Promise<T>,
+  descriptor?: CallbackDescriptor,
+) => Promise<T>;
+
+const MAX_UNCERTAIN_OPERATIONS = 16;
+const safeRequestId = /^\S{1,200}$/;
+/** `requestId` is taken only from a top-level string field, never a nested value. */
+export function describeToolCall(
+  tool: string,
+  input: unknown,
+  identity: { toolUseId?: string; requestHash?: string },
+): CallbackDescriptor {
+  const requestId =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? Object.getOwnPropertyDescriptor(input, 'requestId')?.value
+      : undefined;
+  return {
+    tool,
+    ...(identity.toolUseId ? { toolUseId: identity.toolUseId } : {}),
+    ...(identity.requestHash ? { requestHash: identity.requestHash } : {}),
+    ...(typeof requestId === 'string' && safeRequestId.test(requestId) ? { requestId } : {}),
+  };
+}
 const effectOwners = new AsyncLocalStorage<() => void>();
 /** A fresh effect check in an original callback cannot borrow a later turn. */
 export function assertTurnCallbackEffects(): void {
@@ -76,15 +108,19 @@ export function withUncertainOutcomeNotice<T extends object>(
   callbacks: TurnCallbacks,
 ): T {
   if (!callbacks.uncertainOutcomes || 'provider_failure' in result) return result;
+  const operations = callbacks.uncertainOperations;
   log.warn('SDK turn completed with uncertain tool outcomes', {
     code: 'sdk_uncertain_tool_outcomes',
     stage: 'turn_settlement',
     uncertainOutcomes: callbacks.uncertainOutcomes,
+    // Identity only (tool, call and request IDs): never input values.
+    uncertainOperations: operations,
   });
   return {
     ...result,
     tool_failure_notice: true,
     tool_failure: toolFailure('internal_failure', 'execution', 'unknown'),
+    ...(operations.length ? { uncertain_operations: operations } : {}),
   };
 }
 
@@ -100,12 +136,23 @@ export class TurnCallbacks {
   private sealed = false;
   private failure?: { cause: unknown };
   private uncertain = 0;
+  private uncertainOps: CallbackDescriptor[] = [];
   get size() {
     return this.pending.size;
   }
   /** Callbacks whose effects the model saw as failed or unknown in this turn. */
   get uncertainOutcomes() {
     return this.uncertain;
+  }
+  /** Which of those callbacks are identifiable. A call with no descriptor is
+   * counted above but not listed. Bounded; never carries input values. */
+  get uncertainOperations(): readonly CallbackDescriptor[] {
+    return this.uncertainOps.map((operation) => ({ ...operation }));
+  }
+  private noteUncertain(descriptor: CallbackDescriptor | undefined) {
+    this.uncertain++;
+    if (descriptor && this.uncertainOps.length < MAX_UNCERTAIN_OPERATIONS)
+      this.uncertainOps.push(descriptor);
   }
   get needsSettlement() {
     return this.pending.size > 0 || !!this.failure;
@@ -115,10 +162,12 @@ export class TurnCallbacks {
    * settles later, or that the turn never follows up, reaches the result notice. */
   explainUncertainOutcomes() {
     this.uncertain = 0;
+    this.uncertainOps = [];
   }
   track<T>(
     operation: () => Promise<T>,
     knownCancellation?: (error: unknown) => boolean,
+    descriptor?: CallbackDescriptor,
   ): Promise<T> {
     if (this.sealed) return Promise.reject(new SessionRuntimeError('turn_completed'));
     // Register before invoking application code, including synchronous terminal notifications.
@@ -133,12 +182,12 @@ export class TurnCallbacks {
         this.pending.delete(observation);
         if (callbackOutcome(result) !== 'unknown') return;
         if (this.sealed) this.failure ??= { cause: new SessionRuntimeError('callbacks_failed') };
-        else if (this.options.retainUnknownOutcomes) this.uncertain++;
+        else if (this.options.retainUnknownOutcomes) this.noteUncertain(descriptor);
       },
       (cause: unknown) => {
         this.pending.delete(observation);
         if (knownCancellation?.(cause)) return;
-        if (!this.sealed && this.options.retainUnknownOutcomes) this.uncertain++;
+        if (!this.sealed && this.options.retainUnknownOutcomes) this.noteUncertain(descriptor);
         else this.failure ??= { cause };
       },
     );
