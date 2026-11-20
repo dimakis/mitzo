@@ -10,6 +10,7 @@ import { AgentLibraryStore } from '../../agent-library-store.js';
 import { RepositoryWorkspaces } from '../../repository-workspaces.js';
 import { loadAccountProfiles } from '../../account-profiles.js';
 import { ClaudeAccountStore } from '../../claude-account-store.js';
+import { claudeSdkInstallation } from '../../claude-subscription-custody.js';
 import { bindAgentLibraryTransport } from '../../agent-library-transport.js';
 import type { AgentToolReference } from '@mitzo/protocol';
 
@@ -67,6 +68,8 @@ export async function ownedVertexRuntimeFixture(
     // Only identity/stat checks use this file. Model processes and auth status
     // are mocked independently; CI never needs the Mac-only production binary.
     await writeFile(personalExecutable, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
+    // The same fixture binary is this "release's" installation on every host OS.
+    vi.spyOn(claudeSdkInstallation, 'executable').mockReturnValue(personalExecutable);
   }
   await writeFile(
     join(privateRoot, 'adc.json'),
