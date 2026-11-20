@@ -83,6 +83,13 @@ export function OrdinarySharedConversationHost({
   children: ReactNode;
 }) {
   const clientId = useMitzoStore((s) => s.connection?.clientId) ?? undefined;
+  // Absent creation evidence (including partial store projections) keeps the
+  // history gate closed.
+  const startedHere = useMitzoStore(
+    (s) =>
+      !!sourceConversationId &&
+      (s.startedSession as { id: string } | null | undefined)?.id === sourceConversationId,
+  );
   const [authScope, setAuthScope] = useState<string>();
   useEffect(() => {
     if (!clientId) return;
@@ -105,6 +112,7 @@ export function OrdinarySharedConversationHost({
       clientId={clientId}
       authScope={authScope}
       getVerifiedAuthScope={currentVerifiedAuthSessionId}
+      startedHere={startedHere}
     >
       {children}
     </SharedConversationHost>
@@ -123,12 +131,15 @@ function useSharedConversation({
   clientId,
   authScope,
   getVerifiedAuthScope,
+  startedHere = false,
 }: {
   sourceConversationId: string;
   api: MitzoApiClient;
   clientId?: string;
   authScope?: string;
   getVerifiedAuthScope(): string | undefined;
+  /** This client created the source conversation by sending from a new chat. */
+  startedHere?: boolean;
 }) {
   // The association belongs to the conversation and login, not to one transport.
   // A stream reconnect assigns a new client ID and re-checks the source in the
@@ -149,6 +160,12 @@ function useSharedConversation({
     },
     [sourceConversationId],
   );
+  // A chat this client just created has its collaboration setup refused until
+  // the session row persists, but it cannot already be part of a discussion, so
+  // its own transcript stays visible meanwhile. Creation is the store's explicit
+  // record of a send without a session, never inferred from an id transition:
+  // opening an existing chat from an empty view must keep the history gate.
+  const startedInView = !!sourceConversationId && startedHere;
   const [associationState, setAssociation] = useState<{
     owner: object;
     group?: string;
@@ -456,6 +473,8 @@ function useSharedConversation({
       (!association.group || (association.begun && !view)) &&
       !association.error,
     error: association.error,
+    // Unanswered setup for a chat started in this view does not hide its transcript.
+    provisionalOrdinary: startedInView && !association.group && !association.historySource,
     /** A source check already classified this conversation for the current owner. */
     confirmed: !!association.ordinaryHistory || !!association.group,
     retry: () => {
@@ -818,9 +837,12 @@ function SharedConversationBodyContent({
             sessionId: sourceConversationId,
             // Only an unclassified source defers its ordinary history. A re-check or
             // transient failure after a confirmed check keeps the rendered transcript;
-            // its error remains visible on the composer with a Refresh action.
+            // its error remains visible on the composer with a Refresh action. A chat
+            // just created in this view cannot already be in a discussion.
             ...(!projection &&
-            (host.active || host.historySource || host.resolving || (host.error && !host.confirmed))
+            (host.active ||
+              host.historySource ||
+              ((host.resolving || (host.error && !host.confirmed)) && !host.provisionalOrdinary))
               ? {
                   messages: [],
                   current: null,

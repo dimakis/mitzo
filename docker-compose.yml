@@ -1,50 +1,60 @@
 # Local observability stack: Jaeger (traces) + Loki (logs) + Grafana (UI) + MLflow (experiments).
 # Jaeger only:  npm run tracing:up / tracing:down
 # Full stack:   npm run observability:up / observability:down
+# Host startup stages configs outside the source release and creates external volumes.
+# First-time migration: docs/operations/observability.md
 # Jaeger UI: http://localhost:16686
 # Grafana:   http://localhost:3002 (no login required)
 # Loki API:  http://localhost:3200
 # MLflow UI: http://localhost:5050
+name: mitzo-observability
+x-podman:
+  in_pod: false
 services:
   jaeger:
-    image: jaegertracing/jaeger:2.21.0
+    container_name: mitzo-jaeger-persistent
+    image: jaegertracing/jaeger:2.20.0
     restart: always
     ports:
       - '4318:4318' # OTLP HTTP receiver (server + browser)
       - '16686:16686' # Jaeger UI
     command: ['--config', '/etc/jaeger/config.yaml']
     volumes:
-      - ./infra/jaeger-v2-config.yaml:/etc/jaeger/config.yaml:ro
-      - ./.jaeger-data:/badger
+      - ${MITZO_OBSERVABILITY_CONFIG_DIR:-./infra}/jaeger-v2-config.yaml:/etc/jaeger/config.yaml:ro
+      - jaeger-data:/badger:Z
 
   loki:
+    container_name: mitzo-loki-persistent
     image: grafana/loki:3.4.2
     restart: always
     ports:
       - '3200:3100' # 3200 externally — 3100 conflicts with Mitzo server
     volumes:
-      - ./infra/loki-config.yaml:/etc/loki/local-config.yaml
-      - ./.loki-data:/loki
+      - ${MITZO_OBSERVABILITY_CONFIG_DIR:-./infra}/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki:Z
     command: -config.file=/etc/loki/local-config.yaml
 
   grafana:
+    container_name: mitzo-grafana-persistent
     image: grafana/grafana:13.2.2
     restart: always
     ports:
       - '3002:3000'
     environment:
+      # Keep the qualified legacy query API until the plugin's v3 boolean decoding is fixed.
+      GF_FEATURE_TOGGLES_ENABLE: ''
+      GF_PLUGINS_PREINSTALL_SYNC: jaeger@13.0.8,loki@13.2.5
+      GF_PLUGINS_PREINSTALL_AUTO_UPDATE: 'false'
       GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
     volumes:
-      - ./infra/grafana/provisioning:/etc/grafana/provisioning
-      - ./.grafana-data:/var/lib/grafana
-    depends_on:
-      - loki
-      - jaeger
+      - ${MITZO_OBSERVABILITY_CONFIG_DIR:-./infra}/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana:Z
 
   # Experiment tracking for knowledge space V-learning and prompt tuning.
   # Uses SQLite backend (single-writer, adequate for local dev).
   mlflow:
+    container_name: mitzo-mlflow-persistent
     image: ghcr.io/mlflow/mlflow:v2.22.0
     restart: always
     ports:
@@ -55,8 +65,33 @@ services:
       - --host
       - '0.0.0.0'
       - --backend-store-uri
-      - sqlite:///mlflow/mlflow.db
-      - --default-artifact-root
+      - sqlite:////mlflow/mlflow.db
+      - --workers
+      - '1'
+      - --serve-artifacts
+      - --artifacts-destination
       - /mlflow/artifacts
+      - --default-artifact-root
+      - mlflow-artifacts:/
     volumes:
-      - ./.mlflow-data:/mlflow
+      - mlflow-data:/mlflow:Z
+
+# Explicit external volumes are never owned by a disposable release or compose down.
+volumes:
+  jaeger-data:
+    external: true
+    name: mitzo-jaeger-data
+  loki-data:
+    external: true
+    name: mitzo-loki-data
+  grafana-data:
+    external: true
+    name: mitzo-grafana-data
+  mlflow-data:
+    external: true
+    name: mitzo-mlflow-data
+
+networks:
+  default:
+    external: true
+    name: mitzo-observability
