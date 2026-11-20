@@ -8,10 +8,12 @@ import { OpenShellRuntimeManager } from './openshell-runtime.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
 import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import type { ClaudeSubscriptionCustodySnapshot } from '@mitzo/protocol';
 import {
   captureClaudeSdkCredentials,
   verifyClaudeSdkCredentials,
 } from './claude-sdk-credentials.js';
+import { ClaudeSubscriptionCustody } from './claude-subscription-custody.js';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
 import {
   readPrivateRuntimeSettings,
@@ -44,6 +46,7 @@ async function credentialDigest(
   selection: OrdinaryRepositoryRuntimeSelection,
   signal: AbortSignal,
   legacyNative?: Awaited<ReturnType<OrdinaryLocalCodexHostRuntime['legacyObservation']>>,
+  legacyClaudeExecutable?: ClaudeSubscriptionCustodySnapshot['executable'],
 ) {
   const profiles = loadAccountProfiles();
   const source = process.env.MITZO_ACCOUNT_PROFILES_FILE
@@ -62,7 +65,16 @@ async function credentialDigest(
     );
     const personal = captureClaudeSdkCredentials(env);
     await verifyClaudeSdkCredentials(personal, env, signal);
-    credential = personal.snapshot();
+    // The SDK binary is execution authority installed per release, not credential
+    // identity (as for local Codex below); it is checked when the SDK launches.
+    // Earlier releases digested it, so a retained proof is reproduced only from
+    // its own conversation's stored executable, never from caller input.
+    credential =
+      personal instanceof ClaudeSubscriptionCustody
+        ? legacyClaudeExecutable
+          ? { ...personal.accountIdentity(), executable: legacyClaudeExecutable }
+          : personal.accountIdentity()
+        : personal.snapshot();
   } else if (binding.provider === 'anthropic-vertex' || binding.provider === 'google-vertex') {
     const env =
       binding.provider === 'anthropic-vertex'
@@ -342,6 +354,38 @@ export async function assertOrdinaryRepositoryPreparation(
         signal,
         native,
       ));
+  }
+  if (
+    !sameCredential &&
+    continuation &&
+    saved.originalBinding.provider === 'anthropic-claude' &&
+    saved.runtimeBinding.harness.implementation === 'claude-sdk' &&
+    saved.credentialDigestVersion === undefined
+  ) {
+    // A proof from an earlier release also digested that release's SDK binary.
+    // Its conversation retained the same executable identity at admission;
+    // the account, plan and config root must still reproduce the exact digest.
+    const { eventStore } = await import('./chat.js');
+    const retained = eventStore.getOrdinaryLocalVertexCustody(
+      continuation.conversationId,
+    )?.credentialAuthority;
+    if (retained && 'kind' in retained && retained.kind === 'claude-host-login')
+      sameCredential =
+        saved.credentialDigest ===
+        (await credentialDigest(
+          binding,
+          {
+            runOn: 'local',
+            runtime: {
+              account: saved.runtimeBinding.account,
+              harness: 'claude-sdk',
+              targetId: saved.runtimeBinding.execution.targetId,
+            },
+          },
+          signal,
+          undefined,
+          retained.executable,
+        ));
   }
   if (
     !sameRuntime ||
