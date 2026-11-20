@@ -18,7 +18,7 @@ services:
       - ./.jaeger-data:/badger
 
   loki:
-    image: grafana/loki:3.4.2
+    image: grafana/loki:3.7.8
     restart: always
     ports:
       - '3200:3100' # 3200 externally — 3100 conflicts with Mitzo server
