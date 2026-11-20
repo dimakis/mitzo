@@ -1009,7 +1009,37 @@ it('does not record creation for an existing chat it only opened', async () => {
   await store.getState().switchSession('existing-session');
   channel.listener({ type: 'session_id', sessionId: 'existing-session' });
   expect(store.getState().sessions.active).toBe('existing-session');
-  expect(store.getState().startedSessionIds).toEqual([]);
+  expect(store.getState().startedSession).toBeNull();
+});
+
+it('retires the creation record once another chat is selected, so a reopen keeps the history gate', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live-sse';
+  fetch.mockImplementation((path) =>
+    Promise.resolve(
+      path === '/local/send'
+        ? new Response(
+            JSON.stringify({
+              ok: true,
+              clientMsgId: request.clientMsgId,
+              sessionId: 'owned-session',
+              dispatched: true,
+              state: 'consumed',
+            }),
+            { status: 202 },
+          )
+        : new Response('[]'),
+    ),
+  );
+  const assigned = vi.fn();
+  store.getState().sendLocalFirstCommand(request, { onSessionAssigned: assigned });
+  await vi.waitFor(() => expect(assigned).toHaveBeenCalledWith('owned-session'));
+  await store.getState().switchSession('owned-session');
+  expect(store.getState().startedSession).toEqual({ id: 'owned-session', shown: true });
+  await store.getState().switchSession('other-session');
+  expect(store.getState().startedSession).toBeNull();
+  await store.getState().switchSession('owned-session');
+  expect(store.getState().startedSession).toBeNull();
 });
 
 it('keeps validated202 uncertain delivery recoverable despite its persisted SSE echo', async () => {
@@ -1033,13 +1063,13 @@ it('keeps validated202 uncertain delivery recoverable despite its persisted SSE 
   );
   const assigned = vi.fn();
   const delivered = vi.fn();
-  expect(store.getState().startedSessionIds).toEqual([]);
+  expect(store.getState().startedSession).toBeNull();
   store
     .getState()
     .sendLocalFirstCommand(request, { onSessionAssigned: assigned, onDelivery: delivered });
   await vi.waitFor(() => expect(assigned).toHaveBeenCalledWith('owned-session'));
   // A send without a session records explicit creation for presentation gates.
-  expect(store.getState().startedSessionIds).toEqual(['owned-session']);
+  expect(store.getState().startedSession?.id).toBe('owned-session');
   channel.listener({
     type: 'session_id',
     sessionId: 'owned-session',

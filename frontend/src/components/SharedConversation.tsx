@@ -88,8 +88,7 @@ export function OrdinarySharedConversationHost({
   const startedHere = useMitzoStore(
     (s) =>
       !!sourceConversationId &&
-      (s.startedSessionIds as readonly string[] | undefined)?.includes(sourceConversationId) ===
-        true,
+      (s.startedSession as { id: string } | null | undefined)?.id === sourceConversationId,
   );
   const [authScope, setAuthScope] = useState<string>();
   useEffect(() => {
