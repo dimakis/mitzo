@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -46,6 +46,31 @@ function makeLogger(module: string, dest: pino.DestinationStream) {
     error: (message: string, ctx?: Record<string, unknown>) => child.error(ctx ?? {}, message),
   };
 }
+
+it('keeps Loki delivery failures visible instead of silently dropping diagnostics', () => {
+  const previous = process.env.LOKI_HOST;
+  process.env.LOKI_HOST = 'http://127.0.0.1:3200';
+  const stopped = new Error('captured transport options');
+  const transport = vi.spyOn(pino, 'transport').mockImplementation(() => {
+    throw stopped;
+  });
+  try {
+    expect(() => _buildLogger()).toThrow(stopped);
+    const options = transport.mock.calls[0][0];
+    expect(options).toMatchObject({
+      targets: expect.arrayContaining([
+        expect.objectContaining({
+          target: 'pino-loki',
+          options: expect.objectContaining({ silenceErrors: false }),
+        }),
+      ]),
+    });
+  } finally {
+    transport.mockRestore();
+    if (previous === undefined) delete process.env.LOKI_HOST;
+    else process.env.LOKI_HOST = previous;
+  }
+});
 
 describe('createLogger', () => {
   it('returns an object with debug, info, warn, error methods', () => {
