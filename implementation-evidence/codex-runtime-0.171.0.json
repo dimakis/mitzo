@@ -4,6 +4,13 @@
   "verifiedOn": "2026-11-20",
   "platform": "aarch64-apple-darwin",
   "executableSha256": "fc8d77cf7585aded2b9bc487dad29c4ee2f066123e4e76dd3b17653a8322ce42",
+  "executableBytes": 298198944,
+  "nativeInspection": {
+    "previousLimitBytes": 268435456,
+    "limitBytes": 402653184,
+    "maxReadBytes": 1048576,
+    "officialArtifactMeasurementMatches": true
+  },
   "npmMatchesOfficialRelease": true,
   "account": "empty isolated CODEX_HOME; no login",
   "providerTurnsStarted": 0,

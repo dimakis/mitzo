@@ -3960,7 +3960,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-bootstrap.ts':
     'ed0477cf4adc35152ce05806f3719cac833c87112e8b25c80852432fe47785a9',
   '../frozen-host-codex-executable.ts':
-    'ef3c54f4d877eb7fb9af2beee771f5379364c6ccb5d5656ac61d354d3fa0cfc9',
+    'a5b37e198fb61904b3f8e022dd7578f8bbc48ad90db815f303c9ea0249fd19a4',
+  '../__tests__/frozen-host-codex-executable.test.ts':
+    'f0a39ef956121f6a1b9d62a795c7566fbf37971fac8cca9c9adef5b58759b6f3',
   '../frozen-host-codex-login.ts':
     '6562107dbbf053f9b286dc2abf06603da9fae5973acc40d0012d7955a4a5d4f1',
   '../fusion-admission.ts': '1dbc1594e04d4abfd8c05440e738faf0bfdbae453da70c79b882d674c09e6ee4',
@@ -4261,7 +4263,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-entry.ts':
     '034b597c823da05856dd21d296d8afbe0999e1d6857813ac63a3eeaa239f0bd7',
   '../ordinary-local-codex-host-runtime.ts':
-    '27c89f96f4e59663b4322b013acd6ef528bdb981b55b6b37d5029658b0014a26',
+    '7a5fccf9060032b4330d90e1fbd0a9deeaeb11660d3ab4f855feb8d2febf2c28',
   '../ordinary-local-codex-metadata.ts':
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-local-codex-owned-runtime.ts':

@@ -22,7 +22,10 @@ import {
   HostCodexExecutableCustodySchema,
   type HostCodexExecutableCustody,
 } from './host-codex-custody.js';
-const unavailable = () => new Error('Host Codex runtime unavailable');
+const unavailable = (cause?: unknown) => new Error('Host Codex runtime unavailable', { cause });
+// The checksum-qualified 0.171.0 macOS executable exceeds the old 256 MiB cap.
+// Streaming remains bounded to 1 MiB; this is a file-size ceiling, not an allocation.
+const MAX_NATIVE_EXECUTABLE_BYTES = 384n * 1024n * 1024n;
 const fields = ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs', 'uid', 'mode', 'nlink'] as const;
 type Metadata = Pick<BigIntStats, (typeof fields)[number]>;
 type Identity = Metadata & { sha256: string };
@@ -85,13 +88,12 @@ function assertPlacement(path: string, shared?: SharedPlacement, privateHome?: s
 function metadata(path: string): Metadata {
   canonical(path);
   const stat = lstatSync(path, { bigint: true });
-  if (
-    !stat.isFile() ||
-    stat.nlink !== 1n ||
-    stat.size > 256n * 1024n * 1024n ||
-    stat.mode & 0o022n ||
-    !(stat.mode & 0o111n)
-  )
+  if (stat.size > MAX_NATIVE_EXECUTABLE_BYTES)
+    throw Object.assign(unavailable(), {
+      code: 'native_executable_size_limit',
+      stage: 'native_metadata',
+    });
+  if (!stat.isFile() || stat.nlink !== 1n || stat.mode & 0o022n || !(stat.mode & 0o111n))
     throw unavailable();
   return Object.fromEntries(fields.map((key) => [key, stat[key]])) as Metadata;
 }
@@ -106,7 +108,7 @@ function inspect(path: string, destination?: number): Identity {
     // Every measurement still streams and hashes fresh bytes. A bounded larger
     // chunk reduces synchronous read/write calls for real native artifacts,
     // without retaining byte evidence across qualifications or enlarging the
-    // 256 MiB file bound. Tiny fixtures allocate only their own byte length.
+    // 384 MiB file bound. Tiny fixtures allocate only their own byte length.
     const hash = createHash('sha256'),
       chunk = Buffer.allocUnsafe(Math.min(Number(before.size), 1024 * 1024));
     let length = 0;
@@ -169,8 +171,8 @@ export function measureHostCodexExecutable(source: string): {
         }
       },
     };
-  } catch {
-    throw unavailable();
+  } catch (cause) {
+    throw unavailable(cause);
   }
 }
 /** Pins native bytes in a private owned code directory. Streamed/effect boundaries

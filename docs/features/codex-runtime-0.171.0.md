@@ -17,6 +17,16 @@ with an empty isolated home and compared byte for byte with the previous fixture
 none changed. The fixture, exact-artifact gate and CI downloader now select the
 same new executable. No credentials or production configuration were used.
 
+The official executable is 298,198,944 bytes, exceeding the former 256 MiB
+native-custody ceiling. The inspector now admits files up to 384 MiB while still
+streaming at most 1 MiB per read and checking every byte, inode, link count,
+ownership and mutation fence. A 300 MiB sparse Mach-O fixture verifies complete
+hashing; an oversized file is rejected before streaming with a retained
+`native_executable_size_limit` cause behind the sanitized runtime error. The
+actual official executable now measures to its expected SHA-256 through this
+same inspector. This reproduces and repairs the joined workflows' shared startup
+rejection, without claiming that every later workflow stage has passed.
+
 Upstream `arg0/src/lib.rs` now places helpers in the OS-specific
 `CODEX_HOME/tmp/arg0-macos` directory. The kernel qualifier inspects that actual
 location while retaining the same helper-execution and credential-denial checks.
