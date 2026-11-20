@@ -17,8 +17,10 @@ function retained(id: string | null): Correction | null {
   return Request.parse(JSON.parse(raw));
 }
 /** Bounded re-reads of a server-retained `uncertain` receipt before asking the
- * operator to check it manually. */
-export const RECEIPT_RECHECK_DELAYS_MS = [1000, 2000, 4000] as const;
+ * operator to check it manually. The server already waits for the provider echo
+ * after stdin release; these cover a late echo while keeping the unconfirmed
+ * state visible within a few seconds. */
+export const RECEIPT_RECHECK_DELAYS_MS = [500, 1000, 1500] as const;
 async function checkReceipt(
   sessionId: string,
   input: Correction,

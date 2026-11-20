@@ -300,7 +300,7 @@ it('re-checks a server-retained uncertain screenshot correction until its receip
   expect(hook.result.current.busy).toBe(true);
   expect(hook.result.current.error).toBe('');
   expect(delivery).not.toHaveBeenCalled();
-  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  await act(async () => vi.advanceTimersByTimeAsync(500));
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toBe(bodies[0]);
   expect(delivery).toHaveBeenCalledExactlyOnceWith('accepted');
@@ -321,7 +321,7 @@ it('reports an unconfirmed correction only after bounded re-checks of a still-un
   const hook = renderHook(() => useTurnSteering('pending-chat', 'turn', true));
   await act(async () => {
     hook.result.current.submit('Correction', delivery);
-    await vi.advanceTimersByTimeAsync(6999);
+    await vi.advanceTimersByTimeAsync(2999);
   });
   expect(hook.result.current.busy).toBe(true);
   expect(apiFetch).toHaveBeenCalledTimes(3);

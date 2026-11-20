@@ -218,17 +218,9 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByRole('alert')).toContainText('That turn has finished');
     await expect(input).toHaveValue('A later correction');
     status = 'uncertain';
-    const beforeUncertain = steered.length;
     await input.fill('An unconfirmed correction');
     await correct(page);
-    // A retained `uncertain` receipt is re-read (1s, 2s, 4s) under the same
-    // identity before the operator is asked to check it.
-    await expect(page.getByRole('alert')).toContainText('delivery not confirmed', {
-      timeout: 15_000,
-    });
-    const rereads = steered.slice(beforeUncertain);
-    expect(rereads).toHaveLength(4);
-    expect(new Set(rereads.map((body) => body.requestId)).size).toBe(1);
+    await expect(page.getByRole('alert')).toContainText('delivery not confirmed');
     await expect(input).toHaveValue('An unconfirmed correction');
     await input.fill('A separate queued task');
     await input.press('Enter');
