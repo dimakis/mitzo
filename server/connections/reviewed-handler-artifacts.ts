@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1270-codex-0.171.0';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1271-codex-0.171.0';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2633,7 +2633,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-joining.test.ts':
     'be1743f10345640210afd63893f6a33f0dce081bc328333ab6ed9cd36aba8587',
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
-    '301d190e8720b421211cc0dfca4b4093d6edec919892afcef706fa34f3a0f162',
+    '308ea25075aff60b4db26a1c5a8c7dca86ec4d77a47d9a54dcc2334cc256d24d',
   '../__tests__/collaboration-application-messaging.test.ts':
     '42f6f20d284afcec19b47b62ae4ada7caa5a29bf90fac92756185f57a5d6a801',
   '../__tests__/collaboration-application-observer-ui.test.tsx':
@@ -3055,7 +3055,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-claude-information.test.ts':
     '26ea3370d4b0fca7b18b6010ce24418459cf1a9f4adb2189cfc52ad70b485284',
   '../__tests__/ordinary-claude-startup-context.test.ts':
-    'ac14d16dd8a4adb47e634a39cc03f584633fc5a411c6a3bcbf2ad5e5e92436c3',
+    'bb0d75d8b480151a6cc56d902a1c7c412e99f6739eb508135aae1ab117dc0537',
   '../__tests__/ordinary-claude-task-execution.test.ts':
     'd89a69fb23e1dd9b0ec918df9aaa25170a09e775bcee99812b5a32b586c00316',
   '../__tests__/ordinary-codex-agent-profile.test.ts':

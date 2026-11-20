@@ -14,6 +14,26 @@
   "npmMatchesOfficialRelease": true,
   "account": "empty isolated CODEX_HOME; no login",
   "providerTurnsStarted": 0,
+  "ciFixtureTiming": {
+    "run": 44830273427,
+    "webSearchContractShard": "passed",
+    "nativeAuthorizationAndJoinedAcceptance": "passed",
+    "startupContextCaseMs": 1784.213962,
+    "incidentalStartupPollingDeadlineMs": 1000,
+    "recoveryCaseTimeoutMs": 5000,
+    "recoveryCaseObservedMs": 5218.541921,
+    "changes": [
+      "Startup concurrency cases await the fixture reconciliation event within their existing whole-case budget and settle pending admission before teardown.",
+      "The complete retained-reply recovery case keeps all 55 sends and visibility checks within an explicit 20000 ms budget."
+    ],
+    "focusedChecks": "95 passed locally; fresh CI required",
+    "existingFixtureTeardownDiagnostic": {
+      "code": "claude_child_cleanup_failed",
+      "cause": "EventStore closed before a startup-status fixture query loop finished",
+      "observedBeforeAndAfterChanges": true,
+      "nextAction": "Follow up in the startup-status fixture by awaiting query-loop completion before closing its EventStore; no production cause is claimed."
+    }
+  },
   "catalogNote": "Requested model entries retained from offline model/list; other catalog entries omitted. Bundled support does not establish account entitlement.",
   "catalog": {
     "data": [
