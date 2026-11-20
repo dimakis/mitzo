@@ -827,6 +827,18 @@ it.each([false, true])(
     expect(missingFields).toContain('requestId: must be string.');
     expect(missingFields).toContain('reportsToMembershipId: must be string.');
     expect(missingFields).not.toContain('operation: must be one of read');
+    // A bad value in another field must not invalidate the discriminator: the
+    // link branch names the rejected role and the absent fields instead of
+    // asking to change the operation the caller already chose.
+    const badRole = denyMessage('mcp__telos__TelosManageTeam', {
+      operation: 'link',
+      itemId: 'studio',
+      role: 'sentinel-not-a-role',
+    });
+    expect(badRole).toContain('role: must be one of');
+    expect(badRole).toContain('requestId: must be string.');
+    expect(badRole).not.toContain('operation: must be one of read');
+    expect(badRole).not.toContain('sentinel-not-a-role');
     f.session.activeSkillPolicy = new Set(['Read']);
     expect(
       denyMessage('mcp__telos__TelosManageItem', { operation: 'read', itemId: 'studio' }),

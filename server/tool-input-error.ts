@@ -72,6 +72,44 @@ function consistency(schema: Schema, supplied: Record<string, unknown>): BranchF
   return branches.includes('accepts') ? 'accepts' : 'unknown';
 }
 
+/** Values a branch permits for a field, including its nested union branches. */
+function pinnedValues(schema: Schema, field: string, values = new Set<unknown>()): Set<unknown> {
+  const node = schema.properties?.[field];
+  if (node?.const !== undefined) values.add(node.const);
+  for (const value of node?.enum ?? []) values.add(value);
+  for (const branch of unionBranches(schema) ?? []) pinnedValues(branch, field, values);
+  return values;
+}
+
+/** Branches the caller's discriminator names. Every branch must pin the same
+ * field to disjoint values, so the supplied value selects at most one branch;
+ * other fields are irrelevant here because a bad role or a missing requestId
+ * must not send the caller to a different operation. */
+function discriminatorBranches(
+  branches: Schema[],
+  supplied: Record<string, unknown>,
+): number[] | undefined {
+  const names = new Set<string>();
+  for (const branch of branches) for (const name of declaredFields(branch)) names.add(name);
+  for (const name of names) {
+    if (!Object.hasOwn(supplied, name)) continue;
+    const allowed = branches.map((branch) => pinnedValues(branch, name));
+    if (allowed.some((values) => values.size === 0)) continue;
+    const seen = new Set<unknown>();
+    const disjoint = allowed.every((values) => {
+      const overlap = [...values].some((value) => seen.has(value));
+      for (const value of values) seen.add(value);
+      return !overlap;
+    });
+    if (!disjoint) continue;
+    const matched = allowed
+      .map((values, index) => (values.has(supplied[name]) ? index : -1))
+      .filter((index) => index >= 0);
+    if (matched.length) return matched;
+  }
+  return undefined;
+}
+
 /** Branch indexes that could have produced the caller's payload. Counting issues
  * alone would recommend changing a valid discriminator: the read form of
  * TelosManageTeam reports one error, so a link payload with missing fields used
@@ -79,6 +117,8 @@ function consistency(schema: Schema, supplied: Record<string, unknown>): BranchF
 function consistentBranches(branches: Schema[] | undefined, input: unknown): number[] {
   if (!branches || !input || typeof input !== 'object') return [];
   const supplied = input as Record<string, unknown>;
+  const discriminated = discriminatorBranches(branches, supplied);
+  if (discriminated) return discriminated;
   const judged = branches.map((branch, index) => ({
     index,
     state: consistency(branch, supplied),
