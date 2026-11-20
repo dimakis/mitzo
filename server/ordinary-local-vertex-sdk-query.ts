@@ -329,6 +329,8 @@ export function createOrdinaryLocalVertexSdkQuery<
         >)
     | undefined;
   mcpServers?(state: SdkCallbackState): Options['mcpServers'];
+  /** Stop decided this turn's outcome; its result is never held for a steer. */
+  stopping?(): boolean;
 }) {
   let input = owners.input;
   let hasHistory = !!owners.options.resume;
@@ -554,8 +556,11 @@ export function createOrdinaryLocalVertexSdkQuery<
       try {
         const steerState = states.get(run)!;
         const stream = holdResultForLateSteer(owners.adapt(run), {
+          // After Stop the CLI runs a queued steer as a follow-up turn right
+          // after the interrupted result. Stop owns this command's outcome, so
+          // that result settles it instead of waiting for the follow-up.
           hold: () =>
-            steerState.retired || steerState.completing
+            steerState.retired || steerState.completing || owners.stopping?.()
               ? undefined
               : owners.peerMessages?.()?.holdTurnForLateEcho?.(steerState),
           awaiting: () => !!owners.peerMessages?.()?.awaitingLateEcho?.(steerState),
