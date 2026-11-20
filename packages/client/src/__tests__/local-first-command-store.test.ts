@@ -1002,6 +1002,16 @@ it.each([true, false])(
   },
 );
 
+it('does not record creation for an existing chat it only opened', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live-sse';
+  fetch.mockImplementation(() => Promise.resolve(new Response('[]')));
+  await store.getState().switchSession('existing-session');
+  channel.listener({ type: 'session_id', sessionId: 'existing-session' });
+  expect(store.getState().sessions.active).toBe('existing-session');
+  expect(store.getState().startedSessionIds).toEqual([]);
+});
+
 it('keeps validated202 uncertain delivery recoverable despite its persisted SSE echo', async () => {
   const { store, fetch, readStorage } = setup();
   channel.id = 'live-sse';
@@ -1023,10 +1033,13 @@ it('keeps validated202 uncertain delivery recoverable despite its persisted SSE 
   );
   const assigned = vi.fn();
   const delivered = vi.fn();
+  expect(store.getState().startedSessionIds).toEqual([]);
   store
     .getState()
     .sendLocalFirstCommand(request, { onSessionAssigned: assigned, onDelivery: delivered });
   await vi.waitFor(() => expect(assigned).toHaveBeenCalledWith('owned-session'));
+  // A send without a session records explicit creation for presentation gates.
+  expect(store.getState().startedSessionIds).toEqual(['owned-session']);
   channel.listener({
     type: 'session_id',
     sessionId: 'owned-session',

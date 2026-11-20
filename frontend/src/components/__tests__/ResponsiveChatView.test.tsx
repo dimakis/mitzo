@@ -31,6 +31,7 @@ vi.mock('@mitzo/client/hooks', () => ({
       chatDraftRevision: 0,
       messages: { messages: [], running: false },
       connection: null,
+      startedSessionIds: [],
     }),
 }));
 vi.mock('../../lib/api-fetch', async (importOriginal) => ({

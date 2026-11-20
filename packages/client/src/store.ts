@@ -167,6 +167,11 @@ export interface MitzoStoreState {
   // Pending session (for "Start Session" from inbox/todo)
   pendingSession: PendingSession | null;
   pendingSessionSending: boolean;
+  /**
+   * Sessions this client created by sending without a session (a new chat),
+   * most recent last. Presentation only; grants no delivery or history authority.
+   */
+  startedSessionIds: readonly string[];
   chatDraftRevision: number;
   /** Active-session queue metadata invalidation; contains no message content. */
   queueRevision: number;
@@ -1399,6 +1404,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     modeChangeReady: true,
     pendingSession: null,
     pendingSessionSending: false,
+    startedSessionIds: [],
     chatDraftRevision: 0,
     queueRevision: 0,
     sessionMetadataRevision: 0,
@@ -2186,6 +2192,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         deliveryOrigin.sessionId === parserState.currentSessionId &&
         deliveryOrigin.historyRequest === historyRequest &&
         deliveryOrigin.launchGeneration === launchGeneration;
+    // A send made without a session created this one here; record that
+    // explicitly rather than inferring creation from a view's id transition.
+    if (origin) {
+      const started = store.getState().startedSessionIds;
+      if (!started.includes(sessionId))
+        store.setState({ startedSessionIds: [...started, sessionId].slice(-16) });
+    }
     // HTTP delivery can precede session_id. Retain the draft identity until that event.
     if (consume) unassignedDeliveries.delete(id);
     if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);

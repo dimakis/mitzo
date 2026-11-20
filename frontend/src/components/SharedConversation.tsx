@@ -83,6 +83,14 @@ export function OrdinarySharedConversationHost({
   children: ReactNode;
 }) {
   const clientId = useMitzoStore((s) => s.connection?.clientId) ?? undefined;
+  // Absent creation evidence (including partial store projections) keeps the
+  // history gate closed.
+  const startedHere = useMitzoStore(
+    (s) =>
+      !!sourceConversationId &&
+      (s.startedSessionIds as readonly string[] | undefined)?.includes(sourceConversationId) ===
+        true,
+  );
   const [authScope, setAuthScope] = useState<string>();
   useEffect(() => {
     if (!clientId) return;
@@ -105,6 +113,7 @@ export function OrdinarySharedConversationHost({
       clientId={clientId}
       authScope={authScope}
       getVerifiedAuthScope={currentVerifiedAuthSessionId}
+      startedHere={startedHere}
     >
       {children}
     </SharedConversationHost>
@@ -123,12 +132,15 @@ function useSharedConversation({
   clientId,
   authScope,
   getVerifiedAuthScope,
+  startedHere = false,
 }: {
   sourceConversationId: string;
   api: MitzoApiClient;
   clientId?: string;
   authScope?: string;
   getVerifiedAuthScope(): string | undefined;
+  /** This client created the source conversation by sending from a new chat. */
+  startedHere?: boolean;
 }) {
   const owner = useMemo(
     () => ({ api, sourceConversationId, clientId, authScope }),
@@ -145,22 +157,12 @@ function useSharedConversation({
     },
     [sourceConversationId],
   );
-  // A chat this view started is assigned in place (draft '' → new id). Its
-  // collaboration setup is refused until the session row persists, but it cannot
-  // already be part of a discussion, so its own transcript stays visible meanwhile.
-  const [sourceTrack, setSourceTrack] = useState<{ source: string; startedInView?: string }>({
-    source: sourceConversationId,
-  });
-  if (sourceTrack.source !== sourceConversationId)
-    setSourceTrack({
-      source: sourceConversationId,
-      startedInView: sourceTrack.source === '' ? sourceConversationId : undefined,
-    });
-  const startedInView =
-    !!sourceConversationId &&
-    (sourceTrack.source === sourceConversationId
-      ? sourceTrack.startedInView === sourceConversationId
-      : sourceTrack.source === '');
+  // A chat this client just created has its collaboration setup refused until
+  // the session row persists, but it cannot already be part of a discussion, so
+  // its own transcript stays visible meanwhile. Creation is the store's explicit
+  // record of a send without a session, never inferred from an id transition:
+  // opening an existing chat from an empty view must keep the history gate.
+  const startedInView = !!sourceConversationId && startedHere;
   const [associationState, setAssociation] = useState<{
     owner: object;
     group?: string;

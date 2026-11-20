@@ -21,7 +21,10 @@ import { ChatInput } from '../ChatInput';
 import { installDialogStub } from './dialog-stub';
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 
-const ordinary = vi.hoisted(() => ({ connection: null as null | { clientId: string } }));
+const ordinary = vi.hoisted(() => ({
+  connection: null as null | { clientId: string },
+  startedSessionIds: [] as string[],
+}));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: unknown) => unknown) => select(ordinary),
 }));
