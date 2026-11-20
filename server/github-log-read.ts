@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { stripVTControlCharacters } from 'node:util';
+import { terminalOutputText } from './terminal-output-text.js';
 
 /** Plain job logs only: run-log endpoints return archives, not text. */
 export const GithubLogReadSchema = z.strictObject({
@@ -103,7 +103,7 @@ export function describeGithubLogTransportFailure(failure: GithubLogTransportFai
 /** Offsets count UTF-16 characters in the optionally filtered text. Returning
  * the continuation explicitly prevents a bounded excerpt looking complete. */
 export function githubLogPage(body: string, options: GithubLogRead) {
-  const plain = stripVTControlCharacters(body);
+  const plain = terminalOutputText(body);
   const text = options.query
     ? plain
         .split(/\r?\n/)

@@ -77,7 +77,11 @@ it('accepts CLI escape-bearing logs only into the bounded sanitizer, never into 
     if (!args.includes('--allow-escape-sequences')) {
       callback(Object.assign(Error('refused terminal escape sequences'), { code: 1 }), '', '');
     } else {
-      callback(null, '\u001b[31mFAIL native test\u001b[0m\n', '');
+      callback(
+        null,
+        '\u001b]8;;https://example.invalid/hidden+a\u0007\u001b[31mFAIL native test\u001b[0m\u001b]8;;\u0007\n',
+        '',
+      );
     }
     return {};
   });

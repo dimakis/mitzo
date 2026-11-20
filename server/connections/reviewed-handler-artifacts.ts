@@ -22,6 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../terminal-output-text.ts': '0c6807fa18211ff56299ea80c211d3c536c8b5b7e003b331deba978dc00ac537',
   '../host-github-credential.ts':
     '4caa2e872d96736951a5153224b8c0b52441e6c8e22f7064f8eaa1057953c1ba',
   '../__tests__/host-github-credential.test.ts':
@@ -2501,7 +2502,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-coordination-tools.test.ts':
     '94a06cb6a8d6349b2730193c5e7c0233dfc3edb1c315dd43976658838b32f372',
   '../__tests__/claude-login-process.test.ts':
-    '8491548c1254c90f448098979f1494473278433ab0f77558ca7a41b0a998a150',
+    '64b4259001004fc48f31f0f0af27b812dca8fc93fa75f562f82cbfdc9657f9bd',
   '../__tests__/claude-login-sandbox.native.test.ts':
     '6a2b3e5f5f31b04a1c1565410553eda5ab2e273173d189b4fcf92f88b0324384',
   '../__tests__/claude-login-supervisor.test.ts':
@@ -2827,7 +2828,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/github-host-source.test.ts':
     'b0e081ef2256587623e599c46cb132c5df33f7b7228815078274462ee2dd8ba6',
   '../__tests__/github-log-read.test.ts':
-    '9f11a96858d812933db7d6a3e4ca86be006e8e85aad1df0505142d1d133347a7',
+    '2bcc8b7c43fa8850b696f6914cc1c7665a5eafc4308905cb43ccd3f50bf1e792',
   '../__tests__/github-native-read-projection.test.ts':
     '4adc02fcc60fd9af5d9d39770d6e2175a96a89a5d3cac7a321d73517c7c15a25',
   '../__tests__/github-publication-preflight.test.ts':
@@ -3662,7 +3663,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/trusted-native-operation-partial.test.ts':
     '3b6bb301cba2a336dc94b61b910ff9232ef19c253e45e911c6b09d84eab96e79',
   '../__tests__/trusted-native-operation.test.ts':
-    '4854a429ff31d3654f474a04000e8973cea5cbc200745fb609d2d423beff6463',
+    '32b169de2f731b1d1d08eea85bdb252e92521a2df491c9a6829495cec18307e5',
   '../__tests__/turn-callbacks.test.ts':
     '9bd9467485be14c6d6d0a46875e8442f9727139357c8c731afd6485e4a4b4205',
   '../__tests__/unified-inbox-routes.test.ts':
@@ -3774,7 +3775,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-account-store.ts': '99d6054f487411d9a208613a0c5d0733bd29669151dffe5cb15fb5aa6da9cbd6',
   '../claude-child-diagnostics.ts':
     'feb3b816e40224e5c1b96483b96b08a9c793c39cbd0d6d20a7c6ec8fed862ec1',
-  '../claude-login-process.ts': '1725836e78f7d6bdce955c40f559c07f3ca5f20ad973527ee3819562580a07be',
+  '../claude-login-process.ts': 'ef2e7682ce50b1fa9a53b415f18ab63be862154f4d64f8bdea469545ed6346ee',
   '../claude-login-supervisor.cjs':
     '14b9ae4e9f2fbbf279140e4024e0d15a473b74e2eaf9cd89148d301c13c858c9',
   '../claude-message-retractions.ts':
@@ -3966,7 +3967,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../git-version.ts': '405110af784b38f664fa6165bc83da008aae9de92410395d22a031c6c6b4d220',
   '../github-host-source.ts': 'cd0468ec4645d6aacd91b59c70ee5957e4d40e154851af3a569638e3e6083390',
-  '../github-log-read.ts': '35828d3c588b85ad2a235a91215ae349c29994c6a0ac95f40cebaa815577f453',
+  '../github-log-read.ts': 'f3746df33df768781b81079d02bf715b4d080aa4c3b58ff3c92a08c9aac4d19c',
   '../github-main-merge-selection.ts':
     '984cd9a21ee5b40cbe33a27ce732f7a99ee9c9c8593aef0f675121b054fb316e',
   '../github-main-publication-dispatch.ts':
