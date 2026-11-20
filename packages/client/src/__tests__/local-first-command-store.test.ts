@@ -1012,6 +1012,39 @@ it('does not record creation for an existing chat it only opened', async () => {
   expect(store.getState().startedSession).toBeNull();
 });
 
+it('does not record creation for an assignment that arrives after a new chat was started', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live-sse';
+  let complete!: (response: Response) => void;
+  fetch.mockImplementation((path) =>
+    path === '/local/send'
+      ? new Promise<Response>((resolve) => {
+          complete = resolve;
+        })
+      : Promise.resolve(new Response('[]')),
+  );
+  const assigned = vi.fn();
+  store.getState().sendLocalFirstCommand(request, { onSessionAssigned: assigned });
+  await vi.waitFor(() => expect(complete).toBeDefined());
+  store.getState().newSession();
+  complete(
+    new Response(
+      JSON.stringify({
+        ok: true,
+        clientMsgId: request.clientMsgId,
+        sessionId: 'owned-session',
+        dispatched: true,
+        state: 'consumed',
+      }),
+      { status: 202 },
+    ),
+  );
+  await vi.waitFor(() => expect(assigned).toHaveBeenCalledWith('owned-session'));
+  expect(store.getState().startedSession).toBeNull();
+  await store.getState().switchSession('owned-session');
+  expect(store.getState().startedSession).toBeNull();
+});
+
 it('retires the creation record once another chat is selected, so a reopen keeps the history gate', async () => {
   const { store, fetch } = setup();
   channel.id = 'live-sse';

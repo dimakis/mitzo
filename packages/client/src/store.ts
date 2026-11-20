@@ -1580,7 +1580,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       localCommandScope = null;
       visibleLocalCommandId = undefined;
       ++launchGeneration;
-      set({ pendingSession: null, pendingSessionSending: false });
+      // A new chat ends any earlier startup view, shown or not.
+      set({ pendingSession: null, pendingSessionSending: false, startedSession: null });
       unconfirmedPermissionResponses.clear();
       ++historyRequest;
       recoveryInFlight = false;
@@ -2207,7 +2208,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         deliveryOrigin.launchGeneration === launchGeneration;
     // A send made without a session created this one here; record that
     // explicitly rather than inferring creation from a view's id transition.
-    if (origin && store.getState().startedSession?.id !== sessionId)
+    // Only the original foreground launch qualifies: an assignment arriving
+    // after navigation (new chat, other conversation) is not this view's start.
+    if (origin && foreground && store.getState().startedSession?.id !== sessionId)
       store.setState({
         startedSession: {
           id: sessionId,
