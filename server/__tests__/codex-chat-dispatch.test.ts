@@ -554,7 +554,8 @@ it('sanitizes private bootstrap failures on supported API Codex startup and ends
     });
     const message =
       'Retained sandbox migration is blocked. The source runtime or provider layout is not supported. Its task files and provider thread are preserved.';
-    expect(sanitize).toHaveBeenCalledWith(privateFailure);
+    // A Codex startup failure is named for the engine that failed.
+    expect(sanitize).toHaveBeenCalledWith(privateFailure, 'Codex');
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'error', error: message }));
     expect(onStartupAdmission).toHaveBeenCalledWith(expect.objectContaining({ message }));
     expect(JSON.stringify(send.mock.calls)).not.toMatch(/PRIVATE_BOOTSTRAP|sqlite-maintenance/);
