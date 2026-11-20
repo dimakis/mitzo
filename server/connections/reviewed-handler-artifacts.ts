@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1266-launch-startup-survives-disconnect';
+  'v1.0.1267-persistent-observability';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,30 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
+  '../__tests__/observability-config.test.ts':
+    'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
+  '../../infra/grafana/provisioning/dashboards/json/mitzo-observability.json':
+    '66726c8d132555d62821e320b339584e9f77d1f310b7dd68e7c574492194b353',
+  '../../infra/grafana/provisioning/datasources/datasources.yaml':
+    '2d8c098f03801d6c41d3ee5e1aeeb2792b87d30b9b7b1a8f2c252875474bcf85',
+  '../../infra/jaeger-v2-config.yaml':
+    '679074c3d2c14ce6770c7494eba7711a500d55b9cb3419faa6a81e927a71b0e9',
+  '../../infra/loki-config.yaml':
+    '9685a73e8302d888da24385c5a03a9541888c8fc4e19979de4bee25f796a9ade',
+  '../../scripts/__tests__/observability-readback.test.ts':
+    '19a095d30fcd20c8c224a032c4744c012946e055137a2e59a34d8ececa4f92cc',
+  '../../scripts/observability-readback.d.mts':
+    'a38d6996967f7209b85a4fc628638852d23c36562d625a6dbbbea7a08a7c000e',
+  '../../scripts/observability-readback.mjs':
+    '3c19e7d0227c119f7ca32ee4735e176740104a0eaa4da2c6780a729d73210cb5',
+  '../../scripts/observability-config.d.mts':
+    '20a742092a5c9bc52bb945c8292033f869ed15b15c51e288ae2c52b6079ee540',
+  '../../scripts/observability-config.mjs':
+    'cef4caae5b6a3b7e5b76a28a92e98828c13cc1e050879e9ee48b6b595526e291',
+  '../../scripts/ensure-observability.sh':
+    'dc326fd2a6da1f56125bdb999dd1d43acf275746131bfcc86376cf973cefdae4',
+  '../../docker-compose.yml': '874cf8bf94ea403c20993707b49ec0d958f8310c788e217421db50cae8754f9c',
   '../../.github/actions/ci-canonical-browser/action.yml':
     '9d8078c37f814b4a1b6d00768f33c8c5a114c962afb31156735f6ece4d477a99',
   '../../.github/actions/ci-native-fixture/action.yml':
@@ -1285,7 +1309,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../native/keychain-helper/main.swift':
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../../package-lock.json': 'ccca6e1e72ab39971aced83fc12bb81252dd3a298fa15fb77c6d722ab03ac8ca',
-  '../../package.json': '423b02ded2c097cc983353b10aaa37784f2c861b8eb41d26d60c16459e44ccfa',
+  '../../package.json': 'df8c7fb1bae6edc945790704c34cd94ccce3c2976bbe4d52594076dc14d32dff',
   '../../packages/client/__tests__/messages-slice.test.ts':
     'ae0160c176f993c8be41a4f22b2bc787fa10eb952c565189bfd08203e557f071',
   '../../packages/client/__tests__/store.test.ts':
@@ -1736,7 +1760,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/reauthorize-host-codex-login.test.ts':
     '777976c0b8f2a1283af2695aca3ebc615710cd37d09466051180bd2c8399d73e',
   '../../scripts/__tests__/release-runtime-declarations.test.ts':
-    '8cd372cf80ea7edd125378946635885b92266825c0b0da7f52396ade0ee38ea5',
+    '443b33753e255ffcf48522df4c1608cb24ed55f196e5bda204337d5d13116088',
   '../../scripts/agent-workspace-context.mjs':
     '018c3846e01519c6f843f264c3ee34372c98652b014be82175f09f5f0c7a3d27',
   '../../scripts/attest-knowledge-runtime.py':
@@ -1787,7 +1811,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '258e043afa0e4bc105387a928982620f4a1c1c66e2e190e3c9430b0702a48720',
   '../../scripts/create-release.sh':
     '19cfdc6759184886349bc77a503c353ccb221a07b42c3872e93f5d3d03e65f8c',
-  '../../scripts/deploy.sh': '063be309d418bb7bfd74fbfca9d26b0ba0e875b12a7be715a64f3238ffcd1301',
+  '../../scripts/deploy.sh': 'da5b4ebae36cc6a35dd6a70a09f522469dc3841195a8e483ffcffda4492c2992',
   '../../scripts/deployment-maintenance-bootstrap.mjs':
     'd84f7f2cc9f2030c66555cb52c0d7dc9c97fcc253128f68105b873d14e8a3128',
   '../../scripts/deployment-maintenance-guard.sh':
@@ -4090,7 +4114,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '05326dbde26bc8e04675443551613a31c283b8da136dfce5e5c924500bca33ae',
   '../local-session-removal.ts': '6ac2695a89153024b6898601d62a45731ff49993a2d0b604e1f58962388a1d16',
   '../logger-transport.ts': '835c336a641ceef7d2a5d368cd435aec33660c4b64f256055bea5dde671153d8',
-  '../logger.ts': '7716ffb5d69ddf4307d7c7b45aa4fcde937f1ddb2c5af71f27f9706c54caf6c2',
+  '../logger.ts': '3ce8ce6fde43006d7fd0b6c2b1cded74d12b606aa24179e973bbc2138c091ac0',
   '../mcp-config.ts': '6b7edecfee8c64bdd230338dc88f5ddd99e901098673d65bdb8e22ab6978171b',
   '../mcp-launch-environment.ts':
     '97ac57133ca19edc39bc8b6ccf58bb4fdfab261ca71483d1c7ab937ffd03742a',

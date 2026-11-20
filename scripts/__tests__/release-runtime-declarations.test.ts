@@ -182,6 +182,11 @@ it.each(['runtime-declarations', 'production-preflight', 'success'])(
       mode: 0o755,
     });
     const calls = join(root, 'calls');
+    writeFileSync(
+      join(root, 'scripts/ensure-observability.sh'),
+      `#!/bin/sh\necho ensure-observability >> '${calls}'\n`,
+      { mode: 0o755 },
+    );
     for (const name of ['node', 'npm', 'launchctl', 'podman', 'docker', 'sed', 'shlock'])
       writeFileSync(
         join(root, 'bin', name),
@@ -217,15 +222,17 @@ exit 0
     expect(observed).toContain('node scripts/release-runtime-declarations.mjs --prepare');
     expect(observed).not.toContain('deployment-sessions.mjs');
     if (stage === 'runtime-declarations')
-      expect(observed).not.toMatch(/launchctl|podman|docker|sed/);
+      expect(observed).not.toMatch(/launchctl|podman|docker|sed|ensure-observability/);
     else {
       expect(observed).toContain('npm run build');
       expect(observed).toContain('node scripts/verify-openshell-production.mjs');
-      if (stage === 'production-preflight') expect(observed).not.toMatch(/launchctl|docker|sed/);
+      if (stage === 'production-preflight')
+        expect(observed).not.toMatch(/launchctl|docker|sed|ensure-observability/);
       else {
         expect(observed).toContain('launchctl bootout gui/');
         expect(observed).toContain('launchctl bootstrap gui/');
-        expect(observed).toContain('docker compose -p mitzo up -d');
+        expect(observed).toContain('ensure-observability');
+        expect(observed).not.toContain('docker compose');
         expect(observed.indexOf('launchctl')).toBeGreaterThan(
           observed.indexOf('node scripts/verify-openshell-production.mjs'),
         );
