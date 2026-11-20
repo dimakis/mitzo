@@ -3568,7 +3568,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-sdk-source.test.ts':
     'd4a46546ef2519d8e61d6a0e0ffc219b37a986d94e4f1602c133ef4e8efdc2e2',
   '../__tests__/telos-sdk-tools.test.ts':
-    'a56cdcdf88cb80299634a1ee5a299357614d26823f71faed30d424f1f7add2d7',
+    'b3b7a7b45e5efbd4092dd329efe1bacc49c317ae14cb32002cc5d3ff446d5ec3',
   '../__tests__/telos-session-coordination.test.ts':
     '7ed5aebeb6ad541a49b35f1f62d6b8a4db881012e894e562fef47b4f5be6a314',
   '../__tests__/telos-session-launch-adapters.test.ts':
@@ -4830,7 +4830,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '7e3756c1f9ddbb4893e53571cf28ed7e1105dbbc3a2c216a7c1e62a1ed10ca6e',
   '../tool-failure-reporting.ts':
     '0357dafda9c5361509b4123e67281cec1eb3bcf52b1fad3cb0cd9667b78fed10',
-  '../tool-input-error.ts': '1c9ed2283e01c37c37cc4fced4a9ef228f050f85b43a7359c69ba670e475d71b',
+  '../tool-input-error.ts': 'cb28bffa99ff833c4494ff4370d390b4fbc3ca25dba512810455c78c6f941319',
   '../tool-library-sdk.ts': '70892ff54af3d956807d6c6b3ee5e74eef3d0060de7510fe29cdb050c9f96c63',
   '../tool-output-projection.ts':
     'e7c787e1dfbf4c9817e25a2834338db383e67a2964b799e9e973df74bf445cca',

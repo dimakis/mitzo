@@ -816,6 +816,17 @@ it.each([false, true])(
     expect(invalid).toMatch(/^Invalid TelosManageTeam arguments\. /);
     expect(invalid).toContain('reportsToMembershipId: must be string.');
     expect(invalid).not.toContain(sentinel);
+    // The supplied operation selects the union branch. Counting issues instead
+    // would pick the one-error read branch and ask to change a valid operation,
+    // hiding the link fields the caller never sent.
+    const missingFields = denyMessage('mcp__telos__TelosManageTeam', {
+      operation: 'link',
+      itemId: 'studio',
+    });
+    expect(missingFields).toMatch(/^Invalid TelosManageTeam arguments\. /);
+    expect(missingFields).toContain('requestId: must be string.');
+    expect(missingFields).toContain('reportsToMembershipId: must be string.');
+    expect(missingFields).not.toContain('operation: must be one of read');
     f.session.activeSkillPolicy = new Set(['Read']);
     expect(
       denyMessage('mcp__telos__TelosManageItem', { operation: 'read', itemId: 'studio' }),

@@ -5,6 +5,8 @@ type Schema = {
   description?: string;
   properties?: Record<string, Schema>;
   items?: Schema;
+  const?: unknown;
+  enum?: unknown[];
   anyOf?: Schema[];
   oneOf?: Schema[];
   allOf?: Schema[];
@@ -25,17 +27,94 @@ function declaredFields(schema: Schema | undefined, names = new Set<string>()): 
   return names;
 }
 
+function schemaAt(schema: Schema | undefined, path: PropertyKey[]): Schema | undefined {
+  let node = schema;
+  for (const part of path) {
+    if (!node) return undefined;
+    node =
+      typeof part === 'number'
+        ? node.items
+        : typeof part === 'string'
+          ? node.properties?.[part]
+          : undefined;
+  }
+  return node;
+}
+
+function unionBranches(schema: Schema | undefined): Schema[] | undefined {
+  return schema ? (schema.anyOf ?? schema.oneOf ?? schema.allOf) : undefined;
+}
+
+type BranchFit = 'accepts' | 'rejects' | 'unknown';
+
+/** Whether a union branch can describe the supplied input, judged only from the
+ * literal values the branch pins for the fields it declares. A branch that pins
+ * nothing inherits the answer from its own nested branches. */
+function consistency(schema: Schema, supplied: Record<string, unknown>): BranchFit {
+  const pins = Object.entries(schema.properties ?? {})
+    .map(([field, node]): [string, unknown[]] | undefined => {
+      const values = node.const !== undefined ? [node.const] : node.enum;
+      return values ? [field, values] : undefined;
+    })
+    .filter((pin): pin is [string, unknown[]] => pin !== undefined);
+  if (pins.length)
+    return pins.some(
+      ([field, values]) =>
+        Object.hasOwn(supplied, field) &&
+        !values.some((value) => Object.is(value, supplied[field])),
+    )
+      ? 'rejects'
+      : 'accepts';
+  const nested = unionBranches(schema);
+  if (!nested?.length) return 'unknown';
+  const branches: BranchFit[] = nested.map((branch) => consistency(branch, supplied));
+  if (branches.every((branch) => branch === 'rejects')) return 'rejects';
+  return branches.includes('accepts') ? 'accepts' : 'unknown';
+}
+
+/** Branch indexes that could have produced the caller's payload. Counting issues
+ * alone would recommend changing a valid discriminator: the read form of
+ * TelosManageTeam reports one error, so a link payload with missing fields used
+ * to be answered with "operation: must be one of read". */
+function consistentBranches(branches: Schema[] | undefined, input: unknown): number[] {
+  if (!branches || !input || typeof input !== 'object') return [];
+  const supplied = input as Record<string, unknown>;
+  const judged = branches.map((branch, index) => ({
+    index,
+    state: consistency(branch, supplied),
+  }));
+  const accepting = judged.filter(({ state }) => state === 'accepts').map(({ index }) => index);
+  if (accepting.length) return accepting;
+  return judged.filter(({ state }) => state !== 'rejects').map(({ index }) => index);
+}
+
 /** Union failures carry their branches' issues. The closest branch names the
  * fields the caller actually got wrong; the top-level "must satisfy the
  * documented field constraints" would hide them behind an unusable message. */
-function leafIssues(issues: z.core.$ZodIssue[]): z.core.$ZodIssue[] {
+function leafIssues(
+  issues: z.core.$ZodIssue[],
+  schema?: Schema,
+  input?: unknown,
+): z.core.$ZodIssue[] {
   const leaves = issues.flatMap((issue) => {
     if (issue.code !== 'invalid_union') return [issue];
-    const branches = ((issue as { errors?: z.core.$ZodIssue[][] }).errors ?? [])
-      .map(leafIssues)
-      .filter((branch) => branch.length > 0);
-    if (!branches.length) return [issue];
-    return branches.reduce((best, next) => (next.length < best.length ? next : best));
+    const branchIssues = (issue as { errors?: z.core.$ZodIssue[][] }).errors ?? [];
+    const branchSchemas = unionBranches(schemaAt(schema, issue.path));
+    const branchLeaves = branchIssues
+      .map((branch, index) => ({
+        index,
+        leaves: leafIssues(branch, branchSchemas?.[index], input),
+      }))
+      .filter((branch) => branch.leaves.length > 0);
+    if (!branchLeaves.length) return [issue];
+    const consistent =
+      branchSchemas?.length === branchIssues.length
+        ? new Set(consistentBranches(branchSchemas, input))
+        : undefined;
+    const candidates = branchLeaves.filter((branch) => consistent?.has(branch.index));
+    return (candidates.length ? candidates : branchLeaves)
+      .map((branch) => branch.leaves)
+      .reduce((best, next) => (next.length < best.length ? next : best));
   });
   const seen = new Set<string>();
   return leaves.filter((issue) => {
@@ -47,10 +126,15 @@ function leafIssues(issues: z.core.$ZodIssue[]): z.core.$ZodIssue[] {
 }
 
 /** Report code-owned fields and constraints, never submitted values or Zod messages. */
-export function formatToolInputError(label: string, schema: z.ZodType, error: z.ZodError) {
+export function formatToolInputError(
+  label: string,
+  schema: z.ZodType,
+  error: z.ZodError,
+  input?: unknown,
+) {
   const definition = z.toJSONSchema(schema) as Schema;
   const declared = declaredFields(definition);
-  const issues = leafIssues(error.issues)
+  const issues = leafIssues(error.issues, definition, input)
     .slice(0, 8)
     .map((issue) => {
       let field = '';
@@ -129,5 +213,5 @@ export function invalidToolArgumentsMessage(
 ): string | undefined {
   const parsed = schema.safeParse(input);
   if (parsed.success) return undefined;
-  return formatToolInputError(`${label} arguments`, schema, parsed.error);
+  return formatToolInputError(`${label} arguments`, schema, parsed.error, input);
 }
