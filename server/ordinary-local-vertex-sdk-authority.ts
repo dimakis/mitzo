@@ -8,6 +8,7 @@ import {
 } from './claude-sdk-credentials.js';
 import { AnthropicApiCustody } from './anthropic-api-custody.js';
 import { SharedAuthorityProof } from './shared-authority-proof.js';
+import { observeSdkAuthorityCheck, type SdkAuthorityCaller } from './sdk-authority-observation.js';
 import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import {
   assertSdkRepositoryCallback,
@@ -59,6 +60,9 @@ export class OrdinaryLocalVertexSdkAuthority {
       environment(): Record<string, string | undefined>;
       /** Original operator, published profile, permission and workspace owners. */
       assertCurrent(signal: AbortSignal): Promise<void> | void;
+      /** The same owners' per-tool check: synchronous fences plus claimed
+       * checkout validation, without workspace reservation. */
+      assertToolCurrent(signal: AbortSignal): Promise<void> | void;
       assertCurrentSync(signal: AbortSignal): void;
       sourceWriteRoots: readonly string[];
     },
@@ -179,9 +183,11 @@ export class OrdinaryLocalVertexSdkAuthority {
       inputUuid = evidence.providerTurnId;
     };
     current();
+    // Repository reads are per-tool callbacks: the Codex tool check, not the
+    // deep proof. Prompt release still runs the deep proof for this turn.
     const full = async () => {
       current();
-      await this.assertCurrent(signal);
+      await this.assertToolCurrent(signal, 'repository_read');
       current();
     };
     const owner = Object.freeze({
@@ -216,36 +222,74 @@ export class OrdinaryLocalVertexSdkAuthority {
       throw annotateAuthorityFailure(error, check);
     }
   }
-  async assertCurrent(signal: AbortSignal) {
+  /**
+   * Deep proof, for admission, chat startup, prompt release and turn results:
+   * owner selection revalidation (workspace reservation, the repository
+   * credential digest, which for personal sign-in runs `claude auth status`,
+   * and checkout validation), the API keychain proof, then every synchronous
+   * fence. Per-tool callbacks use `assertToolCurrent`.
+   */
+  async assertCurrent(signal: AbortSignal, caller: SdkAuthorityCaller) {
+    observeSdkAuthorityCheck('deep', caller);
     let check = 'authority.signal';
     try {
       signal.throwIfAborted();
       check = 'authority.owner';
       await this.owners.assertCurrent(signal);
       check = 'authority.api_credentials';
-      if (this.#credential instanceof AnthropicApiCustody) {
-        const credential = this.#credential;
-        const ownerSignal = this.owners.signal;
-        // Concurrent callers join one in-flight keychain proof. It runs under
-        // the owner's lifetime, while each caller can still abandon its own
-        // wait promptly through its signal. Without an owner signal, each
-        // caller proves on its own.
-        if (ownerSignal)
-          await this.#apiCredentialProof.run(
-            'api_credentials',
-            () => credential.verify(this.owners.environment(), ownerSignal),
-            signal,
-          );
-        else await credential.verify(this.owners.environment(), signal);
-      }
-      // Concurrent callers share the owner's in-flight deep proof (workspace
-      // revalidation and its repository credential check, which for personal
-      // sign-in runs a CLI status process) and the API keychain proof. A
-      // settled proof is never reused. The physical account, operator, receipt
-      // and workspace fences below still run on every callback.
+      await this.#verifyApiCredential(signal);
+      // Concurrent callers share the owner's in-flight deep proof and the API
+      // keychain proof. A settled proof is never reused. The physical account,
+      // operator, receipt and workspace fences below still run on every callback.
       this.assertCurrentSync(signal);
     } catch (error) {
       throw annotateAuthorityFailure(error, check);
     }
+  }
+  /**
+   * Per-tool authority for SDK hooks, permission decisions and in-process MCP
+   * handlers. It mirrors the reviewed Codex tool lease
+   * (`FrozenHostCodexBootstrapAuthority` `assertToolCurrent`):
+   * - synchronous fences first, so Stop, logout, ownership, receipt, custody
+   *   and credential-identity changes refuse before any wait;
+   * - the owner's selection tool check: operator, published profile,
+   *   permission revision, admission receipt and claimed checkout validation
+   *   (`workspace.validate`), without workspace reservation or the repository
+   *   credential digest;
+   * - for API keys, the keychain read, as Codex API logins also verify the key
+   *   per tool;
+   * - synchronous fences again after every wait.
+   * The deep proof still runs at every prompt release and turn result.
+   */
+  async assertToolCurrent(signal: AbortSignal, caller: SdkAuthorityCaller) {
+    observeSdkAuthorityCheck('tool', caller);
+    let check = 'authority.signal';
+    try {
+      signal.throwIfAborted();
+      this.assertCurrentSync(signal);
+      check = 'authority.owner_tool';
+      await this.owners.assertToolCurrent(signal);
+      check = 'authority.api_credentials';
+      await this.#verifyApiCredential(signal);
+      this.assertCurrentSync(signal);
+    } catch (error) {
+      throw annotateAuthorityFailure(error, check);
+    }
+  }
+  async #verifyApiCredential(signal: AbortSignal) {
+    if (!(this.#credential instanceof AnthropicApiCustody)) return;
+    const credential = this.#credential;
+    const ownerSignal = this.owners.signal;
+    // Concurrent callers join one in-flight keychain proof. It runs under the
+    // owner's lifetime, while each caller can still abandon its own wait
+    // promptly through its signal. Without an owner signal, each caller
+    // proves on its own.
+    if (ownerSignal)
+      await this.#apiCredentialProof.run(
+        'api_credentials',
+        () => credential.verify(this.owners.environment(), ownerSignal),
+        signal,
+      );
+    else await credential.verify(this.owners.environment(), signal);
   }
 }
