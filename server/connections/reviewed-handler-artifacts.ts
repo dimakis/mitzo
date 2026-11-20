@@ -1840,7 +1840,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/pr-landing.mjs':
     'b9b053bd41da755db77d8505869f3f15ccdd4e556be5bfed9a355e379b992769',
   '../../scripts/qualify-codex-native-permissions.mjs':
-    'b5316923140eba671e9d837b980bf1c570f75deb7455516c4275083e3b475e3a',
+    '05e2d438c87366bdd20fbf93a7d9dfa852aba0a5b038128f482c15ec18e2f24b',
+  '../../scripts/ci-native-failure.mjs':
+    '7c89d3c7641225c192f69566da1233b78fc58811e74843f1b68c842d5abfa65a',
+  '../../scripts/ci-native-failure.d.mts':
+    '65382492f8c64a23e8f35f5e5ff02ebf09728ea191df032ad8396fba2da6c912',
+  '../../scripts/__tests__/ci-native-failure.test.ts':
+    '7f8bc47b3b33abd617d685a5f7f65ba6411ca28666abd1d287eda299ae093f6e',
   '../../scripts/qualify-development-offline.mjs':
     '6adc25351fb807c50092ee080c1dd3417114a35b752cdd1d3891f013ce361fc6',
   '../../scripts/reauthorize-host-codex-login.ts':
@@ -2103,7 +2109,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs':
     '321e0390313f9e9e03d35ea07eb217bc6854aa5fd154a43b012232cefb5a2f97',
   '../../tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs':
-    '9f519174ab687ed770a51e7d0192913376fce84ae0c2c11a595ac437e7e038a0',
+    'ec792a468c15840484d71f2810d171b583b4c1293ded8f77936306c7581107a5',
   '../../tests/integration/telos-s9/integrated-candidate/run-supplemental-ci.mjs':
     '33628ae577f7bce08c274d5ac3ab20fdfdaf623bae2da10a35b53ac3dcaaf35a',
   '../../tests/integration/telos-s9/integrated-candidate/run-ux-composition.mjs':

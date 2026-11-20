@@ -28,6 +28,7 @@ import { tmpdir } from 'node:os';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { Buffer } from 'node:buffer';
+import { nativeCiFailure } from './ci-native-failure.mjs';
 
 assert.equal(process.platform, 'darwin', 'This fixture qualifies macOS Seatbelt only');
 const binary = process.argv[2];
@@ -603,6 +604,19 @@ try {
       2,
     ),
   );
+} catch (error) {
+  const failure = nativeCiFailure('kernel-permissions', error);
+  console.error(failure.annotation);
+  console.log(
+    JSON.stringify({
+      version: version.stdout.trim(),
+      executableSha256: digest,
+      modelCalls: 0,
+      passed: false,
+      ...failure.diagnostic,
+    }),
+  );
+  throw error;
 } finally {
   child.kill('SIGTERM');
   lines.close();
