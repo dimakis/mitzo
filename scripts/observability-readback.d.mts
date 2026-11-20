@@ -15,6 +15,7 @@ export interface ObservabilityServiceResult {
   proxyRecentRecords?: Record<string, number>;
   traceViewer?: 'verified' | 'unverified-no-traces';
   role?: string;
+  artifactReadback?: 'verified' | 'unverified-no-diagnostic';
 }
 export interface ObservabilityOptions {
   fetchImpl?: (url: URL, init: RequestInit) => Promise<Response>;

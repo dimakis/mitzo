@@ -39,12 +39,18 @@ describe('observability stack config', () => {
       expect(compose.services[svc].volumes.some((v: string) => v.startsWith(`${svc}-data:`))).toBe(
         true,
       );
+      expect(
+        compose.services[svc].volumes
+          .find((mount: string) => mount.startsWith(`${svc}-data:`))
+          ?.endsWith(':Z'),
+      ).toBe(true);
       for (const mount of compose.services[svc].volumes)
         if (mount.includes('MITZO_OBSERVABILITY_CONFIG_DIR'))
           expect(mount.endsWith(':ro')).toBe(true);
       expect(compose.volumes[`${svc}-data`]).toEqual({ external: true, name: `mitzo-${svc}-data` });
     }
     expect(compose['x-podman'].in_pod).toBe(false);
+    expect('depends_on' in compose.services.grafana).toBe(false);
     expect(compose.services.jaeger.image).toBe('jaegertracing/jaeger:2.20.0');
     expect(compose.services.grafana.environment.GF_FEATURE_TOGGLES_ENABLE).toBe('');
     expect(compose.services.grafana.environment.GF_PLUGINS_PREINSTALL_SYNC).toBe(
@@ -61,6 +67,9 @@ describe('observability stack config', () => {
     expect(ensure).not.toContain('machine start 2>&1 || true');
     expect(deploy).toContain('./scripts/ensure-observability.sh');
     expect(deploy).not.toContain('docker compose -p mitzo up -d');
+    const pkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8'));
+    for (const name of ['tracing:up', 'tracing:down', 'observability:up', 'observability:down'])
+      expect(pkg.scripts[name]).toContain('bash scripts/ensure-observability.sh');
   });
 
   it('stages immutable configs outside the disposable source release', () => {
@@ -177,11 +186,12 @@ describe('observability stack config', () => {
         podman,
         `#!/bin/sh
 printf '%s\n' "$*" >> "$CALLS"
+if [ "$1" = compose ]; then echo "config-dir=$MITZO_OBSERVABILITY_CONFIG_DIR" >> "$CALLS"; fi
 case "$1 $2" in
   'machine inspect') echo running;;
-  'container exists') [ "$LEGACY" = true ];;
-  'inspect --format') if [ "$LEGACY" = true ]; then echo exited; else exit 1; fi;;
-  'volume exists') [ "$LEGACY" != true ];;
+  'container exists') [ "$3" = "$LEGACY_NAME" ];;
+  'inspect --format') if [ -n "$LEGACY_NAME" ]; then echo exited; else exit 1; fi;;
+  'volume exists') [ -z "$LEGACY_NAME" ];;
 esac
 `,
         { mode: 0o755 },
@@ -210,15 +220,27 @@ esac
         const result = spawnSync('/bin/bash', [script, ...args], { env, encoding: 'utf8' });
         expect(result.status, result.stderr).toBe(0);
         expect(readFileSync(calls, 'utf8')).toContain('readback ');
+        expect(readFileSync(calls, 'utf8')).toContain('config-dir=./infra');
       }
       writeFileSync(calls, '');
-      const refused = spawnSync('/bin/bash', [script], {
-        env: { ...env, LEGACY: 'true' },
-        encoding: 'utf8',
-      });
-      expect(refused.status).toBe(1);
-      expect(refused.stderr).toContain('data-preserving migration');
-      expect(readFileSync(calls, 'utf8')).not.toMatch(/volume create|compose/);
+      for (const legacyName of ['mitzo_jaeger_1', 'mitzo-jaeger-1']) {
+        writeFileSync(calls, '');
+        const refused = spawnSync('/bin/bash', [script], {
+          env: { ...env, LEGACY_NAME: legacyName },
+          encoding: 'utf8',
+        });
+        expect(refused.status).toBe(1);
+        expect(refused.stderr).toContain('data-preserving migration');
+        expect(readFileSync(calls, 'utf8')).not.toMatch(/volume create|compose/);
+      }
+      for (const args of [['--stop'], ['--stop', '--traces-only']]) {
+        writeFileSync(calls, '');
+        const stopped = spawnSync('/bin/bash', [script, ...args], { env, encoding: 'utf8' });
+        expect(stopped.status, stopped.stderr).toBe(0);
+        const observed = readFileSync(calls, 'utf8');
+        expect(observed).toContain(' stop jaeger');
+        expect(observed).not.toMatch(/volume create|network create|readback|machine start/);
+      }
     } finally {
       rmSync(state, { recursive: true, force: true });
     }

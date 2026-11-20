@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1264-persistent-observability';
+  'v1.0.1265-persistent-observability';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +25,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
-    'c12cacf7d340f84e3d520f402d70282ae38075c9bcf55481712e7682212d2272',
+    'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
   '../../infra/grafana/provisioning/dashboards/json/mitzo-observability.json':
     '66726c8d132555d62821e320b339584e9f77d1f310b7dd68e7c574492194b353',
   '../../infra/grafana/provisioning/datasources/datasources.yaml':
@@ -35,18 +35,18 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../infra/loki-config.yaml':
     '9685a73e8302d888da24385c5a03a9541888c8fc4e19979de4bee25f796a9ade',
   '../../scripts/__tests__/observability-readback.test.ts':
-    '6ef8ea9b718fb99dc4c195cf75e36504e4971ec254681ea97ad38a5a46616c3d',
+    '19a095d30fcd20c8c224a032c4744c012946e055137a2e59a34d8ececa4f92cc',
   '../../scripts/observability-readback.d.mts':
-    'f0a0da712049856d29d2d680062f33cbf63e2e802d7069de6eb11bfcafebdbfb',
+    'a38d6996967f7209b85a4fc628638852d23c36562d625a6dbbbea7a08a7c000e',
   '../../scripts/observability-readback.mjs':
-    '7205dc109bd4ec59a3fc5c759412e2c2e6b37f485262828fc59c59a3c9963aef',
+    '3c19e7d0227c119f7ca32ee4735e176740104a0eaa4da2c6780a729d73210cb5',
   '../../scripts/observability-config.d.mts':
     '20a742092a5c9bc52bb945c8292033f869ed15b15c51e288ae2c52b6079ee540',
   '../../scripts/observability-config.mjs':
     'cef4caae5b6a3b7e5b76a28a92e98828c13cc1e050879e9ee48b6b595526e291',
   '../../scripts/ensure-observability.sh':
-    'e139aff0d046f0d1450cee744cb7f68365c5fb933a9cec02c731e4fa6ef30e6a',
-  '../../docker-compose.yml': '0dd8ab9844b2106e04a11720ef38bee18361443c0c0536cc64cce6cc047a57cf',
+    'dc326fd2a6da1f56125bdb999dd1d43acf275746131bfcc86376cf973cefdae4',
+  '../../docker-compose.yml': '874cf8bf94ea403c20993707b49ec0d958f8310c788e217421db50cae8754f9c',
   '../../.github/actions/ci-canonical-browser/action.yml':
     '9d8078c37f814b4a1b6d00768f33c8c5a114c962afb31156735f6ece4d477a99',
   '../../.github/actions/ci-native-fixture/action.yml':
@@ -1309,7 +1309,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../native/keychain-helper/main.swift':
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../../package-lock.json': 'ccca6e1e72ab39971aced83fc12bb81252dd3a298fa15fb77c6d722ab03ac8ca',
-  '../../package.json': '9f20eb0f2d5003162fe797befb94412517024b2730c33e67a0381775d9ba0446',
+  '../../package.json': 'df8c7fb1bae6edc945790704c34cd94ccce3c2976bbe4d52594076dc14d32dff',
   '../../packages/client/__tests__/messages-slice.test.ts':
     'ae0160c176f993c8be41a4f22b2bc787fa10eb952c565189bfd08203e557f071',
   '../../packages/client/__tests__/store.test.ts':

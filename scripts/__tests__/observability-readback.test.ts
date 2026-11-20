@@ -41,15 +41,20 @@ const fixtures: Record<string, unknown> = {
   '/api/datasources/uid/jaeger/health': { status: 'OK' },
   '/api/2.0/mlflow/experiments/search': { experiments: [{ experiment_id: '0' }] },
   '/api/2.0/mlflow/runs/search': { runs: [] },
+  '/api/2.0/mlflow/runs/search#storage': { runs: [] },
 };
 function fakeFetch(overrides: Record<string, unknown> = {}) {
-  return async (url: string | URL) => {
-    const path = new URL(url).pathname;
+  return async (url: string | URL, init?: RequestInit) => {
+    let path = new URL(url).pathname;
+    if (path.endsWith('/runs/search') && String(init?.body ?? '').includes('"filter"'))
+      path += '#storage';
     const backendPath = path.replace(/^\/api\/datasources\/proxy\/uid\/[^/]+/, '');
     const value = path in overrides ? overrides[path] : fixtures[backendPath];
     if (value instanceof Error) throw value;
     if (value === undefined) throw new Error(`Unexpected request ${path}`);
-    return new Response(typeof value === 'string' ? value : JSON.stringify(value));
+    if (value instanceof Response) return value;
+    const body = typeof value === 'string' ? value : JSON.stringify(value);
+    return new Response(body, { headers: { 'Content-Length': String(Buffer.byteLength(body)) } });
   };
 }
 
@@ -93,9 +98,27 @@ describe('observability readback', () => {
       stage: path,
     });
   });
-  it('rejects a native trace-viewer failure even when the raw proxy data is readable', async () => {
+  it.each([
+    { status: 500, frames: [] },
+    {
+      status: 500,
+      error: 'private failure',
+      frames: [{ schema: { fields: [{ name: 'traceID' }] }, data: { values: [['a'.repeat(32)]] } }],
+    },
+    {
+      frames: [
+        {
+          schema: { fields: [{ name: 'traceID' }, { name: 'spanID' }] },
+          data: { values: [[], ['b'.repeat(16)]] },
+        },
+      ],
+    },
+    {
+      frames: [{ schema: { fields: [{ name: 'traceID' }] }, data: { values: [['b'.repeat(32)]] } }],
+    },
+  ])('rejects unusable or mismatched native trace frames', async (resultA) => {
     const result = await verifyObservability({
-      fetchImpl: fakeFetch({ '/api/ds/query': { results: { A: { status: 500, frames: [] } } } }),
+      fetchImpl: fakeFetch({ '/api/ds/query': { results: { A: resultA } } }),
       now,
       requireRecent: true,
     });
@@ -105,7 +128,35 @@ describe('observability readback', () => {
       code: 'TRACE_VIEWER_UNAVAILABLE',
       stage: '/api/ds/query',
     });
+    expect(JSON.stringify(result)).not.toContain('private failure');
   });
+  it.each(['readable', 'unreadable', 'oversized'])(
+    'checks the retained diagnostic artifact readback (%s)',
+    async (kind) => {
+      const readable = kind === 'readable';
+      const runId = 'c'.repeat(32);
+      const marker = 'expected-marker';
+      const diagnostic = {
+        info: { run_id: runId, artifact_uri: `mlflow-artifacts:/1/${runId}/artifacts` },
+        data: { tags: [{ key: 'mitzo.marker', value: marker }] },
+      };
+      const result = await verifyObservability({
+        fetchImpl: fakeFetch({
+          '/api/2.0/mlflow/runs/search#storage': { runs: [diagnostic] },
+          [`/api/2.0/mlflow-artifacts/artifacts/1/${runId}/artifacts/storage-check.json`]: readable
+            ? new Response(JSON.stringify({ marker, modelCalls: 0 }))
+            : kind === 'oversized'
+              ? new Response('x'.repeat(4097))
+              : new Response('private failure', { status: 500 }),
+        }),
+        now,
+      });
+      expect(result.ok).toBe(readable);
+      expect(result.services.mlflow.ok).toBe(readable);
+      if (readable) expect(result.services.mlflow.artifactReadback).toBe('verified');
+      expect(JSON.stringify(result)).not.toContain('private failure');
+    },
+  );
   it('preserves the traces-only startup path without querying unrelated services', async () => {
     const result = await verifyObservability({ fetchImpl: fakeFetch(), now, tracesOnly: true });
     expect(result.ok).toBe(true);

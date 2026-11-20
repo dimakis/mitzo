@@ -24,7 +24,11 @@ npm run observability:down          # stop; keep volumes and retained records
 The startup helper uses a dedicated Compose project, `mitzo-observability`, with
 no shared Podman pod. All four data volumes are external and have explicit names:
 `mitzo-jaeger-data`, `mitzo-loki-data`, `mitzo-grafana-data`, `mitzo-mlflow-data`.
-Podman creates missing volumes with the service UID/GID (10001/10001 for Loki and
+Private `:Z` relabeling makes files written by a prior container (including
+MLflow uploads moved from temporary files) readable by its replacement on SELinux
+hosts. Maintenance mounts must honor the same label boundary while writers are stopped.
+Services have independent lifecycles; API readiness replaces persistent container
+dependency edges. Podman creates missing volumes with the service UID/GID (10001/10001 for Loki and
 Jaeger, 472/0 for Grafana, 0/0 for MLflow). Existing volumes are reused.
 
 Configuration is frozen into verified, content-addressed snapshots under
@@ -32,12 +36,16 @@ Configuration is frozen into verified, content-addressed snapshots under
 state directory with `MITZO_OBSERVABILITY_HOME`. Snapshots contain regular files,
 never links back into a release. Extra or modified provisioned files fail the
 integrity check. Release cleanup must preserve this state directory and the
-external volumes. Do not prune the Podman machine or its volumes as deployment
+external volumes. An infrastructure-config change rolls the fingerprinted stack;
+application-only redeployments reuse its existing containers. Do not prune the Podman machine or its volumes as deployment
 cleanup. Named volumes survive container replacement; they do not replace backups.
 
 The checker has an eight-second total request deadline. It queries actual Loki
 logs and Jaeger v3 traces directly and through Grafana's data-source proxy, and
-queries MLflow experiments/runs. Output contains counts, ages and sanitized
+queries MLflow experiments/runs. A retained diagnostic run tagged
+`mitzo.check=storage-readback-v1` and `mitzo.marker=<expected marker>` also checks
+its proxied `storage-check.json` artifact (at most 4 KiB; JSON marker plus
+`modelCalls: 0`). Without that receipt, artifact delivery is explicitly unverified. Output contains counts, ages and sanitized
 failure stage/cause, never log bodies, trace attributes or experiment names.
 A normal check can succeed on a quiet new installation while reporting zero
 recent records; `--require-recent` additionally requires data from the last five

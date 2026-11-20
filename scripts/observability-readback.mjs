@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import process from 'node:process';
+import { Buffer } from 'node:buffer';
 import console from 'node:console';
 import { performance } from 'node:perf_hooks';
 
@@ -18,6 +19,32 @@ function spans(value) {
   if (Array.isArray(value)) return value.flatMap(spans);
   if ('traceId' in value && 'startTimeUnixNano' in value) return [value];
   return Object.values(value).flatMap(spans);
+}
+async function readDiagnosticArtifact(response) {
+  const reader = response.body?.getReader();
+  demand(reader, 'ARTIFACT_READBACK_UNAVAILABLE');
+  const chunks = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > 4096) {
+        const overflow = new Error('ARTIFACT_READBACK_UNAVAILABLE');
+        try {
+          await reader.cancel();
+        } catch (cause) {
+          overflow.cause = cause;
+        }
+        throw overflow;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8'));
 }
 /** Read-only checks. Never echo log messages, trace attributes, experiment names or server errors. */
 export async function verifyObservability({
@@ -79,7 +106,7 @@ export async function verifyObservability({
     } catch (error) {
       const code =
         error instanceof Error &&
-        /^(HTTP_\d{3}|INVALID_READBACK|NO_RECENT_DATA|DATASOURCE_UNAVAILABLE|TRACE_VIEWER_UNAVAILABLE)$/.test(
+        /^(HTTP_\d{3}|INVALID_READBACK|NO_RECENT_DATA|DATASOURCE_UNAVAILABLE|TRACE_VIEWER_UNAVAILABLE|ARTIFACT_READBACK_UNAVAILABLE)$/.test(
           error.message,
         )
           ? error.message
@@ -173,16 +200,27 @@ export async function verifyObservability({
               from: String(since),
               to: String(now),
             });
-            const frames = native.results?.A?.frames;
+            const result = native.results?.A;
+            const frames = result?.frames;
             demand(
-              Array.isArray(frames) &&
-                frames.some(
-                  (frame) =>
-                    frame.schema?.fields?.some((field) => field.name === 'traceID') &&
-                    frame.data?.values?.some(
-                      (column) => Array.isArray(column) && column.length > 0,
-                    ),
-                ),
+              !result?.error &&
+                (result?.status === undefined ||
+                  (typeof result.status === 'number' &&
+                    result.status >= 200 &&
+                    result.status < 300)) &&
+                Array.isArray(frames) &&
+                frames.some((frame) => {
+                  const index = frame.schema?.fields?.findIndex(
+                    (field) => field.name === 'traceID',
+                  );
+                  const ids = index >= 0 ? frame.data?.values?.[index] : undefined;
+                  return (
+                    Array.isArray(ids) &&
+                    ids.some(
+                      (id) => typeof id === 'string' && id.toLowerCase() === traceId.toLowerCase(),
+                    )
+                  );
+                }),
               'TRACE_VIEWER_UNAVAILABLE',
             );
             traceViewer = 'verified';
@@ -206,6 +244,38 @@ export async function verifyObservability({
           })
         : {};
       demand(!result.runs || Array.isArray(result.runs));
+      let artifactReadback = 'unverified-no-diagnostic';
+      if (ids.length) {
+        const diagnostic = await json('mlflow', '/api/2.0/mlflow/runs/search', {
+          experiment_ids: ids,
+          max_results: 1,
+          filter: "tags.`mitzo.check` = 'storage-readback-v1'",
+        });
+        demand(!diagnostic.runs || Array.isArray(diagnostic.runs));
+        const run = diagnostic.runs?.[0];
+        if (run) {
+          const uri = run.info?.artifact_uri;
+          const marker = run.data?.tags?.find((tag) => tag.key === 'mitzo.marker')?.value;
+          demand(
+            typeof uri === 'string' &&
+              /^mlflow-artifacts:\/\d+\/[0-9a-f]{32}\/artifacts$/.test(uri) &&
+              typeof marker === 'string',
+            'ARTIFACT_READBACK_UNAVAILABLE',
+          );
+          const response = await request(
+            'mlflow',
+            '/api/2.0/mlflow-artifacts/artifacts/' +
+              uri.slice('mlflow-artifacts:/'.length) +
+              '/storage-check.json',
+          );
+          const artifact = await readDiagnosticArtifact(response);
+          demand(
+            artifact?.marker === marker && artifact?.modelCalls === 0,
+            'ARTIFACT_READBACK_UNAVAILABLE',
+          );
+          artifactReadback = 'verified';
+        }
+      }
       const runs = result.runs ?? [];
       const diagnosticRuns = runs.filter((run) =>
         run.data?.tags?.some(
@@ -218,6 +288,7 @@ export async function verifyObservability({
         diagnosticRuns,
         applicationRuns: runs.length - diagnosticRuns,
         role: 'experiments-and-learning-metrics',
+        artifactReadback,
       };
     }),
   ]);
