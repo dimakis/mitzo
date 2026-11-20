@@ -195,6 +195,11 @@ describe('ChatArea', () => {
     expect(screen.getByText('Send a message to start')).toBeTruthy();
   });
 
+  it('does not invite a first message while history is loading or failed', () => {
+    render(<ChatArea {...defaultProps} hideEmptyState />);
+    expect(screen.queryByText('Send a message to start')).toBeNull();
+  });
+
   it('does not render empty state when running', () => {
     render(<ChatArea {...defaultProps} running={true} />);
     expect(screen.queryByText('Send a message to start')).toBeNull();

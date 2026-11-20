@@ -201,6 +201,52 @@ it('restores legacy ordinary messages whose millisecond ids collided, keeping to
   expect(assistants.map((message) => message.replyToMessageId)).toEqual(['command', 'command']);
 });
 
+it('restores history around an attributed result whose call was never recorded', () => {
+  // Claude CLI non-streaming fallback: the reply never streamed, so only its
+  // result was stored, stamped with the still-active streamed message.
+  const events: StoredEvent[] = [];
+  const add = (type: string, payload: Record<string, unknown>) =>
+    events.push({ type, payload, seq: events.length + 1, sessionId: 's', createdAt: 1 });
+  add('message_start', { messageId: 'streamed' });
+  add('block_start', { messageId: 'streamed', blockId: 'b0', blockType: 'text' });
+  add('block_delta', { messageId: 'streamed', blockId: 'b0', blockType: 'text', delta: 'before' });
+  add('block_end', { messageId: 'streamed', blockId: 'b0', blockType: 'text' });
+  add('tool_result', { messageId: 'streamed', toolId: 'unstreamed', result: 'orphan' });
+  add('message_end', { messageId: 'streamed' });
+  add('message_start', { messageId: 'later' });
+  add('block_start', { messageId: 'later', blockId: 'b0', blockType: 'text' });
+  add('block_delta', { messageId: 'later', blockId: 'b0', blockType: 'text', delta: 'after' });
+  add('block_end', { messageId: 'later', blockId: 'b0', blockType: 'text' });
+  add('message_end', { messageId: 'later' });
+  const { messages } = replayEventsToTranscript(events);
+  expect(messages.map((message) => [message.messageId, message.blocks[0]?.content])).toEqual([
+    ['streamed', 'before'],
+    ['later', 'after'],
+  ]);
+  expect(JSON.stringify(messages)).not.toContain('orphan');
+  expect(events).toHaveLength(11);
+});
+
+it('still refuses an attributed result for a call recorded under another message', () => {
+  const events: StoredEvent[] = [];
+  const add = (type: string, payload: Record<string, unknown>) =>
+    events.push({ type, payload, seq: events.length + 1, sessionId: 's', createdAt: 1 });
+  add('message_start', { messageId: 'owner' });
+  add('block_start', {
+    messageId: 'owner',
+    blockId: 'b0',
+    blockType: 'tool_use',
+    toolName: 'Bash',
+  });
+  add('block_end', { messageId: 'owner', blockId: 'b0', blockType: 'tool_use', toolId: 'tool' });
+  add('message_end', { messageId: 'owner' });
+  // Not the active message, so the legacy delayed-result repair does not apply.
+  add('tool_result', { messageId: 'other', toolId: 'tool', result: 'mismatch' });
+  expect(() => replayEventsToTranscript(events)).toThrow(
+    'Unmatched attributed tool result in stored transcript',
+  );
+});
+
 it('still refuses a duplicate identity within one Symposium seat', () => {
   const provenance = { seatId: 'seat', membershipGeneration: 1 };
   const events: StoredEvent[] = [];

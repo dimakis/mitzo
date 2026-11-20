@@ -81,6 +81,8 @@ export interface ChatAreaProps {
   messageAliases?: Readonly<Record<string, string>>;
   /** Additional transcript cards inside the same scroll area. */
   beforeMessages?: ReactNode;
+  /** Suppress the empty prompt while history is loading or has failed. */
+  hideEmptyState?: boolean;
   afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
   canShareMessage?: (message: FinishedMessage) => boolean;
@@ -216,6 +218,7 @@ export function ChatArea({
   preserveMessageOrder = false,
   contextItems = [],
   beforeMessages,
+  hideEmptyState = false,
   afterMessages,
   renderMessageAttribution,
   messageSpeaker,
@@ -919,7 +922,8 @@ export function ChatArea({
         onTouchEnd={handleTouchEnd}
       >
         {beforeMessages}
-        {messages.length === 0 &&
+        {!hideEmptyState &&
+          messages.length === 0 &&
           !current &&
           Object.keys(currentByMessage).length === 0 &&
           contextItems.length === 0 &&

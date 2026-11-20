@@ -109,6 +109,19 @@ it.each([
         seq: 2,
         sessionId: 'original',
         createdAt: 2,
+        type: 'block_end',
+        payload: {
+          messageId: 'recorded-owner',
+          blockId: 'b0',
+          blockType: 'tool_use',
+          toolName: 'Bash',
+          toolId: 'private-tool',
+        },
+      },
+      {
+        seq: 3,
+        sessionId: 'original',
+        createdAt: 3,
         type: 'tool_result',
         payload: {
           messageId: 'missing-owner',
@@ -148,6 +161,6 @@ it.each([
       }),
     );
     expect(JSON.stringify(log.warn.mock.calls)).not.toMatch(/PRIVATE|private-tool|missing-owner/);
-    expect(events).toHaveLength(2);
+    expect(events).toHaveLength(3);
   },
 );
