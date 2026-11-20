@@ -24,6 +24,7 @@ import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { OrdinaryLocalVertexCommandRequestSchema } from './ordinary-local-codex-admission.js';
 import { assertOwnedVertexQueueControl } from './ordinary-local-vertex-queue.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { SharedAuthorityProof } from './shared-authority-proof.js';
 import type { AuthSession } from './auth.js';
 const unavailable = () => Error('Owned Local Claude runtime unavailable');
 export async function continueOwnedLocalVertexQueue(
@@ -185,6 +186,7 @@ export async function startOwnedLocalVertexCommand(
       !isDeepStrictEqual(custody.binding, selected.expected.binding)
     )
       throw unavailable();
+    const ownerProof = new SharedAuthorityProof();
     const authority = new OrdinaryLocalVertexSdkAuthority({
       store: eventStore,
       signal: owner.signal,
@@ -195,8 +197,18 @@ export async function startOwnedLocalVertexCommand(
       assertCurrent: async (signal) => {
         signal.throwIfAborted();
         const active = queue?.activeCommandId();
-        if (active || !queue) await owner.assertEffect(active ?? selected.commandId);
-        else await owner.assertIdle(owner.activeCommandId() ?? selected.commandId);
+        // Synchronous fences run on every call. Concurrent callers join one
+        // in-flight deep workspace and credential proof for the command; a
+        // settled proof is never reused, so later boundaries prove again.
+        if (active || !queue) {
+          const commandId = active ?? selected.commandId;
+          owner.assertStart(commandId);
+          await ownerProof.run(`effect:${commandId}`, () => owner.assertEffect(commandId), signal);
+        } else {
+          const commandId = owner.activeCommandId() ?? selected.commandId;
+          owner.assertIdleSync(commandId);
+          await ownerProof.run(`idle:${commandId}`, () => owner.assertIdle(commandId), signal);
+        }
       },
       assertCurrentSync: (signal) => {
         signal.throwIfAborted();

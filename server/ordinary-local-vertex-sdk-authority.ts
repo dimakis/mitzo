@@ -7,6 +7,7 @@ import {
   reopenClaudeSdkCredentials,
 } from './claude-sdk-credentials.js';
 import { AnthropicApiCustody } from './anthropic-api-custody.js';
+import { SharedAuthorityProof } from './shared-authority-proof.js';
 import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import {
   assertSdkRepositoryCallback,
@@ -45,6 +46,7 @@ export function assertSdkRepositoryReadOwner(owner: SdkRepositoryReadOwner) {
 export class OrdinaryLocalVertexSdkAuthority {
   readonly #custody: OrdinaryLocalVertexCustody;
   readonly #credential: ReturnType<typeof captureClaudeSdkCredentials>;
+  readonly #apiCredentialProof = new SharedAuthorityProof();
   constructor(
     private readonly owners: {
       store: EventStore;
@@ -221,11 +223,26 @@ export class OrdinaryLocalVertexSdkAuthority {
       check = 'authority.owner';
       await this.owners.assertCurrent(signal);
       check = 'authority.api_credentials';
-      if (this.#credential instanceof AnthropicApiCustody)
-        await this.#credential.verify(this.owners.environment(), signal);
-      // Admission verifies native sign-in; the running query checks accountInfo
-      // before releasing each prompt. Tool callbacks retain the physical account,
-      // operator and workspace fences without spawning another CLI status process.
+      if (this.#credential instanceof AnthropicApiCustody) {
+        const credential = this.#credential;
+        const ownerSignal = this.owners.signal;
+        // Concurrent callers join one in-flight keychain proof. It runs under
+        // the owner's lifetime, while each caller can still abandon its own
+        // wait promptly through its signal. Without an owner signal, each
+        // caller proves on its own.
+        if (ownerSignal)
+          await this.#apiCredentialProof.run(
+            'api_credentials',
+            () => credential.verify(this.owners.environment(), ownerSignal),
+            signal,
+          );
+        else await credential.verify(this.owners.environment(), signal);
+      }
+      // Concurrent callers share the owner's in-flight deep proof (workspace
+      // revalidation and its repository credential check, which for personal
+      // sign-in runs a CLI status process) and the API keychain proof. A
+      // settled proof is never reused. The physical account, operator, receipt
+      // and workspace fences below still run on every callback.
       this.assertCurrentSync(signal);
     } catch (error) {
       throw annotateAuthorityFailure(error, check);
