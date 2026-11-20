@@ -1472,7 +1472,7 @@ describe('host GitHub login for native commands', () => {
     } as Partial<CodexConversationOptions>);
     await f.c.initialize();
     const thread = frames.find(({ method }) => method === 'thread/start')!.params;
-    return { frames, thread, config: thread.config as Record<string, unknown> };
+    return { c: f.c, frames, thread, config: thread.config as Record<string, unknown> };
   };
   const nativeOwner = () => ({
     nativeExecution: policy(),
@@ -1523,6 +1523,40 @@ describe('host GitHub login for native commands', () => {
     const { frames } = await start({ hostGithubCredential: resolve });
     expect(resolve).not.toHaveBeenCalled();
     expect(JSON.stringify(frames)).not.toContain('gho_fixtureLogin');
+  });
+
+  it.each(['chatgpt-subscription', 'openai-api'] as const)(
+    'uses the operator GitHub identity independently of the %s inference account',
+    async (route) => {
+      const resolve = vi.fn(() => ({ token: 'gho_operator', gh: '/fixture/gh' }));
+      const { config, thread } = await start({
+        ...nativeOwner(),
+        route,
+        hostGithubCredential: resolve,
+      });
+      expect(resolve).toHaveBeenCalledOnce();
+      expect(config['shell_environment_policy.set']).toMatchObject({ GH_TOKEN: 'gho_operator' });
+      expect(thread).toMatchObject({ model: 'test-model', modelProvider: 'openai' });
+    },
+  );
+
+  it('refreshes the login on resume and drops it when the resolver later returns unavailable', async () => {
+    const resolve = vi
+      .fn<NonNullable<CodexConversationOptions['hostGithubCredential']>>()
+      .mockReturnValueOnce({ token: 'gho_first', gh: '/fixture/gh' })
+      .mockReturnValueOnce({ token: 'gho_rotated', gh: '/fixture/gh' })
+      .mockReturnValueOnce(undefined);
+    const { c, frames } = await start({ ...nativeOwner(), hostGithubCredential: resolve });
+    await c.setWebSearchGrant(c.getWebSearchGrant().revision, 'denied');
+    await c.setWebSearchGrant(c.getWebSearchGrant().revision, 'denied');
+    const resumes = frames.filter(({ method }) => method === 'thread/resume');
+    expect(resumes).toHaveLength(2);
+    expect(resumes[0]!.params.config).toMatchObject({
+      'shell_environment_policy.set': { GH_TOKEN: 'gho_rotated' },
+    });
+    expect(resumes[1]!.params.config).not.toHaveProperty('shell_environment_policy.set');
+    expect(JSON.stringify(resumes)).not.toContain('gho_first');
+    expect(resolve).toHaveBeenCalledTimes(3);
   });
 });
 

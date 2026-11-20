@@ -63,6 +63,15 @@ it('does not silently truncate oversized lines or lose page boundaries', () => {
   expect(githubLogPage(log, { offset: 69998 }).content).toBe('xx');
 });
 
+it('strips terminal controls before filtering and paging while retaining original source bytes', () => {
+  const body = '\u001b[31mFAIL\u001b[0m first\n\u001b]52;c;clipboard\u0007FAIL last\n';
+  const first = githubLogPage(body, { query: 'FAIL', limit: 8 });
+  const rest = githubLogPage(body, { query: 'FAIL', offset: first.nextOffset! });
+  expect(first.content + rest.content).toBe('FAIL first\nFAIL last');
+  expect(first.sourceBytes).toBe(Buffer.byteLength(body));
+  expect(rest.nextOffset).toBeNull();
+});
+
 it.each([
   '/repos/owner/repo/actions/runs/123/logs',
   '/repos/owner/repo/actions/jobs/123/logs?redirect=elsewhere',

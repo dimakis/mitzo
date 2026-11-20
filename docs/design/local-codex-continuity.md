@@ -213,6 +213,20 @@ The controller therefore resolves the operator's login with the host `gh auth to
 
 Network access stays restricted pending native approval. Task checkout Git writes retain their current scope; external linked-worktree administration requires an exact native filesystem grant. A remote PR branch update does not refresh the local checkout. CI, reviews and exact-head merge guards remain required. The changed read ceiling requires fresh native admission rather than widening a running thread's installed profile. No live GitHub or model acceptance, runtime activation or deployment is implied by offline tests.
 
+#### GitHub access across accounts and runtimes
+
+The GitHub identity belongs to the Mac operator or the approved service connection, independently of the model billing account. Account labels and model names must not select a different GitHub credential.
+
+| Execution route                                                     | Credential delivery and coverage                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local Mac Codex, ChatGPT subscription or OpenAI API account         | The ordinary native execution owner supplies the same resolver. Thread start and resume refresh the command environment; unavailable logins do not reuse an earlier value. Offline tests cover both billing routes and rotation/unavailability on resume.                                     |
+| Local Mac Claude SDK, Vertex, Anthropic API or subscription account | Ordinary SDK authority opts into the existing credential boundary. Each sandbox worker launch gets a fresh protected transfer; controller publishing credentials remain stripped. Boundary and worker regression tests verify delivery and opt-out.                                           |
+| OpenShell, supported engines/accounts                               | The attested GitHub service provider supplies gateway credentials. Its reviewed profile permits API reads and clone/fetch, and refuses writes. Mac credentials are not forwarded into this route; publication uses its separately approved connection.                                        |
+| TaskExecution and GitHubRead                                        | The trusted host read adapter owns authentication. Job-log controls permit capture of ANSI-bearing output only into a bounded pipe, remove terminal controls before filtering/paging, and preserve source byte counts and explicit continuation. Ordinary reads retain CLI output protection. |
+| Advisers or other non-native Codex threads                          | No host login resolution or transfer. Unsupported account/runtime combinations remain unsupported.                                                                                                                                                                                            |
+
+Source repair and offline adapter tests do not establish live acceptance for every configured account. After accepted sources are activated, verify `gh api user --jq .login` through each supported ordinary adapter and its native sandbox; verify OpenShell reads through its broker and retain its write denial. A successful controller or Claude command alone does not qualify Codex. Do not ask for repeated browser login when the operator's terminal already authenticates successfully.
+
 Approval-backed PR publication carries the admitted repository's acquired base OID
 through the live publishing owner. Standalone task checkouts need no remote-tracking
 ref for that base: inspection and bundle export use the same retained commit without
