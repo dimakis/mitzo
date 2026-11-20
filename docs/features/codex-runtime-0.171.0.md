@@ -17,6 +17,12 @@ with an empty isolated home and compared byte for byte with the previous fixture
 none changed. The fixture, exact-artifact gate and CI downloader now select the
 same new executable. No credentials or production configuration were used.
 
+Upstream `arg0/src/lib.rs` now places helpers in the OS-specific
+`CODEX_HOME/tmp/arg0-macos` directory. The kernel qualifier inspects that actual
+location while retaining the same helper-execution and credential-denial checks.
+The old `tmp/arg0` location belongs to the prior runtime. Source:
+[0.171.0 helper lifecycle](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/arg0/src/lib.rs).
+
 The existing metadata-only resume probe passed against the new executable:
 6,294,925 bytes for full history versus 2,445 for metadata only, with retained
 history and zero provider turns. Subagent schema qualification passed; it does
@@ -28,6 +34,15 @@ native attempt encountered the same host restriction. There is no successful
 local kernel receipt. Required macOS CI runs the actual permission qualifier and
 retains its output; a failed check blocks landing. The prior alias report remains
 historical evidence, including its host-preexisting hardlink limitations.
+
+The first candidate (`8d3aa5a3e`, [CI run 44816191824](https://github.com/dimakis/mitzo/actions/runs/44816191824))
+passed compilation/source preflight and frontend build but failed kernel and
+native joined workflows. The helper-layout correction above follows verified
+upstream source and still needs CI verification. Complete diagnostics were
+unavailable: the bounded log adapter reported a transport failure, and its raw
+read identified GitHub CLI's refusal to emit terminal escape sequences. A
+separate authenticated integration read did not run because its approval timed
+out. No root cause is claimed for the remaining workflow failures.
 
 The version-bound 0.160.0 legacy continuity bridge remains closed after this
 upgrade. Saved proofs and histories are preserved; this change does not invent

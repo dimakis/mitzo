@@ -39,7 +39,8 @@ const home = join(root, 'private-home');
 const workspace = join(root, 'work');
 const extra = join(root, 'extra');
 const secrets = join(home, 'credentials');
-const runtime = join(home, 'tmp', 'arg0');
+// Upstream 0.171.0 isolates helper cleanup by OS; legacy tmp/arg0 stays unused.
+const runtime = join(home, 'tmp', 'arg0-macos');
 const osTemp = join(root, 'os-temp');
 const credentialChild = join(secrets, 'child');
 const safe = join(extra, 'safe');
