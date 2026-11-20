@@ -1543,9 +1543,24 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           // between that REST boundary and the first switch/watch.
           connection.send({ type: 'switch_session', sessionId: id, historyCursor: cursor });
         }
-      } catch {
-        if (request === historyRequest && get().sessions.active === id)
-          set({ historyError: 'Could not load this conversation. Please retry.' });
+      } catch (error) {
+        if (request === historyRequest && get().sessions.active === id) {
+          const diagnosticId =
+            error && typeof error === 'object' && 'diagnosticId' in error
+              ? String(error.diagnosticId)
+              : undefined;
+          console.warn('[mitzo] conversation history failed', {
+            sessionId: id,
+            code: 'session_history_load_failed',
+            ...(diagnosticId ? { diagnosticId } : {}),
+            error,
+          });
+          set({
+            historyError: `Could not load this conversation.${
+              diagnosticId ? ` Reference ${diagnosticId.slice(0, 8)}.` : ''
+            } Please retry.`,
+          });
+        }
       } finally {
         if (openingHistory?.request === request) openingHistory = undefined;
         if (request === historyRequest) set({ historyLoading: false });

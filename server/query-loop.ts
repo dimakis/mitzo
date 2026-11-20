@@ -2,6 +2,7 @@ import type { ContextCompaction, SourceSnapshot } from '@mitzo/protocol';
 import type { SubagentDiagnostic } from '@mitzo/protocol';
 import { bindClaudeChildDiagnostic } from './claude-child-diagnostics.js';
 import { isSdkQueryRetiredEvent } from './sdk-query-retirement.js';
+import { replayUnstreamedAssistantMessages } from './unstreamed-assistant-replay.js';
 import {
   retainSdkPersistenceFailure,
   sdkPersistenceDiagnostic,
@@ -859,7 +860,27 @@ async function _runQueryLoopInner(
   try {
     // outer try ensures span.end() always fires
     try {
-      for await (const msg of q) {
+      for await (const msg of replayUnstreamedAssistantMessages(q, {
+        replayed: ({ messageId, blockCount, duplicateBlockCount, skippedBlockTypes }) => {
+          const detail = {
+            clientId,
+            code: 'sdk_unstreamed_assistant_replayed',
+            nativeMessageId: messageId,
+            blockCount,
+            ...(duplicateBlockCount ? { duplicateBlockCount } : {}),
+            ...(skippedBlockTypes.length ? { skippedBlockTypes } : {}),
+          };
+          if (skippedBlockTypes.length)
+            log.warn('Unstreamed assistant message has unsupported blocks', detail);
+          else log.info('Replayed unstreamed assistant message', detail);
+        },
+        suppressedLateStream: ({ messageId }) =>
+          log.warn('Dropped late stream for replayed assistant message', {
+            clientId,
+            code: 'sdk_late_stream_suppressed',
+            nativeMessageId: messageId,
+          }),
+      })) {
         if (isSdkQueryRetiredEvent(msg)) {
           const session = currentOwnerSession();
           if (!session) break;
