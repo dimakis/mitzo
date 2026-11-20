@@ -44,6 +44,9 @@ export function annotateAuthorityFailure(cause: unknown, check: string): Error {
 }
 
 const systemCodes = new Set(['EACCES', 'EPERM', 'ENOENT', 'ENOTDIR', 'ELOOP', 'EIO', 'ETIMEDOUT']);
+// Standard AbortSignal reasons: name a cancellation or deadline, not an
+// unexplained failure. Other names stay generic because peers can choose them.
+const cancellationNames = new Set(['AbortError', 'TimeoutError']);
 /** Allowlisted diagnostics only; raw exceptions and stacks remain in memory. */
 export function runtimeFailureDiagnostics(cause: unknown) {
   const seen = new Set<Error>();
@@ -61,7 +64,9 @@ export function runtimeFailureDiagnostics(cause: unknown) {
         ? 'TypeError'
         : cause instanceof RangeError
           ? 'RangeError'
-          : 'Error';
+          : cancellationNames.has(cause.name)
+            ? cause.name
+            : 'Error';
     const code = Object.getOwnPropertyDescriptor(cause, 'code')?.value;
     if (typeof code === 'string' && systemCodes.has(code)) causeCode = code;
     cause = cause.cause;

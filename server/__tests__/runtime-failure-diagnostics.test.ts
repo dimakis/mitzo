@@ -63,6 +63,22 @@ it('retains reviewed authentication classification and tolerates cyclic/non-Erro
   expect(runtimeFailureDiagnostics(object)).toEqual({ causeType: 'unknown' });
   const untrusted = Object.assign(new Error('synthetic-secret'), { code: 'synthetic-secret' });
   expect(runtimeFailureDiagnostics(untrusted)).toEqual({ causeType: 'Error' });
+  const named = Object.assign(new Error('synthetic-secret'), { name: 'synthetic-secret' });
+  expect(runtimeFailureDiagnostics(named)).toEqual({ causeType: 'Error' });
+});
+
+it('distinguishes cancellation and deadlines from unexplained failures', () => {
+  const cancelled = new AbortController();
+  cancelled.abort();
+  const wrapped = new Error('MCP connection failed', { cause: cancelled.signal.reason });
+  expect(runtimeFailureDiagnostics(wrapped)).toEqual({ causeType: 'AbortError' });
+  expect(
+    runtimeFailureDiagnostics(
+      new SessionRuntimeError('runtime_unavailable', {
+        cause: new DOMException('Startup deadline exceeded', 'TimeoutError'),
+      }),
+    ),
+  ).toEqual({ causeType: 'TimeoutError' });
 });
 
 it('marks a handled failure with the same diagnostic ID and sanitized trace attributes', () => {

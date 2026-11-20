@@ -1,12 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { request as httpRequest, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { createSessionLaunchRouter } from '../session-launch-routes.js';
 import { SessionLaunchError } from '../session-launch-store.js';
 
+const authListeners = vi.hoisted(() => new Set<() => void>());
 vi.mock('../auth.js', () => ({
   isAuthSessionCurrent: (auth: { id: string }) => auth.id !== 'revoked',
-  registerAuthSession: () => () => {},
+  registerAuthSession: (_auth: unknown, listener: () => void) => {
+    authListeners.add(listener);
+    return () => authListeners.delete(listener);
+  },
 }));
 const configuration = {
   version: 1,
@@ -36,7 +42,7 @@ const record = {
   updatedAt: 1,
   allocationId: 'private-id',
 };
-function fixture(login: string | null = 'current') {
+function fixture(login: string | null = 'current', startupTimeoutMs?: number) {
   const defaults = {
     get: vi.fn(() => ({ revision: 2, configuration })),
     save: vi.fn(() => ({ revision: 3, configuration })),
@@ -57,8 +63,12 @@ function fixture(login: string | null = 'current') {
       effect?.('borrowed-db');
       return { ...record, state: 'created', revision: 2 };
     }),
-    refresh: vi.fn(async () => record),
-    resume: vi.fn(async () => ({ ...record, state: 'created', revision: 5 })),
+    refresh: vi.fn(async (_id: string, _owner: string, _authority: unknown) => record),
+    resume: vi.fn(async (_id: string, _owner: string, _revision: number, _authority: unknown) => ({
+      ...record,
+      state: 'created',
+      revision: 5,
+    })),
     release: vi.fn(async () => ({ ...record, state: 'cancelled', revision: 2 })),
   };
   const controller = { defaults, launches, changed: vi.fn() };
@@ -84,11 +94,122 @@ function fixture(login: string | null = 'current') {
           signal,
           assertCurrent() {},
         }),
+      ...(startupTimeoutMs ? { startupTimeoutMs } : {}),
     }),
   );
-  return { app, defaults, launches };
+  return { app, defaults, launches, controller };
 }
+/** Sends a request, then drops its connection as a backgrounded phone does. */
+async function disconnectDuring(
+  app: express.Express,
+  path: string,
+  body: unknown,
+  started: () => boolean,
+) {
+  const server: Server = app.listen(0);
+  try {
+    let socketClosed = false;
+    server.on('connection', (socket) => socket.once('close', () => (socketClosed = true)));
+    const { port } = server.address() as AddressInfo;
+    const payload = body === undefined ? '' : JSON.stringify(body);
+    const client = httpRequest({
+      port,
+      path,
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
+    });
+    client.on('error', () => {
+      /* This test deliberately destroys the client connection. */
+    });
+    client.end(payload);
+    await vi.waitFor(() => expect(started()).toBe(true));
+    client.destroy();
+    await vi.waitFor(() => expect(socketClosed).toBe(true));
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    server.close();
+  }
+}
+function gated() {
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => (open = resolve));
+  return { gate, open };
+}
+const signalOf = (authority: unknown) => (authority as { signal: AbortSignal }).signal;
+const rejectOnAbort = (signal: AbortSignal) =>
+  new Promise<never>((_resolve, reject) =>
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+  );
 describe('reviewed session launch routes', () => {
+  it('keeps approved startup running when the requesting client disconnects; reads still cancel', async () => {
+    const f = fixture();
+    const startupGate = gated();
+    let startup: AbortSignal | undefined;
+    f.launches.approve.mockImplementationOnce(async (_id, _owner, _edits, _rev, authority) => {
+      startup = signalOf(authority);
+      await startupGate.gate;
+      return { ...record, state: 'running', revision: 3 };
+    });
+    await disconnectDuring(
+      f.app,
+      `/api/session-launch/requests/${record.proposalId}/approve`,
+      { expectedRevision: 1, title: record.title, prompt: record.prompt, configuration },
+      () => Boolean(startup),
+    );
+    // A backgrounded phone is not a cancellation of committed startup effects.
+    expect(startup!.aborted).toBe(false);
+    startupGate.open();
+    await vi.waitFor(() => expect(f.controller.changed).toHaveBeenCalledWith('source'));
+    expect(authListeners.size).toBe(0);
+
+    const readGate = gated();
+    let read: AbortSignal | undefined;
+    f.launches.refresh.mockImplementationOnce(async (_id, _owner, authority) => {
+      read = signalOf(authority);
+      await readGate.gate;
+      return record;
+    });
+    await disconnectDuring(
+      f.app,
+      `/api/session-launch/requests/${record.proposalId}`,
+      undefined,
+      () => Boolean(read),
+    );
+    expect(read!.aborted).toBe(true);
+    readGate.open();
+  });
+  it('bounds detached startup by login revocation and the shared startup deadline', async () => {
+    const revoked = fixture();
+    let signal: AbortSignal | undefined;
+    revoked.launches.resume.mockImplementationOnce(async (_id, _owner, _rev, authority) => {
+      signal = signalOf(authority);
+      return rejectOnAbort(signal);
+    });
+    const pending = request(revoked.app)
+      .post(`/api/session-launch/requests/${record.proposalId}/resume`)
+      .send({ expectedRevision: 4 })
+      .then((response) => response);
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    for (const listener of authListeners) listener();
+    expect(signal!.aborted).toBe(true);
+    expect((await pending).status).toBe(503);
+
+    const bounded = fixture('current', 20);
+    let deadline: AbortSignal | undefined;
+    bounded.launches.approve.mockImplementationOnce(
+      async (_id, _owner, _edits, _rev, authority) => {
+        deadline = signalOf(authority);
+        return rejectOnAbort(deadline);
+      },
+    );
+    const timedOut = await request(bounded.app)
+      .post(`/api/session-launch/requests/${record.proposalId}/approve`)
+      .send({ expectedRevision: 1, title: record.title, prompt: record.prompt, configuration });
+    expect(timedOut.status).toBe(503);
+    expect(timedOut.text).toContain('Check the retained request before retrying');
+    expect((deadline!.reason as Error).name).toBe('TimeoutError');
+    expect(authListeners.size).toBe(0);
+  });
   it('requires exact authenticated release review and delivers an owner refusal without private causes', async () => {
     const f = fixture();
     const path = `/api/session-launch/requests/${record.proposalId}/release`;
