@@ -115,6 +115,8 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
+// Retained 0.171.0 CI completed the whole handover at 109s and hit 120s
+// while still progressing. Keep every operation fence within a finite budget.
 it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledgements across restart', async () => {
   vi.resetModules();
   vi.stubEnv('MITZO_KNOWLEDGE_LIBRARY_CONFIG', undefined);
@@ -889,4 +891,4 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
   }
   expect(f.forbidden).not.toHaveBeenCalled();
   expect(f.legacyLookup).not.toHaveBeenCalled();
-}, 120_000);
+}, 180_000);

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1271-codex-0.171.0';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1272-codex-0.171.0';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1844,13 +1844,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/pr-landing.mjs':
     'b9b053bd41da755db77d8505869f3f15ccdd4e556be5bfed9a355e379b992769',
   '../../scripts/qualify-codex-native-permissions.mjs':
-    '10f0e6208bbdbc2b96b6af4c45ae517427d61f0da399e168be6ceebe02b70893',
+    '89430bf334f223f928e55c204c352ef06b558060e0939a577e1c6d5b351791ba',
   '../../scripts/ci-native-failure.mjs':
-    '7c89d3c7641225c192f69566da1233b78fc58811e74843f1b68c842d5abfa65a',
+    'f102f1b701f2a823a6dab961bc6cbead0eac2f79b91fcf679e3c2c2f521f7fe7',
   '../../scripts/ci-native-failure.d.mts':
-    '65382492f8c64a23e8f35f5e5ff02ebf09728ea191df032ad8396fba2da6c912',
+    '34c123d7dc8b3320fa8fefe4f92475ed94d87703538aac9513479f44e101f193',
   '../../scripts/__tests__/ci-native-failure.test.ts':
-    '7f8bc47b3b33abd617d685a5f7f65ba6411ca28666abd1d287eda299ae093f6e',
+    'dacc6d43b07a723d848a34ec1f401be222bb5523072f83f5d46e077d9b2de577',
   '../../scripts/qualify-development-offline.mjs':
     '6adc25351fb807c50092ee080c1dd3417114a35b752cdd1d3891f013ce361fc6',
   '../../scripts/reauthorize-host-codex-login.ts':
@@ -2039,9 +2039,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-child-proxy.ts':
     '552009e53b790ece3f1422caafc1d8b5b71ff14632d9e5c12f189dc47b5d61c9',
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.test.ts':
-    '6faad0a87ed0b5fe92d7b62abae7e379ee498fd934de04f879b289f30c60e9e0',
+    '44fdf89c78108eefbb21629e4ae797ca119608fafb60d97e612a15d039cfddbe',
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.ts':
-    'ce38a1dbd5f20acdb7d799ba4332206e5a277d33fffad9e60cb4d832e3abe79c',
+    'dc2b4e5838cfbca0c6c6bf7cb36bae234f535a5ec0c4a1ba38064e39b49e447f',
   '../../tests/integration/telos-s9/integrated-candidate/joined-fake-voice-effects.ts':
     '6ccaa55909d267cd4b733eb179c6436effbc7145e31748844420d4d866036eaf',
   '../../tests/integration/telos-s9/integrated-candidate/joined-fixture-processes.mjs':
@@ -2051,7 +2051,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-frontend-startup.test.ts':
     '225c23e21081e8c4081059964d25a8e4de0f0d7239f1be5fb56816935b1cdff4',
   '../../tests/integration/telos-s9/integrated-candidate/joined-ordinary-application.ts':
-    '225b251980845ff9999c963106ffe4427ac530c72007365123e39dbe0e7d43ec',
+    '05e139046f2e423d85a5f820c4ca2464378ff7870141f60df53217bd96f14efe',
   '../../tests/integration/telos-s9/integrated-candidate/joined-repository-source-abort.test.ts':
     '4cab570a694d6c53e3c221aef2e116bd27880f22e40b931d026531e12172618c',
   '../../tests/integration/telos-s9/integrated-candidate/joined-repository-source.ts':
@@ -3554,7 +3554,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-conversation-source.test.ts':
     'aac21cf810a4d873dbef041c84f2ad2c92686c664f6d6e9e2ccd0cd64b88865c',
   '../__tests__/telos-coordinator-v2-native-journey.test.ts':
-    '44475389b3164c2f791dbbb33f5608ba7cbe17c6a872f6ae145a19e4985d376c',
+    'c77b0f0f7120ca9e5a6d9dec0d10b13517febde14f6b7e9266bd1dd021c153dc',
   '../__tests__/telos-create-child.test.ts':
     '410806b35335d8800470e16fcc5d235cd9f50881f9baad7d43b31771828a06eb',
   '../__tests__/telos-crud-routes.test.ts':

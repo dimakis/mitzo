@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { nativeCiFailure } from '../ci-native-failure.mjs';
+import { nativeCiFailure, syntheticKernelCommandReport } from '../ci-native-failure.mjs';
 
 it('reports only the stage, error class and repository source location', () => {
   const error = Object.assign(new Error('Bearer synthetic-private-payload'), {
@@ -27,4 +27,40 @@ it('handles colored serialized failures and refuses annotation injection', () =>
   expect(result.annotation).not.toMatch(/private text|\n|payload/);
   expect(result.annotation).not.toContain('\u001b');
   expect(nativeCiFailure('native-case', null).diagnostic.source).toBe('unavailable');
+});
+
+it('retains bounded synthetic kernel stderr without command arguments or stdout', () => {
+  const root = '/private/tmp/synthetic-kernel-home';
+  const result = syntheticKernelCommandReport(
+    'granted',
+    {
+      exitCode: 128,
+      stderr: `\u001b[31m${root}/extra/granted/.git/config:\nPermission\tdenied\u0000\u001b[0m`,
+      stdout: 'must not copy stdout',
+      command: ['must not copy arguments'],
+    },
+    root,
+  );
+  expect(result).toEqual({
+    profile: 'granted',
+    exitCode: 128,
+    stderr: '<fixture-root>/extra/granted/.git/config: Permission denied',
+  });
+  expect(JSON.stringify(result)).not.toMatch(/private\/tmp|must not copy/);
+  expect(result.stderr).not.toContain('\u001b');
+});
+
+it('bounds synthetic kernel diagnostics and rejects malformed status metadata', () => {
+  expect(
+    syntheticKernelCommandReport(
+      'bad\n::error::',
+      { exitCode: 'bad', stderr: 'x'.repeat(9000) },
+      '/fixture',
+    ).stderr,
+  ).toHaveLength(4096);
+  expect(syntheticKernelCommandReport('bad\n::error::', null, '/fixture')).toEqual({
+    profile: 'unknown',
+    exitCode: null,
+    stderr: '',
+  });
 });

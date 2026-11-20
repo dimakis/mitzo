@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { Buffer } from 'node:buffer';
-import { nativeCiFailure } from './ci-native-failure.mjs';
+import { nativeCiFailure, syntheticKernelCommandReport } from './ci-native-failure.mjs';
 
 assert.equal(process.platform, 'darwin', 'This fixture qualifies macOS Seatbelt only');
 const binary = process.argv[2];
@@ -226,6 +226,7 @@ const request = (method, params) =>
   });
 let qualificationStage = 'kernel-permissions';
 let primaryFailure = false;
+let lastCommand;
 const cleanup = () => {
   child.kill('SIGTERM');
   lines.close();
@@ -238,11 +239,15 @@ const cleanup = () => {
 };
 const command = (profile, argv, stage = 'kernel-permissions') => {
   qualificationStage = stage;
+  lastCommand = syntheticKernelCommandReport(profile, null, root);
   return request('command/exec', {
     command: argv,
     cwd: workspace,
     permissionProfile: profile,
     timeoutMs: 5000,
+  }).then((result) => {
+    lastCommand = syntheticKernelCommandReport(profile, result, root);
+    return result;
   });
 };
 try {
@@ -657,6 +662,7 @@ try {
       executableSha256: digest,
       modelCalls: 0,
       passed: false,
+      syntheticCommand: lastCommand,
       ...failure.diagnostic,
     }),
   );

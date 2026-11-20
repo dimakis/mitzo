@@ -24,3 +24,24 @@ export function nativeCiFailure(stage, error) {
       .join('; ')}`,
   };
 }
+
+/** Only for the no-login kernel fixture, whose home and files are synthetic.
+ * Keep this in its JSON artifact, never in public annotations. Do not pass
+ * provider commands or operator payloads to this diagnostic. */
+export function syntheticKernelCommandReport(profile, result, fixtureRoot) {
+  if (!fixtureRoot) throw Error('Synthetic fixture root required');
+  const stderr = stripVTControlCharacters(
+    typeof result?.stderr === 'string' ? result.stderr.slice(0, 8192) : '',
+  ).replaceAll(fixtureRoot, '<fixture-root>');
+  return {
+    profile: /^[a-zA-Z0-9_-]{1,100}$/.test(profile) ? profile : 'unknown',
+    exitCode: Number.isSafeInteger(result?.exitCode) ? result.exitCode : null,
+    stderr: Array.from(stderr, (character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || (code >= 127 && code <= 159) ? ' ' : character;
+    })
+      .join('')
+      .slice(0, 4096)
+      .trimEnd(),
+  };
+}

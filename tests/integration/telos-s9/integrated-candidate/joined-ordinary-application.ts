@@ -422,7 +422,11 @@ export async function createJoinedOrdinaryApplication(
     streamMessages,
     browserNetwork,
     waitForPreparedConversation: (sessionId: string) =>
-      waitForPreparedConversation(page, browserNetwork, sessionId),
+      // Native custody reads share this fixture's process with browser event
+      // handling. Retain exact completed reads within its finite CI budget.
+      waitForPreparedConversation(page, browserNetwork, sessionId, {
+        timeout: process.env.CI ? 20_000 : 10_000,
+      }),
     pageErrors,
     cleanup,
   };

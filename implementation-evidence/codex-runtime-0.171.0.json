@@ -14,6 +14,21 @@
   "npmMatchesOfficialRelease": true,
   "account": "empty isolated CODEX_HOME; no login",
   "providerTurnsStarted": 0,
+  "kernelAndJoinedFollowup": {
+    "run": 44833954532,
+    "unitShards": "passed, including the startup and recovery fixture fixes",
+    "kernelFailureStage": "kernel-granted-remote-add",
+    "kernelFailureCause": "unknown; the next isolated qualification retains bounded synthetic stderr and exit code in its JSON report",
+    "kernelCommandDeadlineMs": 5000,
+    "handoverPreviousPassedMs": 108735.45445800001,
+    "handoverTimedOutMs": 121272.261958,
+    "handoverWholeCaseBudgetMs": 180000,
+    "inProcessAppMetadataReadBudgetMs": 20000,
+    "defaultMetadataReadBudgetMs": 10000,
+    "readinessContract": "Same completed HTTP 200 JSON reads for the exact session, prepared-first-command scope, messages, composer ownership and settings readiness; default refusal cases remain unchanged.",
+    "focusedChecks": "9 diagnostic/readiness checks passed; full native CI required",
+    "productionAuthorizationOrDeadlineChanges": false
+  },
   "ciFixtureTiming": {
     "run": 44830273427,
     "webSearchContractShard": "passed",
