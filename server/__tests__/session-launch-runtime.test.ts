@@ -1,9 +1,14 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionLaunchConfig, SymposiumProfileDefinition } from '@mitzo/protocol';
 import {
   createSessionLaunchPort,
+  isLocalCodexLaunchProvider,
   prepareTelosSessionSettings,
   qualifyTelosSessionLaunchConfig,
+  resolveSessionLaunchProposalRoute,
+  SESSION_LAUNCH_ACCOUNT_UNRESOLVED,
+  SESSION_LAUNCH_ROUTE_UNAVAILABLE,
+  SESSION_LAUNCH_TARGET_MISMATCH,
   SESSION_LAUNCH_UNSUPPORTED_ACCOUNT,
   sessionLaunchRepositoryWorkspaceId,
   sessionLaunchStartupBlocker,
@@ -35,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   repositoryRecord: vi.fn(),
   repositoryPreparation: vi.fn(),
   mkdir: vi.fn(),
+  resolve: vi.fn(),
   selectedTools: undefined as SymposiumProfileDefinition['tools'],
   binding: {
     accountId: 'personal',
@@ -54,7 +60,7 @@ vi.mock('../agent-library-transport.js', () => ({
   captureAgentLibraryAuthorization: () => ({ auth: { id: 'login' }, assertCurrent: () => {} }),
 }));
 vi.mock('../account-profiles.js', () => ({
-  loadAccountProfiles: () => ({ resolve: () => mocks.binding, validateModelSelection: () => {} }),
+  loadAccountProfiles: () => ({ resolve: mocks.resolve, validateModelSelection: () => {} }),
 }));
 vi.mock('../ordinary-local-codex-entry.js', () => ({
   ordinaryRepositoryRuntimeInventory: (location: string, harness: string) => ({
@@ -221,6 +227,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.binding = codexBinding;
   mocks.runtime = codexRuntime;
+  mocks.resolve.mockImplementation(() => mocks.binding);
   mocks.sdkCustody.mockReturnValue(undefined);
   mocks.repositoryPreparation.mockReturnValue(undefined);
   mocks.selectRepository.mockResolvedValue({ id: claudeWorkspaceId });
@@ -363,6 +370,194 @@ it('rejects an account provider without a supported launch engine before workspa
   );
   expect(mocks.inventory).not.toHaveBeenCalled();
   expect(mocks.prepare).not.toHaveBeenCalled();
+});
+const enMaasAccount = {
+  accountId: 'openai-enmaas',
+  provider: 'openai' as const,
+  profileRevision: 'v1',
+};
+const enMaasConfiguration: SessionLaunchConfig = {
+  ...configuration,
+  runtime: {
+    ...configuration.runtime,
+    account: { accountId: 'openai-enmaas', model: 'fixture-model', reasoningEffort: 'high' },
+    accountReference: enMaasAccount,
+  },
+};
+function useEnMaas() {
+  mocks.binding = { ...codexBinding, ...enMaasAccount, accountLabel: 'enMaas' } as never;
+  mocks.runtime = { ...codexRuntime, account: enMaasAccount } as never;
+  mocks.sessionMeta.mockReturnValue({ accountBinding: mocks.binding });
+  mocks.prepare.mockResolvedValue({ preparationId: 'preparation', runtimeBinding: mocks.runtime });
+}
+it('starts a reviewed enMaas OpenAI-compatible account on Local Codex, as New chat does', async () => {
+  useEnMaas();
+  expect(sessionLaunchStartupBlocker(enMaasConfiguration)).toBeNull();
+  expect(sessionLaunchStartupBlocker(enMaasConfiguration, 'telos')).toBeNull();
+  const prepared = vi.fn();
+  await createSessionLaunchPort().start(
+    { ...record, configuration: enMaasConfiguration } as RetainedSessionLaunch,
+    authority,
+    prepared,
+  );
+  expect(mocks.inventory).toHaveBeenCalledWith('local', 'codex');
+  expect(prepared).toHaveBeenCalledWith('child', 'preparation');
+  expect(mocks.dispatch.mock.calls[0][0]).toMatchObject({
+    workspaceKind: 'ordinary',
+    command: { runtime: { account: enMaasAccount, harness: 'codex', targetId: 'mac' } },
+  });
+  expect(mocks.dispatch.mock.calls[0][0]).not.toHaveProperty('ownerConnectionId');
+  expect(mocks.selectRepository).not.toHaveBeenCalled();
+  expect(mocks.prepareRepositorySession).not.toHaveBeenCalled();
+});
+it('prepares an enMaas Telos child on Local Codex, and TelosStartSlice admits the same providers', async () => {
+  useEnMaas();
+  await expect(prepareTelosSessionSettings(enMaasConfiguration, authority)).resolves.toMatchObject({
+    version: 2,
+    binding: { account: enMaasAccount, harness: { implementation: 'codex' } },
+  });
+  for (const provider of ['openai-codex', 'openai'])
+    expect(isLocalCodexLaunchProvider(provider)).toBe(true);
+  for (const provider of [
+    'anthropic-claude',
+    'anthropic-vertex',
+    'anthropic-api',
+    'google-vertex',
+    'unknown',
+    undefined,
+  ])
+    expect(isLocalCodexLaunchProvider(provider)).toBe(false);
+});
+it('still refuses providers New chat cannot start locally, for sessions and Telos children', async () => {
+  for (const provider of ['google-vertex', 'unknown']) {
+    mocks.binding = { ...codexBinding, provider } as never;
+    await expect(createSessionLaunchPort().validate(configuration, authority)).rejects.toThrow(
+      SESSION_LAUNCH_UNSUPPORTED_ACCOUNT,
+    );
+    await expect(qualifyTelosSessionLaunchConfig(configuration, authority)).rejects.toThrow(
+      TELOS_SESSION_CODEX_ONLY,
+    );
+  }
+  const openshell = structuredClone(enMaasConfiguration);
+  openshell.runtime.execution = { location: 'openshell', targetId: 'shell' };
+  useEnMaas();
+  await expect(createSessionLaunchPort().validate(openshell, authority)).rejects.toThrow(
+    /Local Mac/,
+  );
+  expect(mocks.inventory).not.toHaveBeenCalled();
+  expect(mocks.prepare).not.toHaveBeenCalled();
+});
+it('requalifies an enMaas launch at approval: stale identity or a non-Codex host is refused', async () => {
+  useEnMaas();
+  const stale = structuredClone(enMaasConfiguration);
+  stale.runtime.accountReference = { ...enMaasAccount, profileRevision: 'old' };
+  await expect(createSessionLaunchPort().validate(stale, authority)).rejects.toThrow(
+    /saved account identity changed/,
+  );
+  const missing = structuredClone(enMaasConfiguration);
+  missing.runtime.accountReference = null;
+  await expect(createSessionLaunchPort().validate(missing, authority)).rejects.toThrow(
+    /saved account identity changed or is missing/,
+  );
+  const vertexHost = structuredClone(enMaasConfiguration);
+  vertexHost.runtime.execution = { location: 'local', targetId: 'host-mac-vertex' };
+  await expect(createSessionLaunchPort().validate(vertexHost, authority)).rejects.toThrow(
+    /unavailable/,
+  );
+  expect(mocks.prepare).not.toHaveBeenCalled();
+});
+describe('proposal route for an agent-edited account', () => {
+  // The operator's saved default is a Claude account on the Claude SDK host.
+  const claudeDefaultWithEnMaas: SessionLaunchConfig = {
+    ...enMaasConfiguration,
+    runtime: {
+      ...enMaasConfiguration.runtime,
+      accountReference: null,
+      execution: { location: 'local', targetId: 'host-mac-vertex' },
+    },
+  };
+  it('resolves an account-only override to the Local Codex host New chat uses', async () => {
+    useEnMaas();
+    const result = await resolveSessionLaunchProposalRoute(claudeDefaultWithEnMaas, {
+      scope: 'session',
+      targetSupplied: false,
+    });
+    expect(result.blocker).toBeNull();
+    expect(result.configuration.runtime.accountReference).toEqual(enMaasAccount);
+    expect(result.configuration.runtime.execution).toEqual({ location: 'local', targetId: 'mac' });
+    expect(mocks.resolve).toHaveBeenCalledWith('openai-enmaas', 'fixture-model');
+    await expect(
+      resolveSessionLaunchProposalRoute(claudeDefaultWithEnMaas, {
+        scope: 'telos',
+        targetSupplied: false,
+      }),
+    ).resolves.toMatchObject({ blocker: null });
+  });
+  it('blocks, never silently accepts, an agent-supplied host that does not run the account engine', async () => {
+    useEnMaas();
+    for (const config of [
+      claudeDefaultWithEnMaas,
+      {
+        ...claudeDefaultWithEnMaas,
+        runtime: { ...claudeDefaultWithEnMaas.runtime, accountReference: enMaasAccount },
+      },
+    ]) {
+      const result = await resolveSessionLaunchProposalRoute(config, {
+        scope: 'session',
+        targetSupplied: true,
+      });
+      expect(result.blocker).toBe(SESSION_LAUNCH_TARGET_MISMATCH);
+      expect(result.configuration.runtime.execution.targetId).toBe('host-mac-vertex');
+    }
+    const matching = structuredClone(claudeDefaultWithEnMaas);
+    matching.runtime.execution.targetId = 'mac';
+    await expect(
+      resolveSessionLaunchProposalRoute(matching, { scope: 'session', targetSupplied: true }),
+    ).resolves.toMatchObject({ blocker: null });
+  });
+  it('names the reason when the account or its engine route cannot be resolved', async () => {
+    mocks.resolve.mockImplementation(() => {
+      throw Error('Unknown account');
+    });
+    await expect(
+      resolveSessionLaunchProposalRoute(claudeDefaultWithEnMaas, {
+        scope: 'session',
+        targetSupplied: false,
+      }),
+    ).resolves.toMatchObject({ blocker: SESSION_LAUNCH_ACCOUNT_UNRESOLVED });
+    mocks.resolve.mockImplementation(() => mocks.binding);
+    mocks.binding = { ...codexBinding, provider: 'google-vertex' } as never;
+    await expect(
+      resolveSessionLaunchProposalRoute(claudeDefaultWithEnMaas, {
+        scope: 'session',
+        targetSupplied: false,
+      }),
+    ).resolves.toMatchObject({ blocker: SESSION_LAUNCH_UNSUPPORTED_ACCOUNT });
+    useClaude();
+    await expect(
+      resolveSessionLaunchProposalRoute(claudeDefaultWithEnMaas, {
+        scope: 'telos',
+        targetSupplied: false,
+      }),
+    ).resolves.toMatchObject({ blocker: TELOS_SESSION_CODEX_ONLY });
+    // Configured but absent from the current Local Codex inventory.
+    useEnMaas();
+    mocks.runtime = { ...codexRuntime, account: { ...enMaasAccount, accountId: 'other' } } as never;
+    const missing = await resolveSessionLaunchProposalRoute(claudeDefaultWithEnMaas, {
+      scope: 'session',
+      targetSupplied: false,
+    });
+    expect(missing.blocker).toBe(SESSION_LAUNCH_ROUTE_UNAVAILABLE);
+    expect(missing.configuration.runtime.execution.targetId).toBe('host-mac-vertex');
+  });
+  it('keeps a reviewed saved account and host untouched when the agent changed neither', async () => {
+    const result = await resolveSessionLaunchProposalRoute(configuration, {
+      scope: 'session',
+      targetSupplied: false,
+    });
+    expect(result).toEqual({ configuration, blocker: null });
+    expect(mocks.resolve).not.toHaveBeenCalled();
+  });
 });
 it('starts a reviewed Claude child on a prepared repository session, as New chat does', async () => {
   useClaude();
