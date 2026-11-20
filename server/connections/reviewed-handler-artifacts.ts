@@ -3738,7 +3738,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': '4c6a2e87026eed29f66f60f3238696fb78c22155b6ed62e2d3f17029fcf7ed72',
+  '../chat.ts': 'e991c818973a640eb6bd91f91eeccdef7bee919803a51e6572664cc214331042',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
@@ -4248,7 +4248,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-capabilities.ts':
     'b52640a77edea3e89f3e131a8b60d70dd2d037749b91c0622bc6405d05e8ce82',
   '../ordinary-local-vertex-command-owner.ts':
-    '0c01cee5901f3c46cb84ab5e0a50df46c05fdb32e3396cae1799f1917b2186fb',
+    'a81389e22a35138ea86201b3d2f5f4da7d696a6bc6acdb873903473d3ca2e101',
   '../ordinary-local-vertex-custody.ts':
     '7f1ce782be5190881004a63aacf58d8df69acb0fe46d9bfe952c436cf6c2aed9',
   '../ordinary-local-vertex-entry.ts':

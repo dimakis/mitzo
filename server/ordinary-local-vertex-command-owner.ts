@@ -418,6 +418,12 @@ export class OrdinaryLocalVertexCommandOwner {
       this.#inputYielded = false;
       this.#resultObserved = false;
       this.#resultDeliveryPending = !dispatchSuccessor;
+      // A Stop retained before its input echo belonged to this exact execution.
+      // Settling that execution honours it; leaving it pending would let the
+      // next command's echo consume it and stop the successor instead.
+      const deferred = this.#deferredStop;
+      this.#deferredStop = undefined;
+      deferred?.resolve();
       this.owners.onTerminal?.(commandId);
       if (dispatchSuccessor) await this.#dispatch();
     });
