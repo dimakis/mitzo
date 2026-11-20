@@ -544,6 +544,17 @@ jobs:
         with:
           artifact-id: ${{ needs.preflight.outputs.workspace_artifact_id }}
       - uses: ./.github/actions/ci-native-fixture
+      - name: Qualify pinned Codex kernel permissions without inference
+        run: |
+          mkdir -p test-results/codex-kernel
+          node --import tsx scripts/qualify-codex-native-permissions.mjs "$S9_CODEX_NATIVE_FIXTURE" > test-results/codex-kernel/permissions.json
+      - name: Retain Codex kernel qualification
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: codex-kernel-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/codex-kernel/
+          if-no-files-found: error
       - name: Verify standalone repository proof mutation checks
         if: ${{ !cancelled() }}
         run: |

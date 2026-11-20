@@ -1,10 +1,26 @@
 import { expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   readCodexModels,
   refreshModels,
   cachedModels,
   ModelDiscoveryError,
 } from '../model-catalog.js';
+it('reads the requested 6.2 models from the pinned CLI metadata with their reasoning choices', async () => {
+  const evidence = JSON.parse(
+    readFileSync(
+      new URL('../../implementation-evidence/codex-runtime-0.171.0.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const request = vi.fn().mockResolvedValue(evidence.catalog);
+  const models = await readCodexModels({ request });
+  expect(models.map(({ id }) => id)).toEqual(['gpt-6.2-sol', 'gpt-6.2-astra']);
+  for (const model of models) {
+    expect(model.reasoningEfforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+    expect(model.defaultReasoningEffort).toBe('low');
+  }
+});
 it('retains only an approved sign-in diagnostic and clears it after recovery', async () => {
   const key = 'sign-in-diagnostic';
   const diagnosticId = '566e4644-cd56-4b29-938b-586d69c850ef';

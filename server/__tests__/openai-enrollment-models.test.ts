@@ -5,6 +5,20 @@ import {
   REVIEWED_OPENAI_ENROLLMENT_MODELS,
 } from '../openai-enrollment-models.js';
 const signal = () => AbortSignal.timeout(5000);
+it('admits available Sol 6.2 and Astra 6.2 with reviewed reasoning choices', async () => {
+  const request = vi.fn<typeof fetch>().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        data: [{ id: 'gpt-6.2-sol' }, { id: 'gpt-6.2-astra' }, { id: 'gpt-6-luna' }],
+      }),
+    ),
+  );
+  const models = await discoverOpenAIEnrollmentModels('SYNTHETIC_KEY', signal(), request);
+  expect(models.map((model) => model.id)).toEqual(['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6-luna']);
+  for (const model of models.slice(0, 2))
+    expect(model.reasoningEfforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+  expect(OpenAIEnrollmentModelsSchema.parse(models)).toEqual(models);
+});
 it('discovers account model availability through one bounded official metadata GET', async () => {
   const request = vi.fn<typeof fetch>().mockResolvedValue(
     new Response(

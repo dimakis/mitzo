@@ -15,7 +15,7 @@ The existing capabilities observation remains the owner of measured results.
 Inspected Mitzo base: `9e47c4ab81d836673bacb461d2b03d46d8de390f`.
 Claude Agent SDK: `0.3.322`, pinned in `package.json` and `package-lock.json`;
 the matching installed `sdk.d.ts` was inspected without reading account data.
-Codex's accepted binary pin is `0.160.0` in `docs/spikes/openshell-codex/runtime-codex-version`;
+Codex's source binary pin is `0.171.0` in `docs/spikes/openshell-codex/runtime-codex-version`;
 `server/codex-app-server-client.ts` enforces that version. This audit inspects
 Mitzo's adapter calls and contracts; it makes no new live-provider qualification.
 

@@ -1,5 +1,5 @@
 /** No model calls. Run outside an existing macOS Seatbelt sandbox.
- * Usage: node scripts/qualify-codex-native-permissions.mjs /absolute/pinned/codex
+ * Usage: node --import tsx scripts/qualify-codex-native-permissions.mjs /absolute/pinned/codex
  * Only an official pinned digest is accepted. Every file/home is synthetic.
  * This proves named profile union enforcement, not a model approval round trip.
  */
@@ -33,7 +33,7 @@ assert.equal(process.platform, 'darwin', 'This fixture qualifies macOS Seatbelt 
 const binary = process.argv[2];
 assert.ok(binary && isAbsolute(binary), 'Supply the pinned executable absolute path');
 const digest = createHash('sha256').update(readFileSync(binary)).digest('hex');
-assert.equal(digest, '112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b');
+assert.equal(digest, 'fc8d77cf7585aded2b9bc487dad29c4ee2f066123e4e76dd3b17653a8322ce42');
 const root = mkdtempSync(join(tmpdir(), 'mitzo-native-enforcement-'));
 const home = join(root, 'private-home');
 const workspace = join(root, 'work');
@@ -175,7 +175,7 @@ const env = {
 };
 const version = spawnSync(binary, ['--version'], { env, encoding: 'utf8' });
 assert.equal(version.status, 0);
-assert.equal(version.stdout.trim(), 'codex-cli 0.160.0');
+assert.equal(version.stdout.trim(), 'codex-cli 0.171.0');
 const child = spawn(binary, ['app-server', '--listen', 'stdio://'], {
   cwd: workspace,
   env,

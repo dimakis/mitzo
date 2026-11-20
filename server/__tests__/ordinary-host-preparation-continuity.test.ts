@@ -113,7 +113,7 @@ async function historicalV1(proof: OrdinaryRepositoryPreparation) {
   return saved;
 }
 it.each([false, true])(
-  'requalifies a known legacy prepared checkout through actual capture/assert without changing its proof, API=%s',
+  'refuses the 0.160.0 legacy preparation bridge after a CLI upgrade without rewriting the saved proof, API=%s',
   async (api) => {
     const f = await ownedRuntimeFixture(cleanups, {
       chatRoute: true,
@@ -121,16 +121,25 @@ it.each([false, true])(
       continuityV2: true,
       api,
       realPreparationAuthority: true,
-      historicalPreparation: historicalV1,
     });
     const before = f.workspace.get(f.reservation.id);
+    const legacy = await historicalV1(before.ordinaryPreparation!);
+    const { assertOrdinaryRepositoryPreparation } =
+      await import('../ordinary-repository-preparation-authority.js');
+    await expect(
+      assertOrdinaryRepositoryPreparation(
+        legacy,
+        f.reservation.binding,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('Host Codex runtime observation unavailable');
     await expect(
       f.workspace.reserveHostTask({ ...f.reservation, signal: new AbortController().signal }),
     ).resolves.toBeDefined();
     expect(f.workspace.get(f.reservation.id).ordinaryPreparation).toEqual(
       before.ordinaryPreparation,
     );
-    expect(before.ordinaryPreparation?.runtimeBinding.execution.targetRevision).not.toBe(
+    expect(legacy.runtimeBinding.execution.targetRevision).not.toBe(
       new OrdinaryLocalCodexHostRuntime().target().descriptor().targetRevision,
     );
   },
@@ -172,7 +181,7 @@ it.each([false, true])(
 );
 
 it.each([false, true])(
-  'retains legacy proof but refuses changed credentials and unknown target aliases, API=%s',
+  'retains saved proof but refuses changed credentials and unknown target aliases, API=%s',
   async (api) => {
     const f = await ownedRuntimeFixture(cleanups, {
       chatRoute: true,
@@ -180,7 +189,6 @@ it.each([false, true])(
       continuityV2: true,
       api,
       realPreparationAuthority: true,
-      historicalPreparation: historicalV1,
     });
     const saved = f.workspace.get(f.reservation.id).ordinaryPreparation!;
     const { assertOrdinaryRepositoryPreparation } =

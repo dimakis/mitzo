@@ -7,7 +7,7 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        PROVENANCE=server/__tests__/fixtures/codex-native-permission-protocol-0.160.0.json
+        PROVENANCE=server/__tests__/fixtures/codex-native-permission-protocol-0.171.0.json
         VERSION=$(node -p "require('./$PROVENANCE').provenance.version")
         BINARY=$(node -p "require('./$PROVENANCE').provenance.binary")
         EXPECTED_SHA=$(node -p "require('./$PROVENANCE').provenance.binarySha256")

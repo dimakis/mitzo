@@ -1,0 +1,186 @@
+{
+  "runtime": "0.171.0",
+  "source": "https://github.com/openai/codex/releases/tag/rust-v0.171.0",
+  "verifiedOn": "2026-11-20",
+  "platform": "aarch64-apple-darwin",
+  "executableSha256": "fc8d77cf7585aded2b9bc487dad29c4ee2f066123e4e76dd3b17653a8322ce42",
+  "npmMatchesOfficialRelease": true,
+  "account": "empty isolated CODEX_HOME; no login",
+  "providerTurnsStarted": 0,
+  "catalogNote": "Requested model entries retained from offline model/list; other catalog entries omitted. Bundled support does not establish account entitlement.",
+  "catalog": {
+    "data": [
+      {
+        "id": "gpt-6.2-sol",
+        "model": "gpt-6.2-sol",
+        "upgrade": null,
+        "upgradeInfo": null,
+        "availabilityNux": null,
+        "displayName": "GPT-6.2-Sol",
+        "description": "Fast, go-to model for coding and everyday work.",
+        "modelSpecialty": null,
+        "hidden": false,
+        "supportedReasoningEfforts": [
+          {
+            "reasoningEffort": "low",
+            "description": "Fast responses with lighter reasoning"
+          },
+          {
+            "reasoningEffort": "medium",
+            "description": "Balances speed and reasoning depth for everyday tasks"
+          },
+          {
+            "reasoningEffort": "high",
+            "description": "Greater reasoning depth for complex problems"
+          },
+          {
+            "reasoningEffort": "xhigh",
+            "description": "Extra high reasoning depth for complex problems"
+          },
+          {
+            "reasoningEffort": "max",
+            "description": "Maximum reasoning depth for the hardest problems"
+          },
+          {
+            "reasoningEffort": "ultra",
+            "description": "Maximum reasoning with automatic task delegation"
+          }
+        ],
+        "defaultReasoningEffort": "low",
+        "inputModalities": ["text", "image"],
+        "supportsPersonality": false,
+        "multiAgentVersion": "v2",
+        "additionalSpeedTiers": ["fast"],
+        "serviceTiers": [
+          {
+            "id": "priority",
+            "name": "Fast",
+            "description": "2x speed, increased usage"
+          }
+        ],
+        "defaultServiceTier": null,
+        "availableAccessPrograms": null,
+        "isDefault": true
+      },
+      {
+        "id": "gpt-6.2-astra",
+        "model": "gpt-6.2-astra",
+        "upgrade": null,
+        "upgradeInfo": null,
+        "availabilityNux": null,
+        "displayName": "GPT-6.2-Astra",
+        "description": "Our most capable model for complex coding and professional work.",
+        "modelSpecialty": null,
+        "hidden": false,
+        "supportedReasoningEfforts": [
+          {
+            "reasoningEffort": "low",
+            "description": "Fast responses with lighter reasoning"
+          },
+          {
+            "reasoningEffort": "medium",
+            "description": "Balances speed and reasoning depth for everyday tasks"
+          },
+          {
+            "reasoningEffort": "high",
+            "description": "Greater reasoning depth for complex problems"
+          },
+          {
+            "reasoningEffort": "xhigh",
+            "description": "Extra high reasoning depth for complex problems"
+          },
+          {
+            "reasoningEffort": "max",
+            "description": "Maximum reasoning depth for the hardest problems"
+          },
+          {
+            "reasoningEffort": "ultra",
+            "description": "Maximum reasoning with automatic task delegation"
+          }
+        ],
+        "defaultReasoningEffort": "low",
+        "inputModalities": ["text", "image"],
+        "supportsPersonality": false,
+        "multiAgentVersion": "v2",
+        "additionalSpeedTiers": ["fast"],
+        "serviceTiers": [
+          {
+            "id": "priority",
+            "name": "Fast",
+            "description": "2x speed, increased usage"
+          }
+        ],
+        "defaultServiceTier": null,
+        "availableAccessPrograms": null,
+        "isDefault": false
+      }
+    ],
+    "nextCursor": null
+  },
+  "permissionTypes": "All reduced generatedTypes in the native permission fixture are byte-identical between 0.160.0 and 0.171.0.",
+  "subagentSchema": {
+    "codexCliVersion": "0.171.0",
+    "evidence": "generated_protocol_only",
+    "modelCalls": 0,
+    "threadIdentityFields": ["id", "parentThreadId", "sessionId", "forkedFromId"],
+    "subagentActivityFields": ["id", "kind", "agentThreadId", "agentPath"],
+    "subagentActivityKinds": ["started", "interacted", "interrupted", "completed"],
+    "collaborationItemType": "collabAgentToolCall",
+    "collaborationIdentityFields": [
+      "id",
+      "senderThreadId",
+      "receiverThreadIds",
+      "tool",
+      "status",
+      "agentsStates"
+    ],
+    "collaborationTools": [
+      "spawnAgent",
+      "sendInput",
+      "resumeAgent",
+      "wait",
+      "closeAgent",
+      "sendMessage",
+      "followupTask",
+      "interruptAgent",
+      "listAgents"
+    ],
+    "controls": {
+      "thread/read": ["threadId"],
+      "thread/resume": ["threadId"],
+      "turn/start": ["threadId", "input"],
+      "turn/steer": ["threadId", "expectedTurnId", "input"],
+      "turn/interrupt": ["threadId", "turnId"]
+    },
+    "dynamicToolIdentityFields": ["threadId", "turnId", "callId", "tool", "arguments"],
+    "executionQualified": false,
+    "remainingChecks": [
+      "child_event_subscription_and_replay",
+      "dynamic_tool_inheritance_and_approval_routing",
+      "account_workspace_and_permission_inheritance",
+      "active_and_idle_child_messaging",
+      "targeted_and_descendant_cancellation",
+      "reconnect_and_uncertain_effect_recovery",
+      "child_usage_accounting"
+    ],
+    "executableSha256": "fc8d77cf7585aded2b9bc487dad29c4ee2f066123e4e76dd3b17653a8322ce42",
+    "schemaSha256": {
+      "ClientRequest.json": "e5dcf3cfb34f876163fb5ba8cd46f3381a5ad536b5f1878f1203761b3efb734c",
+      "ServerNotification.json": "5329477a2db6dbe638c74d92ff0540795b26c617c2fe96522134edc983a2d273",
+      "ServerRequest.json": "25b0b01c99afc2ab5b09957a705001ed1a8dcf5cf0bb274f4843e52355e8f4ae"
+    }
+  },
+  "metadataResume": {
+    "passed": true,
+    "fullHistoryBytes": 6294925,
+    "metadataBytes": 2445,
+    "providerTurnsStarted": 0
+  },
+  "kernelQualification": {
+    "status": "blocked_locally",
+    "stage": "command/exec",
+    "exitCode": 71,
+    "cause": "sandbox-exec: sandbox_apply: Operation not permitted",
+    "nextAction": "Required macOS ordinary-journey CI runs scripts/qualify-codex-native-permissions.mjs using the checksum-verified official artifact. No successful local kernel receipt exists."
+  }
+}
