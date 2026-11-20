@@ -3960,7 +3960,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-bootstrap.ts':
     'ed0477cf4adc35152ce05806f3719cac833c87112e8b25c80852432fe47785a9',
   '../frozen-host-codex-executable.ts':
-    'a5b37e198fb61904b3f8e022dd7578f8bbc48ad90db815f303c9ea0249fd19a4',
+    '0d553fd3ca45b0ddc6839776666d2bc179241820e9ae013efcadf21d6e5fc954',
   '../__tests__/frozen-host-codex-executable.test.ts':
     'f0a39ef956121f6a1b9d62a795c7566fbf37971fac8cca9c9adef5b58759b6f3',
   '../frozen-host-codex-login.ts':

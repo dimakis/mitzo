@@ -26,6 +26,9 @@ hashing; an oversized file is rejected before streaming with a retained
 actual official executable now measures to its expected SHA-256 through this
 same inspector. This reproduces and repairs the joined workflows' shared startup
 rejection, without claiming that every later workflow stage has passed.
+The isolated device-login copier shares the same file-size ceiling, with its
+own 300 MiB pin/copy and oversized-rejection regression; no device login or
+credential enrollment was performed by these tests.
 
 Upstream `arg0/src/lib.rs` now places helpers in the OS-specific
 `CODEX_HOME/tmp/arg0-macos` directory. The kernel qualifier inspects that actual

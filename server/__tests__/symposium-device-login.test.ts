@@ -2,10 +2,47 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { chmodSync, existsSync, writeFileSync, rmSync, mkdtempSync, readFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  writeFileSync,
+  rmSync,
+  mkdtempSync,
+  readFileSync,
+  truncateSync,
+  statSync,
+  mkdirSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { beginDeviceLogin, deviceLoginProcessSpec } from '../symposium-device-login.js';
+
+it('pins a 300 MiB executable for device login and rejects artifacts beyond the shared native ceiling', () => {
+  const root = mkdtempSync(join(tmpdir(), 'device-login-large-'));
+  try {
+    const source = join(root, 'codex');
+    const home = join(root, 'home');
+    mkdirSync(home, { mode: 0o700 });
+    writeFileSync(source, Buffer.from([0xcf, 0xfa, 0xed, 0xfe]), { mode: 0o755 });
+    truncateSync(source, 300 * 1024 * 1024);
+    const hash = createHash('sha256');
+    const chunk = Buffer.alloc(1024 * 1024);
+    chunk.set([0xcf, 0xfa, 0xed, 0xfe]);
+    hash.update(chunk);
+    chunk.fill(0);
+    for (let index = 1; index < 300; index++) hash.update(chunk);
+    const pin = { executable: source, sha256: hash.digest('hex') };
+    const spec = deviceLoginProcessSpec(home, '/usr/bin', pin);
+    expect(statSync(spec.command).size).toBe(300 * 1024 * 1024);
+    expect(statSync(spec.command).mode & 0o777).toBe(0o500);
+    truncateSync(source, 384 * 1024 * 1024 + 1);
+    expect(() => deviceLoginProcessSpec(home, '/usr/bin', pin)).toThrow(
+      'Pinned device executable metadata changed',
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function fixture(options: { unsupported?: boolean; wrongMode?: boolean; early?: boolean } = {}) {
   const child = Object.assign(new EventEmitter(), {

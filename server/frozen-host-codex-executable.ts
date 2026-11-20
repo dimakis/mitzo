@@ -25,7 +25,7 @@ import {
 const unavailable = (cause?: unknown) => new Error('Host Codex runtime unavailable', { cause });
 // The checksum-qualified 0.171.0 macOS executable exceeds the old 256 MiB cap.
 // Streaming remains bounded to 1 MiB; this is a file-size ceiling, not an allocation.
-const MAX_NATIVE_EXECUTABLE_BYTES = 384n * 1024n * 1024n;
+export const MAX_NATIVE_EXECUTABLE_BYTES = 384 * 1024 * 1024;
 const fields = ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs', 'uid', 'mode', 'nlink'] as const;
 type Metadata = Pick<BigIntStats, (typeof fields)[number]>;
 type Identity = Metadata & { sha256: string };
@@ -88,7 +88,7 @@ function assertPlacement(path: string, shared?: SharedPlacement, privateHome?: s
 function metadata(path: string): Metadata {
   canonical(path);
   const stat = lstatSync(path, { bigint: true });
-  if (stat.size > MAX_NATIVE_EXECUTABLE_BYTES)
+  if (stat.size > BigInt(MAX_NATIVE_EXECUTABLE_BYTES))
     throw Object.assign(unavailable(), {
       code: 'native_executable_size_limit',
       stage: 'native_metadata',
