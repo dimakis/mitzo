@@ -6,6 +6,7 @@ import { NativeHooks } from '../native-hooks.js';
 import * as commands from '../protected-sdk-command.js';
 import { expect, it, vi } from 'vitest';
 import { connectCodexMcpTools, type McpToolsOptions } from '../codex-mcp-tools.js';
+import * as logging from '../logger.js';
 import {
   SessionRegistry,
   buildPermissionHandler,
@@ -90,6 +91,52 @@ it('retains initialization and cleanup causes while exposing only a fixed failur
   expect(failure?.cause).toBe(cause);
   expect(failure).toBeInstanceOf(AggregateError);
   expect((failure as AggregateError).errors[0]).toBeInstanceOf(AggregateError);
+});
+
+it('reports a cancelled stdio initialize as cancellation without private detail', async () => {
+  const warn = vi.fn();
+  const logger = vi
+    .spyOn(logging, 'createLogger')
+    .mockReturnValue({ warn, debug: vi.fn(), info: vi.fn(), error: vi.fn() } as never);
+  const cancel = new AbortController();
+  try {
+    const startup = connectCodexMcpTools(
+      // A real peer that never answers initialize, as during an in-flight startup.
+      { silent: { command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'] } },
+      { cwd: process.cwd(), env: { PATH: process.env.PATH ?? '' }, signal: cancel.signal },
+    );
+    const settled = expect(startup).rejects.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    cancel.abort();
+    await settled;
+    expect(warn).toHaveBeenCalledWith(
+      'MCP connection failed',
+      expect.objectContaining({
+        code: 'mcp_connection_failed',
+        cancelled: true,
+        causeType: 'AbortError',
+      }),
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(process.execPath);
+
+    warn.mockClear();
+    await expect(
+      connectCodexMcpTools(
+        { crashing: { command: process.execPath, args: ['-e', 'process.exit(3)'] } },
+        {
+          cwd: process.cwd(),
+          env: { PATH: process.env.PATH ?? '' },
+          signal: new AbortController().signal,
+        },
+      ),
+    ).rejects.toThrow();
+    expect(warn).toHaveBeenCalledWith(
+      'MCP connection failed',
+      expect.objectContaining({ code: 'mcp_connection_failed', cancelled: false }),
+    );
+  } finally {
+    logger.mockRestore();
+  }
 });
 
 it('starts independent MCP discovery concurrently and preserves configured source/page order', async () => {

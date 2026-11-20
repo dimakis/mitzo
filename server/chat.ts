@@ -3960,7 +3960,12 @@ async function _startChatInner(
       accountBinding?.provider === 'openai' ||
       options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority;
     const publicMessage = native
-      ? publicCodexStartupError(err instanceof Error ? err : new Error(message))
+      ? publicCodexStartupError(
+          err instanceof Error ? err : new Error(message),
+          options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority
+            ? 'Claude'
+            : 'Codex',
+        )
       : message;
     try {
       // Admission rejection is also a client/span boundary. Never forward the
