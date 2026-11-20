@@ -145,6 +145,22 @@ function useSharedConversation({
     },
     [sourceConversationId],
   );
+  // A chat this view started is assigned in place (draft '' → new id). Its
+  // collaboration setup is refused until the session row persists, but it cannot
+  // already be part of a discussion, so its own transcript stays visible meanwhile.
+  const [sourceTrack, setSourceTrack] = useState<{ source: string; startedInView?: string }>({
+    source: sourceConversationId,
+  });
+  if (sourceTrack.source !== sourceConversationId)
+    setSourceTrack({
+      source: sourceConversationId,
+      startedInView: sourceTrack.source === '' ? sourceConversationId : undefined,
+    });
+  const startedInView =
+    !!sourceConversationId &&
+    (sourceTrack.source === sourceConversationId
+      ? sourceTrack.startedInView === sourceConversationId
+      : sourceTrack.source === '');
   const [associationState, setAssociation] = useState<{
     owner: object;
     group?: string;
@@ -452,6 +468,8 @@ function useSharedConversation({
       (!association.group || (association.begun && !view)) &&
       !association.error,
     error: association.error,
+    // Unanswered setup for a chat started in this view does not hide its transcript.
+    provisionalOrdinary: startedInView && !association.group && !association.historySource,
     retry: () => {
       // Setup and the retained conversation read have different owners. Repeating
       // unchanged setup does not rerun a failed read of the same collaboration.
@@ -810,7 +828,10 @@ function SharedConversationBodyContent({
           ordinary={{
             ...history,
             sessionId: sourceConversationId,
-            ...(!projection && (host.active || host.historySource || host.resolving || host.error)
+            ...(!projection &&
+            (host.active ||
+              host.historySource ||
+              ((host.resolving || host.error) && !host.provisionalOrdinary))
               ? {
                   messages: [],
                   current: null,
