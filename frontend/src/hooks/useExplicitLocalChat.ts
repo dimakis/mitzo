@@ -25,6 +25,10 @@ import {
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import {
+  nextSessionStartupReadDelay,
+  sessionStartupReadWindow,
+} from '../lib/session-startup-reads';
+import {
   ExplicitLocalInventorySchema,
   normalizeLocalInventory,
   type ExplicitLocalInventory,
@@ -155,6 +159,8 @@ export function useExplicitLocalChat(
     sessionId: string | null;
   } | null>(null);
   const metadataReadStarted = useRef(false);
+  const metadataStartup = useRef(sessionStartupReadWindow(sessionId));
+  const [metadataStartupProbe, setMetadataStartupProbe] = useState(0);
   const [error, setError] = useState('');
   const [metaFailure, setMetaFailure] = useState<{
     sessionId: string;
@@ -296,11 +302,14 @@ export function useExplicitLocalChat(
   }, [draftId, enabled, sessionId, attempt, claudeModelAccount]);
   useEffect(() => {
     if (!sessionId) return;
+    if (metadataStartup.current.conversationId !== sessionId)
+      metadataStartup.current = sessionStartupReadWindow(sessionId);
     const shareMount = !metadataReadStarted.current;
     metadataReadStarted.current = true;
     setMetaFailure(null);
     setMetadataLoadingForSession(sessionId);
     const controller = new AbortController();
+    let startupProbe: ReturnType<typeof setTimeout> | undefined;
     const fail = (cause: unknown) => {
       setMetaFailure({
         sessionId,
@@ -332,9 +341,26 @@ export function useExplicitLocalChat(
         ),
       )
       .then(async (response) => {
-        if (!response.ok) throw Error('Metadata unavailable');
+        if (controller.signal.aborted || scope.current.sessionId !== sessionId) return;
+        // A chat selected while it starts has no session row yet. Stay loading
+        // and re-read instead of reporting unavailable settings.
+        const startupDelay = nextSessionStartupReadDelay(
+          metadataStartup.current,
+          sessionId,
+          response.status,
+        );
+        if (startupDelay !== null) {
+          clearTimeout(timeout);
+          startupProbe = setTimeout(
+            () => setMetadataStartupProbe((value) => value + 1),
+            startupDelay,
+          );
+          return;
+        }
+        if (!response.ok) throw Error(`Metadata unavailable (${response.status})`);
         const body = await response.json();
         if (controller.signal.aborted || scope.current.sessionId !== sessionId) return;
+        metadataStartup.current.settled = true;
         const parsed =
           body.runtimeBinding == null
             ? null
@@ -442,9 +468,10 @@ export function useExplicitLocalChat(
       .finally(() => clearTimeout(timeout));
     return () => {
       clearTimeout(timeout);
+      clearTimeout(startupProbe);
       controller.abort();
     };
-  }, [sessionId, attempt, workspaceRevision]);
+  }, [sessionId, attempt, workspaceRevision, metadataStartupProbe]);
   const metadataError = metaFailure?.sessionId === sessionId ? metaFailure.message : undefined;
   const metadataUnavailable = !!sessionId && !!metadataError;
   const metadataPending =
