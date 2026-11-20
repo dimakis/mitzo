@@ -9,6 +9,16 @@ sends no automatic continuation prompts. Active turns may be interrupted by the
 restart; saved history and normal recovery controls remain available under their
 existing ownership and effect checks.
 
+Shutdown ends live ordinary turns first, before slower cleanup, so launchd's exit
+timeout cannot leave a Claude CLI process group running without the server. On
+startup, a Claude SDK turn the restart cut ends with a visible notice listing the
+tool calls that never recorded a result (their effect is unknown). A command
+whose delivery the restart left unconfirmed is settled as delivered, not
+delivered, or unknown from durable evidence, so it no longer refuses later
+messages. Nothing is replayed; the next explicit message resumes the SDK session,
+whose CLI records the cut tool call as having an unknown outcome. Codex chats keep
+their native interrupted-turn recovery.
+
 The accepted-source guard, deployment lock, knowledge-enrollment check, runtime
 declarations and OpenShell production preflight remain required. Production
 deployment still needs an explicit user request; staging remains stood down.

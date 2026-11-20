@@ -566,4 +566,42 @@ describe('SessionRegistry', () => {
       expect(registry.isActive('client-2')).toBe(false);
     });
   });
+
+  describe('abortOrdinaryRuntimeOwners', () => {
+    it('ends ordinary drivers and startups at shutdown, leaving contributor and publication owners to their drain', () => {
+      const owner = (extra: Record<string, unknown>) => {
+        const abortController = new AbortController();
+        return {
+          abortController,
+          session: {
+            transport: mockTransport(),
+            abortController,
+            mode: 'agent' as const,
+            sessionAllowList: new Set<string>(),
+            ...extra,
+          },
+        };
+      };
+      const ordinary = owner({ ordinaryRuntimeOwner: { location: 'local' } });
+      const contributor = owner({
+        ordinaryRuntimeOwner: { location: 'local' },
+        contributorExecutionOwner: true,
+      });
+      const publication = owner({ symposiumPublicationUsers: 1 });
+      registry.register('ordinary', ordinary.session as never);
+      registry.register('contributor', contributor.session as never);
+      registry.register('publication', publication.session as never);
+      const startup = new AbortController();
+      registry.registerStartup('starting', 'cold-chat', startup);
+
+      expect(registry.abortOrdinaryRuntimeOwners()).toBe(2);
+
+      expect(ordinary.abortController.signal.aborted).toBe(true);
+      expect(startup.signal.aborted).toBe(true);
+      expect(registry.isActive('ordinary')).toBe(false);
+      expect(contributor.abortController.signal.aborted).toBe(false);
+      expect(publication.abortController.signal.aborted).toBe(false);
+      expect(registry.isActive('contributor')).toBe(true);
+    });
+  });
 });
