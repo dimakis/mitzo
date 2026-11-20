@@ -187,6 +187,36 @@ export async function startOwnedLocalVertexCommand(
     )
       throw unavailable();
     const ownerProof = new SharedAuthorityProof();
+    // Synchronous fences run on every call. Concurrent callers of the same
+    // depth join one in-flight proof for the command; a settled proof is never
+    // reused, so later boundaries prove again. The deep proof (workspace
+    // reservation and repository credential digest) runs at admission and
+    // prompt release; per-tool callbacks use the Codex tool check.
+    const prove = async (signal: AbortSignal, depth: 'deep' | 'tool') => {
+      signal.throwIfAborted();
+      const active = queue?.activeCommandId();
+      if (active || !queue) {
+        const commandId = active ?? selected.commandId;
+        owner.assertStart(commandId);
+        await ownerProof.run(
+          `${depth}:effect:${commandId}`,
+          depth === 'deep'
+            ? () => owner.assertEffect(commandId)
+            : () => owner.assertToolEffect(commandId),
+          signal,
+        );
+      } else {
+        const commandId = owner.activeCommandId() ?? selected.commandId;
+        owner.assertIdleSync(commandId);
+        await ownerProof.run(
+          `${depth}:idle:${commandId}`,
+          depth === 'deep'
+            ? () => owner.assertIdle(commandId)
+            : () => owner.assertToolIdle(commandId),
+          signal,
+        );
+      }
+    };
     const authority = new OrdinaryLocalVertexSdkAuthority({
       store: eventStore,
       signal: owner.signal,
@@ -194,22 +224,8 @@ export async function startOwnedLocalVertexCommand(
       commandId: selected.commandId,
       ownerAuthSessionId: owner.authSessionId,
       environment: () => owner.environment(),
-      assertCurrent: async (signal) => {
-        signal.throwIfAborted();
-        const active = queue?.activeCommandId();
-        // Synchronous fences run on every call. Concurrent callers join one
-        // in-flight deep workspace and credential proof for the command; a
-        // settled proof is never reused, so later boundaries prove again.
-        if (active || !queue) {
-          const commandId = active ?? selected.commandId;
-          owner.assertStart(commandId);
-          await ownerProof.run(`effect:${commandId}`, () => owner.assertEffect(commandId), signal);
-        } else {
-          const commandId = owner.activeCommandId() ?? selected.commandId;
-          owner.assertIdleSync(commandId);
-          await ownerProof.run(`idle:${commandId}`, () => owner.assertIdle(commandId), signal);
-        }
-      },
+      assertCurrent: (signal) => prove(signal, 'deep'),
+      assertToolCurrent: (signal) => prove(signal, 'tool'),
       assertCurrentSync: (signal) => {
         signal.throwIfAborted();
         const active = queue?.activeCommandId();
@@ -254,7 +270,7 @@ export async function startOwnedLocalVertexCommand(
           queue = new OrdinaryLocalVertexCommandOwner({
             store: eventStore,
             sessionId,
-            assertCurrent: () => authority.assertCurrent(owner.signal),
+            assertCurrent: () => authority.assertCurrent(owner.signal, 'command_owner'),
             assertCurrentSync: () => authority.assertCurrentSync(owner.signal),
             turnEvidence: new OrdinarySdkTurnEvidence(
               eventStore,

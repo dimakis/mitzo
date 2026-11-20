@@ -229,6 +229,24 @@ export class OrdinaryLocalVertexOwnedRuntime {
     await command.selection.assertCurrent(command.expected);
     this.assertStart(commandId);
   }
+  /** Per-tool authority, matching the reviewed Codex tool lease: every
+   * synchronous owner, receipt, model and credential-identity fence, plus the
+   * selection's tool check (claimed checkout validation). Workspace reservation
+   * and its repository credential digest stay at admission and prompt release
+   * (`assertEffect`). */
+  async assertToolEffect(commandId: string, signal: AbortSignal = this.#signal) {
+    this.assertStart(commandId);
+    const command = this.#commands.get(commandId)!;
+    await command.selection.assertToolCurrent(command.expected, signal);
+    this.assertStart(commandId);
+  }
+  /** Idle counterpart of `assertToolEffect`; see `assertIdle`. */
+  async assertToolIdle(commandId: string, signal: AbortSignal = this.#signal) {
+    this.assertIdleSync(commandId);
+    const command = this.#commands.get(commandId)!;
+    await command.selection.assertToolCurrent(command.expected, signal);
+    this.assertIdleSync(commandId);
+  }
   get signal() {
     return this.#signal;
   }

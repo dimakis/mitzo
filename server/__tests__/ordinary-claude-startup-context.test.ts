@@ -170,6 +170,7 @@ async function fixture(personal: boolean, consumeInput = false) {
       environment: () => owner.environment(),
       sourceWriteRoots: [],
       assertCurrent: () => owner.assertEffect(currentCommand),
+      assertToolCurrent: () => owner.assertToolEffect(currentCommand),
       assertCurrentSync: () => owner.assertStart(currentCommand),
     });
     let resolveAdmission!: () => void;
@@ -544,6 +545,74 @@ it('revalidates workspace authority only at startup boundaries before creating t
   // Library discovery, after source cleanup (was 7: two adjacent duplicates).
   // Each check reruns workspace reservation, credential and checkout checks.
   expect(beforeProvider).toHaveLength(5);
+}, 20_000);
+
+it('runs the deep proof at prompt release and none in per-tool SDK callbacks', async () => {
+  const x = await fixture(false, true);
+  const { resetSdkAuthorityCheckCounts, sdkAuthorityCheckCounts } =
+    await import('../sdk-authority-observation.js');
+  resetSdkAuthorityCheckCounts();
+  const deep = vi.spyOn(x.owner, 'assertEffect');
+  const tool = vi.spyOn(x.owner, 'assertToolEffect');
+  await x.owner.admit(x.f.request);
+  await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
+  // The input reached the native process only after its deep proof.
+  expect(sdkAuthorityCheckCounts()['deep:prompt_release']).toBeGreaterThanOrEqual(1);
+  expect(sdkAuthorityCheckCounts()['tool:hook']).toBeUndefined();
+  resetSdkAuthorityCheckCounts();
+  deep.mockClear();
+  tool.mockClear();
+  const options = x.calls[0];
+  const signal = new AbortController().signal;
+  const cwd = x.f.reserved.directory!;
+  const file = join(cwd, 'task.txt');
+  const base = { session_id: x.f.reservation.conversationId, transcript_path: '', cwd };
+  const hooks = async (event: string, input: Record<string, unknown>) => {
+    for (const matcher of options.hooks?.[event as 'PreToolUse'] ?? [])
+      for (const hook of matcher.hooks)
+        await hook({ ...base, hook_event_name: event, ...input } as never, 'tool-1', { signal });
+  };
+  // One native tool call as the SDK drives it, plus one in-process MCP call.
+  await hooks('PreToolUse', {
+    tool_name: 'Read',
+    tool_input: { file_path: file },
+    tool_use_id: 'tool-1',
+  });
+  await options.canUseTool!(
+    'Read',
+    { file_path: file },
+    { signal, toolUseID: 'tool-1', requestId: 'tool-1' },
+  );
+  await hooks('PostToolUse', {
+    tool_name: 'Read',
+    tool_input: { file_path: file },
+    tool_response: {},
+    tool_use_id: 'tool-1',
+  });
+  await hooks('PostToolBatch', {});
+  const server = options.mcpServers!['mitzo-connections'];
+  if (server.type !== 'sdk') throw Error('Expected in-process SDK tools');
+  const client = new Client({ name: 'offline-per-tool', version: '1' });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.instance.connect(a);
+  await client.connect(b);
+  try {
+    await client.callTool({
+      name: 'ReadKnowledge',
+      arguments: { action: 'published', path: 'memory/Observations/lesson.md' },
+    });
+  } finally {
+    await client.close();
+  }
+  const counts = sdkAuthorityCheckCounts();
+  expect(Object.keys(counts).filter((key) => key.startsWith('deep:'))).toEqual([]);
+  expect(counts['tool:hook']).toBeGreaterThan(0);
+  expect(counts['tool:decide']).toBeGreaterThan(0);
+  expect(counts['tool:mcp']).toBeGreaterThan(0);
+  expect(deep).not.toHaveBeenCalled();
+  expect(tool).toHaveBeenCalled();
+  // The chat stays usable: callbacks did not retire the provider.
+  expect(x.chat.registry.get('startup-context')!.abortController.signal.aborted).toBe(false);
 }, 20_000);
 
 it('prepares startup context while Tool Library discovery is still pending', async () => {
