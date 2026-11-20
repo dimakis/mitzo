@@ -141,9 +141,13 @@ function useSharedConversation({
   /** This client created the source conversation by sending from a new chat. */
   startedHere?: boolean;
 }) {
+  // The association belongs to the conversation and login, not to one transport.
+  // A stream reconnect assigns a new client ID and re-checks the source in the
+  // background; it must not discard the confirmed association and blank the
+  // already-rendered transcript while that check is pending.
   const owner = useMemo(
-    () => ({ api, sourceConversationId, clientId, authScope }),
-    [api, sourceConversationId, clientId, authScope],
+    () => ({ api, sourceConversationId, authScope }),
+    [api, sourceConversationId, authScope],
   );
   const [sourceDisplay, setSourceDisplay] = useState<{ id: string; name: string }>();
   const presentSourceName = useCallback(
@@ -471,6 +475,8 @@ function useSharedConversation({
     error: association.error,
     // Unanswered setup for a chat started in this view does not hide its transcript.
     provisionalOrdinary: startedInView && !association.group && !association.historySource,
+    /** A source check already classified this conversation for the current owner. */
+    confirmed: !!association.ordinaryHistory || !!association.group,
     retry: () => {
       // Setup and the retained conversation read have different owners. Repeating
       // unchanged setup does not rerun a failed read of the same collaboration.
@@ -829,14 +835,20 @@ function SharedConversationBodyContent({
           ordinary={{
             ...history,
             sessionId: sourceConversationId,
+            // Only an unclassified source defers its ordinary history. A re-check or
+            // transient failure after a confirmed check keeps the rendered transcript;
+            // its error remains visible on the composer with a Refresh action. A chat
+            // just created in this view cannot already be in a discussion.
             ...(!projection &&
             (host.active ||
               host.historySource ||
-              ((host.resolving || host.error) && !host.provisionalOrdinary))
+              ((host.resolving || (host.error && !host.confirmed)) && !host.provisionalOrdinary))
               ? {
                   messages: [],
                   current: null,
                   currentByMessage: {},
+                  // Deferred history is a loading state, not a transcript of cards only.
+                  launchRequests: [],
                   beforeMessages: (
                     <p className="conversation-replay-status">
                       Checking retained discussion history…
