@@ -436,6 +436,10 @@ it('retains Stop while a result is settling even without a native interrupt targ
   await vi.waitFor(() => expect(release).toBeTypeOf('function'));
   await f.owner.stop(randomUUID());
   expect(f.store.getSession('session')?.executionPhase).toBe('STOPPING');
+  // A repeated Stop (or the bound) while this result settles must not close
+  // the query: the in-flight settlement already ends the turn as stopped.
+  expect(f.owner.escalateStop()).toBeUndefined();
+  expect(f.query.abort).not.toHaveBeenCalled();
   release();
   await result;
   expect(f.store.getSession('session')).toMatchObject({
@@ -727,3 +731,65 @@ it.each([
     else expect(f.query.abort).not.toHaveBeenCalled();
   },
 );
+it.each([undefined, 'foreign-input'])(
+  'settles a result after Stop as stopped when its input identity is unconfirmed (%s)',
+  async (resultInput) => {
+    // Chat f925c6a7: the interrupt landed and the result 108 ms later carried no
+    // correlated input identity; the session then ended as runtime_unavailable.
+    const f = setup(undefined, true);
+    await f.owner.enqueue('first');
+    f.owner.assertInputCurrent('first');
+    f.owner.inputObserved('input');
+    f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+    await f.owner.enqueue('second');
+    f.store.transitionExecution(
+      f.store.getExecutionAdmission('session', 'first')!.token,
+      'STOPPING',
+    );
+    await f.owner.resultObserved(resultInput, true);
+    expect(f.query.abort).not.toHaveBeenCalled();
+    expect(f.store.getSession('session')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'stopped',
+    });
+    // The accepted identity settles the turn; the foreign one is never recorded.
+    expect(f.store.getOrdinarySdkTurnEvents('session', 'first').map((event) => event.type)).toEqual(
+      ['ordinary_sdk_turn_accepted', 'ordinary_sdk_turn_settled'],
+    );
+    expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+    await f.owner.resumeQueue();
+    expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second']);
+  },
+);
+it('still fails a foreign result identity when no Stop is in progress', async () => {
+  const f = setup(undefined, true);
+  await f.owner.enqueue('first');
+  f.owner.assertInputCurrent('first');
+  f.owner.inputObserved('input');
+  await expect(f.owner.resultObserved('foreign-input')).rejects.toThrow(
+    'Original SDK result identity unavailable',
+  );
+  expect(f.query.abort).toHaveBeenCalledOnce();
+});
+it('escalates a turn still STOPPING by closing its query and settling it stopped', async () => {
+  const f = setup(undefined, true);
+  await f.owner.enqueue('first');
+  f.owner.assertInputCurrent('first');
+  f.owner.inputObserved('input');
+  expect(f.owner.escalateStop()).toBeUndefined();
+  expect(f.query.abort).not.toHaveBeenCalled();
+  f.store.transitionExecution(f.store.getExecutionAdmission('session', 'first')!.token, 'STOPPING');
+  expect(f.owner.escalateStop()).toEqual({ commandId: 'first', inputAcknowledged: true });
+  expect(f.query.abort).toHaveBeenCalledOnce();
+  expect(f.store.getSession('session')).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+  // No native result was observed, so no provider outcome is invented.
+  expect(f.store.getOrdinarySdkTurnEvents('session', 'first').map((event) => event.type)).toEqual([
+    'ordinary_sdk_turn_accepted',
+  ]);
+  // The closed owner refuses late native results and further escalation.
+  expect(f.owner.escalateStop()).toBeUndefined();
+  await expect(f.owner.resultObserved('input')).rejects.toThrow();
+});

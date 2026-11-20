@@ -230,3 +230,62 @@ it.each([
     expect(screen.queryByRole('link', { name: 'Return to lead chat' })).toBeNull();
   },
 );
+it('treats a missing session row as a chat still starting, then shows its linked work', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    let started = false;
+    vi.mocked(apiFetch).mockImplementation(async () =>
+      started
+        ? new Response(JSON.stringify({ sessionId: 'worker', telosWorkRoleContext: context }))
+        : new Response('{}', { status: 404 }),
+    );
+    render(
+      <MemoryRouter>
+        <TelosSourceWorkLink conversationId="worker" hideItemLink />
+      </MemoryRouter>,
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(1600));
+    expect(vi.mocked(apiFetch).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('Linked work context unavailable.')).toBeNull();
+    started = true;
+    await act(async () => vi.advanceTimersByTimeAsync(2100));
+    expect(screen.queryByText('Linked work context unavailable.')).toBeNull();
+    expect(
+      screen.getByText('Current lead unavailable. Review the assignment in linked work.'),
+    ).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('reports a missing session row after the startup window', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    vi.mocked(apiFetch).mockImplementation(async () => new Response('{}', { status: 404 }));
+    render(
+      <MemoryRouter>
+        <TelosSourceWorkLink conversationId="never-started" hideItemLink />
+      </MemoryRouter>,
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(screen.queryByText('Linked work context unavailable.')).toBeNull();
+    for (let elapsed = 0; elapsed < 95_000; elapsed += 1_000)
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(screen.getByText('Linked work context unavailable.')).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('reports a missing session row after a successful read', async () => {
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    new Response(JSON.stringify({ sessionId: 'worker', telosWorkRoleContext: context })),
+  );
+  vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 404 }));
+  render(
+    <MemoryRouter>
+      <TelosSourceWorkLink conversationId="worker" hideItemLink />
+    </MemoryRouter>,
+  );
+  await screen.findByText('Current lead unavailable. Review the assignment in linked work.');
+  act(() => broadcasts.events.get('sessions_changed')?.());
+  await screen.findByText('Linked work context unavailable.');
+});

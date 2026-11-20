@@ -560,6 +560,110 @@ it('enforces Ask mode and schema validation before the SDK dispatches requests',
   expect(credentialSdkPermission('Bash', {}, 'client', registry, session)).toBeUndefined();
 });
 
+/** The message of a narrowed denial decision; an allow would fail the assertion. */
+function denialMessage(decision: ReturnType<typeof credentialSdkPermission>): string | undefined {
+  expect(decision?.behavior).toBe('deny');
+  return decision?.behavior === 'deny' ? decision.message : undefined;
+}
+
+it('reports schema-invalid connection arguments separately from permission denials', () => {
+  const registry = new SessionRegistry();
+  registry.register('client', {
+    sessionId: 'a',
+    mode: 'agent',
+    abortController: new AbortController(),
+  } as never);
+  const session = registry.get('client')!;
+  // A malformed requestId used to surface as "unavailable under current session
+  // permissions", which sent callers chasing an authority regression.
+  const sentinel = 'sentinel-value-not-a-uuid';
+  const badRequestId = denialMessage(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__AgentCommunication',
+      { operation: 'send', requestId: sentinel },
+      'client',
+      registry,
+      session,
+    ),
+  );
+  expect(badRequestId).toMatch(
+    /^Invalid AgentCommunication arguments\. requestId: must be a valid uuid\. Correct the fields and retry; this request was not executed\.$/,
+  );
+  expect(badRequestId).not.toContain(sentinel);
+  const missingConversation = denialMessage(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__ReadPastSession',
+      {},
+      'client',
+      registry,
+      session,
+    ),
+  );
+  expect(missingConversation).toMatch(
+    /^Invalid ReadPastSession arguments\. conversationId: must be string\./,
+  );
+  expect(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__AgentCommunication',
+      { operation: 'list' },
+      'client',
+      registry,
+      session,
+    ),
+  ).toEqual({ behavior: 'allow', updatedInput: { operation: 'list' } });
+});
+
+it('keeps the permission denial text for genuine authority refusals', () => {
+  const denials: string[] = [];
+  for (const change of ['owner', 'cancel', 'skill', 'unknown']) {
+    const registry = new SessionRegistry();
+    registry.register('client', {
+      sessionId: 'a',
+      mode: 'agent',
+      abortController: new AbortController(),
+    } as never);
+    const session = registry.get('client')!;
+    if (change === 'owner')
+      registry.register('client', {
+        sessionId: 'a',
+        abortController: new AbortController(),
+      } as never);
+    if (change === 'cancel') session.abortController.abort();
+    if (change === 'skill') session.activeSkillPolicy = new Set(['Bash']);
+    const name =
+      change === 'unknown'
+        ? 'mcp__mitzo-connections__NotAConnectionTool'
+        : 'mcp__mitzo-connections__AgentCommunication';
+    denials.push(
+      denialMessage(
+        credentialSdkPermission(name, { operation: 'list' }, 'client', registry, session),
+      )!,
+    );
+  }
+  expect(denials).toEqual(
+    denials.map(() => 'Connection tool is unavailable under current session permissions'),
+  );
+});
+
+it('leaves GoogleWorkspaceRead operation validation to its own handler', () => {
+  const registry = new SessionRegistry();
+  registry.register('client', {
+    sessionId: 'a',
+    mode: 'agent',
+    abortController: new AbortController(),
+  } as never);
+  const session = registry.get('client')!;
+  expect(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__GoogleWorkspaceRead',
+      { operation: 'docs.get' },
+      'client',
+      registry,
+      session,
+    ),
+  ).toEqual({ behavior: 'allow', updatedInput: { operation: 'docs.get' } });
+});
+
 it('enforces ownership, cancellation, skill ceilings and pending Ask transitions in SDK permission checks', () => {
   for (const change of ['owner', 'cancel', 'skill', 'pending']) {
     const registry = new SessionRegistry();

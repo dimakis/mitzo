@@ -20,6 +20,11 @@ const f = vi.hoisted(() => ({
   continuationTarget: vi.fn(),
   blocker: undefined as undefined | { commandId: string; kind: string },
   reconcile: vi.fn(),
+  startup: vi.fn(() => false),
+}));
+vi.mock('../ordinary-local-vertex-entry.js', () => ({
+  canResumeOwnedLocalVertexDriver: () => false,
+  ownedLocalVertexStartupInFlight: f.startup,
 }));
 vi.mock('../retained-local-codex-effects.js', () => ({
   reconcilableLocalCodexCommand: f.reconcile,
@@ -67,6 +72,7 @@ import { ordinaryCodexContinuationStatus } from '../ordinary-codex-continuation-
 afterEach(() => vi.unstubAllEnvs());
 function setup() {
   f.reconcile.mockReset().mockReturnValue(undefined);
+  f.startup.mockReset().mockReturnValue(false);
   f.blocker = undefined;
   f.uncertain = false;
   f.untransferred.mockReset().mockReturnValue(false);
@@ -190,6 +196,64 @@ it('explains an unresolved dispatch without enabling a replacement command', () 
     reason: expect.stringContaining('unconfirmed dispatch'),
   });
   expect(f.resume).not.toHaveBeenCalled();
+});
+
+const claudeBinding = () => ({
+  version: 2,
+  account: { accountId: 'personal', provider: 'anthropic-claude', profileRevision: 'rev' },
+  harness: { implementation: 'claude-sdk' },
+  execution: { location: 'local', targetId: 'mac', targetRevision: 'rev' },
+});
+
+it('does not report a new Claude chat startup owned by this process as an unconfirmed dispatch', () => {
+  setup();
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_VERTEX_ENABLED', '1');
+  f.binding = claudeBinding();
+  f.uncertain = true;
+  f.startup.mockReturnValue(true);
+  expect(ordinaryCodexContinuationStatus('conversation', 'original')).toEqual({ available: true });
+  expect(f.startup).toHaveBeenCalledWith('conversation', 'original');
+  // Without an authenticated reader no startup ownership is consulted.
+  f.startup.mockClear();
+  expect(ordinaryCodexContinuationStatus('conversation')).toMatchObject({
+    available: false,
+    reason: expect.stringContaining('unconfirmed dispatch'),
+  });
+  expect(f.startup).not.toHaveBeenCalled();
+  // A disabled route still refuses before the startup answer.
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_VERTEX_ENABLED', '0');
+  expect(ordinaryCodexContinuationStatus('conversation', 'original')).toMatchObject({
+    available: false,
+    reason: expect.stringContaining('not enabled'),
+  });
+});
+
+it('still reports an orphaned Claude dispatch that no startup in this process owns', () => {
+  setup();
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_VERTEX_ENABLED', '1');
+  f.binding = claudeBinding();
+  f.uncertain = true;
+  expect(ordinaryCodexContinuationStatus('conversation', 'original')).toMatchObject({
+    available: false,
+    reason: expect.stringContaining('unconfirmed dispatch'),
+  });
+  // A live owner alone does not vouch for an uncertain command.
+  f.live = { session: { ordinaryRuntimeOwner: { location: 'local', authSessionId: 'original' } } };
+  expect(ordinaryCodexContinuationStatus('conversation', 'original')).toMatchObject({
+    available: false,
+    reason: expect.stringContaining('unconfirmed dispatch'),
+  });
+});
+
+it('never consults Claude startup ownership for a Codex dispatch', () => {
+  setup();
+  f.uncertain = true;
+  f.startup.mockReturnValue(true);
+  expect(ordinaryCodexContinuationStatus('conversation', 'original')).toMatchObject({
+    available: false,
+    reason: expect.stringContaining('unconfirmed dispatch'),
+  });
+  expect(f.startup).not.toHaveBeenCalled();
 });
 
 it('offers a fresh cold resume for the exact untransferred repository reservation without clearing it', () => {

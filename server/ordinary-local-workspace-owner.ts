@@ -21,6 +21,42 @@ export type LocalWorkspaceCustodyOwner<K extends LocalWorkspaceKind = LocalWorks
 >;
 const unavailable = () => new Error('Original local workspace custody unavailable');
 
+/** The reserved task root must still be the exact private directory recorded at
+ * reservation. Each refusal names its own stable check so a resume failure
+ * identifies whether the root disappeared, moved, changed owner/permissions or
+ * was replaced by a new directory at the same path (for example, a recreated
+ * `.claude/repository-tasks`). The identity requirement itself is unchanged. */
+function assertTaskRootIdentity(
+  taskRoot: string,
+  expected: { dev: number; ino: number },
+  privateRoot: boolean,
+): void {
+  const refuse = (reason: string, cause?: unknown) => {
+    throw annotateAuthorityFailure(
+      cause instanceof Error ? cause : unavailable(),
+      `workspace.root_identity.${reason}`,
+    );
+  };
+  let root: ReturnType<typeof lstatSync>;
+  try {
+    root = lstatSync(taskRoot);
+  } catch (cause) {
+    return refuse('missing', cause);
+  }
+  if (root.isSymbolicLink()) return refuse('symlink');
+  if (!root.isDirectory()) return refuse('not_directory');
+  let canonical: string;
+  try {
+    canonical = realpathSync(taskRoot);
+  } catch (cause) {
+    return refuse('path_changed', cause);
+  }
+  if (canonical !== taskRoot) return refuse('path_changed');
+  if (privateRoot && root.uid !== process.getuid?.()) return refuse('owner');
+  if (privateRoot && (root.mode & 0o077) !== 0) return refuse('permissions');
+  if (root.dev !== expected.dev || root.ino !== expected.ino) return refuse('replaced');
+}
+
 /** Private policy adapter over the existing allocation owner. Kind originates in
  * the server composition and must agree with durable session/preparation identity. */
 export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'repository'> {
@@ -70,17 +106,7 @@ export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'reposit
         if (descriptor.directory !== cwd || !['reserved', 'claimed'].includes(descriptor.state))
           throw unavailable();
         check = 'workspace.root_identity';
-        const root = lstatSync(reservation.taskRoot);
-        if (
-          !root.isDirectory() ||
-          root.isSymbolicLink() ||
-          realpathSync(reservation.taskRoot) !== reservation.taskRoot ||
-          (root.mode & 0o077) !== 0 ||
-          root.uid !== process.getuid?.() ||
-          root.dev !== descriptor.hostReservation.rootIdentity.dev ||
-          root.ino !== descriptor.hostReservation.rootIdentity.ino
-        )
-          throw unavailable();
+        assertTaskRootIdentity(reservation.taskRoot, descriptor.hostReservation.rootIdentity, true);
         check = 'workspace.ordinary_claim';
         if (descriptor.state === 'claimed')
           this.workspace.validateOrdinaryWorkspace(reservation.conversationId, cwd);
@@ -97,15 +123,7 @@ export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'reposit
       )
         throw unavailable();
       check = 'workspace.root_identity';
-      const root = lstatSync(reservation.taskRoot);
-      if (
-        !root.isDirectory() ||
-        root.isSymbolicLink() ||
-        realpathSync(reservation.taskRoot) !== reservation.taskRoot ||
-        root.dev !== descriptor.hostReservation.rootIdentity.dev ||
-        root.ino !== descriptor.hostReservation.rootIdentity.ino
-      )
-        throw unavailable();
+      assertTaskRootIdentity(reservation.taskRoot, descriptor.hostReservation.rootIdentity, false);
       if (descriptor.state === 'claimed') {
         check = 'workspace.claim';
         // The existing repository ledger owns the materialized checkout identity.
