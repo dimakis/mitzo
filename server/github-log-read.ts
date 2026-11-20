@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { terminalOutputText } from './terminal-output-text.js';
 
 /** Plain job logs only: run-log endpoints return archives, not text. */
 export const GithubLogReadSchema = z.strictObject({
@@ -102,12 +103,13 @@ export function describeGithubLogTransportFailure(failure: GithubLogTransportFai
 /** Offsets count UTF-16 characters in the optionally filtered text. Returning
  * the continuation explicitly prevents a bounded excerpt looking complete. */
 export function githubLogPage(body: string, options: GithubLogRead) {
+  const plain = terminalOutputText(body);
   const text = options.query
-    ? body
+    ? plain
         .split(/\r?\n/)
         .filter((line) => line.includes(options.query!))
         .join('\n')
-    : body;
+    : plain;
   const offset = Math.min(options.offset ?? 0, text.length);
   const end = Math.min(text.length, offset + (options.limit ?? 16000));
   return {

@@ -133,6 +133,10 @@ import {
   type WebSearchBackend,
 } from './web-search-policy.js';
 import type { ConversationHistoryEntry } from './codex-rollover-context.js';
+import {
+  hostGithubCommandEnvironment,
+  type HostGithubCredentialResolver,
+} from './host-github-credential.js';
 type ObjectValue = Record<string, unknown>;
 type NativeRequestContext = CodexServerRequestContext;
 type HostToolRefusal = (error: CodexHostToolRequestError) => void;
@@ -350,6 +354,11 @@ export interface CodexConversationOptions {
   /** Initial trusted selected target policy. Its named profiles are installed
    * once; per-command workspace roots remain owned by the admission authority. */
   nativeExecution?: CodexNativeExecutionPolicy;
+  /** Host operator's own gh login, resolved fresh for each native thread
+   * start/resume. Codex's macOS sandbox cannot reach the Keychain where gh
+   * keeps it, so it is set only on native command environments, sent over the
+   * private stdio frame rather than argv, config files or diagnostics. */
+  hostGithubCredential?: HostGithubCredentialResolver;
   resolveNativeExecutionPolicy?: (input: {
     commandId: string;
     signal: AbortSignal;
@@ -2285,7 +2294,7 @@ export class CodexConversation {
     this.assertNativeExecutionOwner();
     this.client.validateConfiguration?.(configuration);
     if (!this.opts.runtimeConfig) {
-      const config = {
+      const config: Record<string, unknown> = {
         ...codexRuntimeOverrides(
           configuration,
           this.opts.profile.workspaceId,
@@ -2296,6 +2305,11 @@ export class CodexConversation {
           ? codexNativePermissionProfiles(this.opts.nativeExecution)
           : {}),
       };
+      const hostGithub = this.opts.nativeExecution ? this.opts.hostGithubCredential?.() : undefined;
+      if (hostGithub)
+        // Applied after Codex's inherited-variable filtering, which otherwise
+        // drops *TOKEN* names; the sandbox profile and network fence still apply.
+        config['shell_environment_policy.set'] = hostGithubCommandEnvironment(hostGithub);
       return {
         ...config,
         ...(this.disableWebSearch ? { web_search: 'disabled' } : {}),

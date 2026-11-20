@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
-import { promisify, stripVTControlCharacters } from 'node:util';
+import { promisify } from 'node:util';
+import { terminalOutputText } from './terminal-output-text.js';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { claudeSdkExecutable, ClaudeSubscriptionCustody } from './claude-subscription-custody.js';
@@ -79,14 +80,8 @@ function custody(path: string, directory: boolean) {
     ...(directory ? [] : [String(stat.size), String(stat.mtimeNs)]),
   ]);
 }
-// OSC sequences (ESC ] … BEL | ESC \), e.g. the OSC 8 hyperlink Claude prints on a TTY.
-// Node's stripVTControlCharacters only recognises OSC payloads from a narrow character set;
-// a `+` in the OAuth scope makes it fall through to its CSI branch, which eats the `h` of
-// `https://` and leaves the hyperlink target glued to the visible URL. Remove OSC first.
-// eslint-disable-next-line no-control-regex -- matching terminal control sequences is the purpose.
-const OSC_SEQUENCE = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
 export function nativeLoginText(raw: string) {
-  return stripVTControlCharacters(raw.replace(OSC_SEQUENCE, ''));
+  return terminalOutputText(raw);
 }
 function loginUrl(value: string) {
   const url = new URL(value);

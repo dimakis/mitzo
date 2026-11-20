@@ -1,6 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
+import { createLogger } from './logger.js';
+
+const log = createLogger('host-github-credential');
 
 /** Fixed system gh locations; never a user-writable or session-selected path. */
 export const HOST_GH_EXECUTABLES = Object.freeze([
@@ -60,16 +63,26 @@ function hostGhExecutable(): string | undefined {
   return undefined;
 }
 
+/** Stable, non-secret reasons the host login could not be transferred. */
+export type HostGithubCredentialUnavailableCode =
+  'gh_unavailable' | 'gh_login_timeout' | 'gh_login_unavailable' | 'gh_token_unusable';
+
+export type HostGithubCredentialInspection =
+  | { readonly status: 'available'; readonly credential: HostGithubCredential }
+  | { readonly status: 'unavailable'; readonly code: HostGithubCredentialUnavailableCode };
+
 /** Read the host operator's active github.com login, exactly as the host `gh`
  * resolves it (normally the macOS keyring). The controller's own publisher
  * token and config directory are never passed, so gh cannot echo them back.
  * Synchronous because SDK process spawning is; the timeout bounds the block.
- * The value is never logged, cached or written to disk. */
-export const resolveHostGithubCredential: HostGithubCredentialResolver = () => {
+ * The value is never logged, cached or written to disk, and gh's stderr is
+ * discarded so no upstream text can carry it into a diagnostic. */
+export function inspectHostGithubCredential(): HostGithubCredentialInspection {
   const gh = hostGhExecutable();
-  if (!gh) return undefined;
+  if (!gh) return { status: 'unavailable', code: 'gh_unavailable' };
+  let output: string;
   try {
-    const output = execFileSync(gh, ['auth', 'token', '--hostname', 'github.com'], {
+    output = execFileSync(gh, ['auth', 'token', '--hostname', 'github.com'], {
       env: {
         PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
         HOME: process.env.HOME ?? homedir(),
@@ -85,9 +98,53 @@ export const resolveHostGithubCredential: HostGithubCredentialResolver = () => {
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
     });
-    const token = output.replace(/\n$/, '');
-    return /^[A-Za-z0-9_]{1,255}$/.test(token) ? { token, gh } : undefined;
-  } catch {
-    return undefined;
+  } catch (error) {
+    // Not logged in, locked keychain or a gh failure. Only the errno class is
+    // retained; the exception text may echo command output.
+    return {
+      status: 'unavailable',
+      code:
+        (error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT'
+          ? 'gh_login_timeout'
+          : 'gh_login_unavailable',
+    };
   }
+  const token = output.replace(/\n$/, '');
+  return /^[A-Za-z0-9_]{1,255}$/.test(token)
+    ? { status: 'available', credential: { token, gh } }
+    : { status: 'unavailable', code: 'gh_token_unusable' };
+}
+
+let lastReportedUnavailable: HostGithubCredentialUnavailableCode | undefined;
+
+/** Resolver used at agent launch. Absence is an expected optional fallback (the
+ * agent then has no native GitHub login), so each distinct reason is reported
+ * once rather than on every launch; a later success re-arms reporting. */
+export const resolveHostGithubCredential: HostGithubCredentialResolver = () => {
+  const result = inspectHostGithubCredential();
+  if (result.status === 'available') {
+    lastReportedUnavailable = undefined;
+    return result.credential;
+  }
+  if (lastReportedUnavailable !== result.code) {
+    lastReportedUnavailable = result.code;
+    log.warn(
+      'Host GitHub CLI login unavailable; agent commands start without a GitHub credential',
+      { stage: 'host_github_credential', code: result.code },
+    );
+  }
+  return undefined;
 };
+
+/** Variables for a runtime that sets its own sandboxed command environment
+ * (Codex `shell_environment_policy.set`). The token is the only secret; the
+ * rest routes Git HTTPS auth through `gh` and disables prompts, matching the
+ * Claude sandbox worker's delivery of the same login. */
+export function hostGithubCommandEnvironment(
+  credential: HostGithubCredential,
+): Record<string, string> {
+  const out: Record<string, string> = { GH_TOKEN: credential.token };
+  for (const [key, value] of Object.entries(hostGithubEnvironment(credential.gh, {})))
+    if (value !== undefined) out[key] = value;
+  return out;
+}

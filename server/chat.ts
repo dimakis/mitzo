@@ -4903,6 +4903,9 @@ export async function prepareOwnedCodexChat(
       deliverRetainedEvent: (event) =>
         deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
       ownedLocal: localAdmission,
+      // Delivered only to Local Mac native command environments; OpenShell and
+      // adviser sessions never receive it (gated in openCodexChat).
+      hostGithubCredential: resolveHostGithubCredential,
       ownedOpenShell: openShellAdmission,
       resume,
       conversationId: sessionId,
