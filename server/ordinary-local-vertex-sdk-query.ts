@@ -334,7 +334,6 @@ export function createOrdinaryLocalVertexSdkQuery<
 }) {
   let input = owners.input;
   let hasHistory = !!owners.options.resume;
-  const ownerContext = createRuntimeOwnerContext();
   const runs = new AsyncQueue<Query>();
   type State = SdkCallbackState & {
     commandInputUuid?: string;
@@ -532,7 +531,9 @@ export function createOrdinaryLocalVertexSdkQuery<
     if (selection && hasHistory) delete options.sessionId;
     // A successor can be admitted from another session's tool call (a peer
     // message); its callbacks must never run inside that caller's tool guard.
-    const native: Query = ownerContext(() =>
+    // Captured per native query: each successor gets the trace of the turn that
+    // admitted it, never the trace the runtime was created with.
+    const native: Query = createRuntimeOwnerContext()(() =>
       query({ prompt: prompt(input, () => native), options }),
     );
     states.set(native, state);

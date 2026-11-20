@@ -10,9 +10,15 @@ import { runOutsideTurnCallbackEffects } from './turn-callbacks.js';
  * every later hook and MCP callback inside that peer's tool guard and turn:
  * borrowing (and, once it settles, losing) authority that is not the owner's.
  *
- * Capture the owner's trace context once, then create each native query
- * outside any caller-scoped tool guard or turn effect owner. Callbacks start
- * their own root guards and are fenced only by the owner's ordinary authority.
+ * Capture the calling turn's trace and create that native query outside any
+ * caller-scoped tool guard or turn effect owner. Callbacks start their own root
+ * guards and are fenced only by the owner's ordinary authority.
+ *
+ * Build this at each native query creation, not once per runtime: a session
+ * runtime creates a successor query for every later turn, and a context captured
+ * at startup would stamp that first turn's trace on all of them. Capturing per
+ * turn keeps a peer-started turn correlated with the send that admitted it
+ * without leaking that sender's trace into unrelated later turns.
  */
 export function createRuntimeOwnerContext() {
   const trace = context.active();

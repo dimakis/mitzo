@@ -36,7 +36,6 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
 }): T {
   const stopped = new AbortController();
   const signal = AbortSignal.any([owners.controller.signal, stopped.signal]);
-  const ownerContext = createRuntimeOwnerContext();
   const inputs = owners.input[Symbol.asyncIterator]();
   const nextInput = async () => {
     signal.throwIfAborted();
@@ -99,7 +98,9 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
       yield input.value;
       await promptFinished;
     };
-    const native = ownerContext(() =>
+    // Per turn: this runtime creates a successor query for every later input,
+    // so the trace must be the one that admitted this turn, not the first one.
+    const native = createRuntimeOwnerContext()(() =>
       owners.create({
         prompt: prompt(),
         options: {
