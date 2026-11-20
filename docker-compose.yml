@@ -24,7 +24,10 @@ services:
       - '3200:3100' # 3200 externally — 3100 conflicts with Mitzo server
     volumes:
       - ./infra/loki-config.yaml:/etc/loki/local-config.yaml
-      - ./.loki-data:/loki
+      # A named volume with a pinned name keeps logs across redeploys. A relative
+      # bind mount is tied to the release folder the stack was started from, and
+      # breaks ("mkdir /loki/data: no such file or directory") when it is replaced.
+      - loki-data:/loki
     command: -config.file=/etc/loki/local-config.yaml
 
   grafana:
@@ -60,3 +63,9 @@ services:
       - /mlflow/artifacts
     volumes:
       - ./.mlflow-data:/mlflow
+
+# Pinned name: independent of the compose project (folder) name, so every
+# release attaches to the same logs.
+volumes:
+  loki-data:
+    name: mitzo-loki-data
