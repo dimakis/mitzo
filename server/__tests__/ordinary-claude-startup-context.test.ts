@@ -703,6 +703,34 @@ it('starts Claude through the owned entry after the sending stream closed before
   await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
 }, 20_000);
 
+it('identifies only its own in-flight startup dispatch while the SDK is still starting', async () => {
+  const x = await fixture(false, true);
+  const library = await import('../tool-library-sdk.js');
+  let finishDiscovery!: () => void;
+  const discovery = new Promise<undefined>((resolve) => {
+    finishDiscovery = () => resolve(undefined);
+  });
+  vi.spyOn(library, 'createSdkToolLibrary').mockReturnValue(discovery);
+  const start = await ownedEntry(x, 'conn-startup-status');
+  const entry = await import('../ordinary-local-vertex-entry.js');
+  const sessionId = x.f.reservation.conversationId;
+  expect(entry.ownedLocalVertexStartupInFlight(sessionId, x.f.auth.id)).toBe(false);
+  const started = start();
+  await vi.waitFor(() => expect(x.chat.registry.findBySessionId(sessionId)).toBeDefined());
+  // The first command is durably uncertain from its dispatch claim until the
+  // SDK accepts its input; the claim follows registration.
+  await vi.waitFor(() =>
+    expect(x.chat.eventStore.hasUncertainOrdinaryCommand(sessionId)).toBe(true),
+  );
+  expect(entry.ownedLocalVertexStartupInFlight(sessionId, x.f.auth.id)).toBe(true);
+  expect(entry.ownedLocalVertexStartupInFlight(sessionId, 'other-login')).toBe(false);
+  expect(entry.ownedLocalVertexStartupInFlight('other-conversation', x.f.auth.id)).toBe(false);
+  finishDiscovery();
+  await started;
+  expect(x.chat.eventStore.hasUncertainOrdinaryCommand(sessionId)).toBe(false);
+  expect(entry.ownedLocalVertexStartupInFlight(sessionId, x.f.auth.id)).toBe(false);
+}, 20_000);
+
 it('keeps the original cause and failing stage when owned Claude startup fails', async () => {
   const x = await fixture(false, true);
   const start = await ownedEntry(x, 'conn-startup-failure');

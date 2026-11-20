@@ -1,6 +1,10 @@
 import { useTelosSourceNavigation } from '../hooks/useTelosSourceNavigation';
 import { SessionWorkLink } from './SessionWorkLink';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  nextSessionStartupReadDelay,
+  sessionStartupReadWindow,
+} from '../lib/session-startup-reads';
 import { Link } from 'react-router-dom';
 import {
   TelosWorkRoleContextSelectionSchema,
@@ -36,6 +40,7 @@ export function TelosSourceWorkLink({
 }: { conversationId?: string; hideItemLink?: boolean } = {}) {
   const source = useTelosSourceNavigation();
   const [generation, setGeneration] = useState(0);
+  const startup = useRef(sessionStartupReadWindow(conversationId ?? null));
   const [role, setRole] = useState<{
     conversationId: string;
     generation: number;
@@ -65,12 +70,27 @@ export function TelosSourceWorkLink({
   }, [conversationId, source]);
   useEffect(() => {
     if (source || !conversationId) return;
+    if (startup.current.conversationId !== conversationId)
+      startup.current = sessionStartupReadWindow(conversationId);
     const controller = new AbortController();
+    let startupProbe: ReturnType<typeof setTimeout> | undefined;
     void apiFetch(`/api/sessions/${encodeURIComponent(conversationId)}/meta`, {
       signal: controller.signal,
     })
       .then(async (response) => {
-        if (!response.ok) throw new Error('Role context unavailable');
+        if (controller.signal.aborted) return;
+        // A chat selected while it starts has no session row yet; that is not
+        // missing work context. Re-read without showing an error.
+        const startupDelay = nextSessionStartupReadDelay(
+          startup.current,
+          conversationId,
+          response.status,
+        );
+        if (startupDelay !== null) {
+          startupProbe = setTimeout(() => setGeneration((value) => value + 1), startupDelay);
+          return;
+        }
+        if (!response.ok) throw new Error(`Role context unavailable (${response.status})`);
         const metadata = await response.json();
         if (metadata.sessionId !== conversationId) throw new Error('Role context identity changed');
         const context =
@@ -107,13 +127,25 @@ export function TelosSourceWorkLink({
           )
             ? current.reportingTo.conversationId
             : undefined;
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          startup.current.settled = true;
           setRole({ conversationId, generation, context, display, leadConversationId });
+        }
       })
-      .catch(() => {
-        if (!controller.signal.aborted) setRole({ conversationId, generation, error: true });
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        console.warn('[mitzo] Linked work context unavailable', {
+          code: 'telos_role_context_unavailable',
+          stage: 'session_metadata',
+          conversationId,
+          cause: cause instanceof Error ? cause.message : 'UnknownError',
+        });
+        setRole({ conversationId, generation, error: true });
       });
-    return () => controller.abort();
+    return () => {
+      clearTimeout(startupProbe);
+      controller.abort();
+    };
   }, [conversationId, source, generation]);
   if (!source) {
     if (!conversationId || role?.conversationId !== conversationId) return null;
