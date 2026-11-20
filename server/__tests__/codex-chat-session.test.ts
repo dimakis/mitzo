@@ -290,6 +290,10 @@ it('reports startup request failures without discarding their safe category', ()
   expect(publicCodexStartupError(new Error('Bearer sk-secret'))).toBe(
     'Codex could not start this chat. Check runtime and account configuration before continuing.',
   );
+  // Ordinary Claude SDK startup shares this sanitizer; name the engine that failed.
+  expect(publicCodexStartupError(new Error('Bearer sk-secret'), 'Claude')).toBe(
+    'Claude could not start this chat. Check runtime and account configuration before continuing.',
+  );
 });
 it('keeps fresh-sign-in advice when sandbox preparation rejects a subscription grant', () => {
   const error = new CodexStartupError(
