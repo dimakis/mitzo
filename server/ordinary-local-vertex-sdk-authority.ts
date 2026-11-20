@@ -91,8 +91,10 @@ export class OrdinaryLocalVertexSdkAuthority {
   ownerAuthSessionId(): string {
     return this.owners.ownerAuthSessionId;
   }
+  // The reopened credential, not the stored record, names the executable: reopen
+  // rebases a chat admitted by an earlier release onto this release's binary.
   writeRoots(): readonly string[] {
-    const credential = this.#custody.credentialAuthority;
+    const credential = this.#credential.snapshot();
     return [
       ...(!('kind' in credential)
         ? [dirname(credential.adc.path)]
@@ -103,7 +105,7 @@ export class OrdinaryLocalVertexSdkAuthority {
     ];
   }
   executable(): string | undefined {
-    const credential = this.#custody.credentialAuthority;
+    const credential = this.#credential.snapshot();
     return 'kind' in credential && credential.kind === 'claude-host-login'
       ? credential.executable.path
       : undefined;

@@ -56,18 +56,24 @@ it('keeps a verified fresh ordinary chat quiet without beginning collaboration',
   expect(fetch.mock.calls).toHaveLength(1);
 });
 
-function startingSurface(fetch: ConstructorParameters<typeof MitzoApiClient>[0]) {
-  return render(
+function startingTree(
+  fetch: ConstructorParameters<typeof MitzoApiClient>[0],
+  source = 'architect',
+  api = new MitzoApiClient(fetch),
+  startedHere = false,
+) {
+  return (
     <SharedConversationHost
-      sourceConversationId="architect"
-      api={new MitzoApiClient(fetch)}
+      sourceConversationId={source}
+      api={api}
       clientId="client"
       authScope={proof()}
       getVerifiedAuthScope={proof}
+      startedHere={startedHere}
     >
       <ComposerStatusProvider>
         <SharedConversationBody
-          sourceConversationId="architect"
+          sourceConversationId={source}
           ordinaryComposer={<p>Ordinary composer</p>}
           chat={{
             messages: [
@@ -86,11 +92,65 @@ function startingSurface(fetch: ConstructorParameters<typeof MitzoApiClient>[0])
           <ComposerStatusRail />
         </SharedConversationBody>
       </ComposerStatusProvider>
-    </SharedConversationHost>,
+    </SharedConversationHost>
   );
+}
+function startingSurface(fetch: ConstructorParameters<typeof MitzoApiClient>[0]) {
+  return render(startingTree(fetch));
 }
 const startupRefusal = () =>
   Response.json({ code: 'unavailable_recipient', error: 'unavailable_recipient' }, { status: 422 });
+
+it('keeps a chat started in this view visible while its session is still starting', async () => {
+  let refusals = 0;
+  const fetch = vi.fn(async () =>
+    refusals++ < 2
+      ? startupRefusal()
+      : Response.json({ state: 'unstarted', sourceConversationId: 'architect' }),
+  );
+  vi.spyOn(console, 'info').mockImplementation(() => {});
+  const api = new MitzoApiClient(fetch);
+  // The new-chat draft has no conversation yet; sending assigns its id in place
+  // and the store records that this client created it.
+  const view = render(startingTree(fetch, '', api));
+  expect(screen.getByText('Investigate the logs')).toBeTruthy();
+  view.rerender(startingTree(fetch, 'architect', api, true));
+  expect(screen.getByText('Investigate the logs')).toBeTruthy();
+  expect(screen.queryByText('Checking retained discussion history…')).toBeNull();
+  await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  await act(async () => {});
+  // Refused setup still retries and gates sending, but never hides the prompt.
+  expect(screen.getByText('Investigate the logs')).toBeTruthy();
+  expect(screen.queryByText('Checking retained discussion history…')).toBeNull();
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3), { timeout: 3000 });
+  expect(screen.getByText('Investigate the logs')).toBeTruthy();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('still checks retained history before showing an opened chat that is starting', async () => {
+  const fetch = vi.fn(async () => startupRefusal());
+  vi.spyOn(console, 'info').mockImplementation(() => {});
+  const api = new MitzoApiClient(fetch);
+  // Switching from another conversation is not an in-view start.
+  const view = render(startingTree(fetch, 'previous', api));
+  view.rerender(startingTree(fetch, 'architect', api));
+  await waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThan(1));
+  expect(screen.queryByText('Investigate the logs')).toBeNull();
+  expect(screen.getByText('Checking retained discussion history…')).toBeTruthy();
+});
+
+it('still checks retained history when an existing chat opens from an empty view', async () => {
+  const fetch = vi.fn(async () => startupRefusal());
+  vi.spyOn(console, 'info').mockImplementation(() => {});
+  const api = new MitzoApiClient(fetch);
+  // Route selection or an empty draft can precede switching to a saved chat.
+  // That empty-to-id transition is not creation; only the store's record is.
+  const view = render(startingTree(fetch, '', api));
+  view.rerender(startingTree(fetch, 'architect', api));
+  await waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThan(1));
+  expect(screen.queryByText('Investigate the logs')).toBeNull();
+  expect(screen.getByText('Checking retained discussion history…')).toBeTruthy();
+});
 
 it('retries a new chat refused during startup and then shows its ordinary transcript', async () => {
   let refusals = 0;

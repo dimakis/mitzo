@@ -1547,6 +1547,69 @@ describe('runQueryLoop', () => {
     expect(sent.some((m: Record<string, unknown>) => m.type === 'tool_call')).toBe(false);
   });
 
+  it('records a reply delivered only through the CLI non-streaming fallback', async () => {
+    await runQueryLoop(
+      eventStream([
+        // A stalled streamed message, then the CLI's non-streamed retry.
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'stalled' } } },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'text', text: '' },
+          },
+        },
+        {
+          type: 'assistant',
+          parent_tool_use_id: null,
+          session_id: 'sess-tool',
+          message: {
+            id: 'fallback',
+            content: [
+              { type: 'text', text: 'Checking the log.' },
+              { type: 'tool_use', id: 'toolu_fallback', name: 'Bash', input: { command: 'ls' } },
+            ],
+          },
+        },
+        {
+          type: 'user',
+          message: {
+            content: [{ type: 'tool_result', tool_use_id: 'toolu_fallback', content: 'out' }],
+          },
+        },
+        { type: 'result', session_id: 'sess-tool' },
+      ]),
+      clientId,
+      registry,
+      abortController,
+    );
+    const sent = transport.sent;
+    expect(sent).toContainEqual(
+      expect.objectContaining({ type: 'message_start', messageId: 'fallback' }),
+    );
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'block_delta',
+        messageId: 'fallback',
+        delta: 'Checking the log.',
+      }),
+    );
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'block_end',
+        messageId: 'fallback',
+        blockType: 'tool_use',
+        toolName: 'Bash',
+        toolId: 'toolu_fallback',
+      }),
+    );
+    // The result now has a recorded call in the message it is attributed to.
+    expect(sent).toContainEqual(
+      v2msg('tool_result', { messageId: 'fallback', toolId: 'toolu_fallback', result: 'out' }),
+    );
+  });
+
   it('attributes a delayed tool result to its call after a newer thinking message starts', async () => {
     await runQueryLoop(
       eventStream([

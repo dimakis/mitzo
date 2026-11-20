@@ -223,3 +223,62 @@ it('settles receipts that no live runtime owns after a restart', async () => {
   expect(await restarted.waitForReceipt(submitted.input)).toEqual({ status: 'unconfirmed' });
   expect(submitted.push).toHaveBeenCalledTimes(1);
 });
+it('waits a full echo window after a delayed stdin release so a prompt screenshot ACK is not reported as uncertain', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = fixture();
+    const input = { ...f.input, images: [{ mediaType: 'image/png' as const, data: 'aGVsbG8=' }] };
+    expect(await f.runtime.steer(input, f.authorize)).toEqual({ status: 'uncertain' });
+    const receipt = f.runtime.waitForReceipt(input);
+    let outcome: unknown;
+    void receipt.then((value) => (outcome = value));
+    // Observed live: ~1s of pre-stdin admission checks, then the echo ~0.6s later.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f.runtime.beforeInput(f.submitted(), true)).toBe(true);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(outcome).toBeUndefined();
+    expect(f.runtime.observe({ ...f.submitted() })).toBe(true);
+    expect(await receipt).toEqual({ status: 'accepted' });
+    expect(f.push).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('keeps silence after an in-window release uncertain at its echo deadline', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = fixture();
+    await f.runtime.steer(f.input, f.authorize);
+    const receipt = f.runtime.waitForReceipt(f.input);
+    let outcome: unknown;
+    void receipt.then((value) => (outcome = value));
+    await vi.advanceTimersByTimeAsync(1400);
+    expect(f.runtime.beforeInput(f.submitted(), true)).toBe(true);
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toEqual({ status: 'uncertain' });
+    // A later ACK still settles the retained receipt for the client's re-check.
+    expect(f.runtime.observe({ ...f.submitted() })).toBe(true);
+    expect(await f.runtime.steer(f.input, f.authorize)).toEqual({ status: 'accepted' });
+    expect(f.push).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('does not extend the initial receipt window before stdin release', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = fixture();
+    await f.runtime.steer(f.input, f.authorize);
+    const receipt = f.runtime.waitForReceipt(f.input);
+    let outcome: unknown;
+    void receipt.then((value) => (outcome = value));
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toEqual({ status: 'uncertain' });
+  } finally {
+    vi.useRealTimers();
+  }
+});
