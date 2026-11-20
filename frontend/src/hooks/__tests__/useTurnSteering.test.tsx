@@ -269,6 +269,85 @@ it('retains an uncertain correction across a generic auth denial and emits refus
   expect(proof).toHaveBeenCalledOnce();
   expect(delivery).toHaveBeenLastCalledWith('failed');
 });
+it('re-checks a server-retained uncertain screenshot correction until its receipt is accepted', async () => {
+  vi.useFakeTimers();
+  const images = [{ data: 'aGk=', mediaType: 'image/png' as const }];
+  const bodies: string[] = [];
+  let checks = 0;
+  vi.mocked(apiFetch).mockImplementation(async (_url, options) => {
+    bodies.push(options!.body as string);
+    const { requestId } = JSON.parse(options!.body as string);
+    checks += 1;
+    return Response.json(
+      { requestId, status: checks === 1 ? 'uncertain' : 'accepted' },
+      { status: checks === 1 ? 202 : 200 },
+    );
+  });
+  const delivery = vi.fn();
+  const hook = renderHook(() => useTurnSteering('recheck-chat', 'turn', true));
+  await act(async () => {
+    hook.result.current.submit(
+      'Screenshot',
+      delivery,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      images,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(hook.result.current.busy).toBe(true);
+  expect(hook.result.current.error).toBe('');
+  expect(delivery).not.toHaveBeenCalled();
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toBe(bodies[0]);
+  expect(delivery).toHaveBeenCalledExactlyOnceWith('accepted');
+  expect(hook.result.current.error).toBe('');
+  expect(hook.result.current.retry).toBeUndefined();
+  expect(localStorage.getItem('mitzo-turn-steering:recheck-chat')).toBeNull();
+});
+it('reports an unconfirmed correction only after bounded re-checks of a still-uncertain receipt', async () => {
+  vi.useFakeTimers();
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.mocked(apiFetch).mockImplementation(async (_url, options) =>
+    Response.json(
+      { requestId: JSON.parse(options!.body as string).requestId, status: 'uncertain' },
+      { status: 202 },
+    ),
+  );
+  const delivery = vi.fn();
+  const hook = renderHook(() => useTurnSteering('pending-chat', 'turn', true));
+  await act(async () => {
+    hook.result.current.submit('Correction', delivery);
+    await vi.advanceTimersByTimeAsync(6999);
+  });
+  expect(hook.result.current.busy).toBe(true);
+  expect(apiFetch).toHaveBeenCalledTimes(3);
+  await act(async () => vi.advanceTimersByTimeAsync(1));
+  expect(apiFetch).toHaveBeenCalledTimes(4);
+  expect(hook.result.current.busy).toBe(false);
+  expect(delivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+  expect(hook.result.current.error).toMatch(/not confirmed/);
+  expect(hook.result.current.retry).toBeDefined();
+  expect(warn).toHaveBeenCalledWith(
+    '[mitzo] Turn correction receipt still pending',
+    expect.objectContaining({ code: 'turn_steering_receipt_pending', sessionId: 'pending-chat' }),
+  );
+  expect(localStorage.getItem('mitzo-turn-steering:pending-chat')).toContain('Correction');
+});
+it('does not automatically re-send after a lost response', async () => {
+  vi.useFakeTimers();
+  vi.mocked(apiFetch).mockRejectedValue(Error('lost'));
+  const hook = renderHook(() => useTurnSteering('lost-chat', 'turn', true));
+  await act(async () => {
+    hook.result.current.submit('Correction');
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(apiFetch).toHaveBeenCalledOnce();
+  expect(hook.result.current.error).toMatch(/not confirmed/);
+});
 it('retires an unconfirmed correction as terminal, returns the text and never replays it', async () => {
   vi.mocked(apiFetch).mockResolvedValueOnce(Response.json({ code: 'x' }, { status: 503 }));
   const delivery = vi.fn(),

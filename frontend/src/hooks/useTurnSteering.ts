@@ -16,6 +16,76 @@ function retained(id: string | null): Correction | null {
   if (!raw) return null;
   return Request.parse(JSON.parse(raw));
 }
+/** Bounded re-reads of a server-retained `uncertain` receipt before asking the
+ * operator to check it manually. */
+export const RECEIPT_RECHECK_DELAYS_MS = [1000, 2000, 4000] as const;
+async function checkReceipt(
+  sessionId: string,
+  input: Correction,
+): Promise<{
+  status: string;
+  refusalProven: boolean;
+  diagnosticId?: string;
+  receiptPending: boolean;
+}> {
+  let status = 'uncertain';
+  let refusalProven = false;
+  let diagnosticId: string | undefined;
+  let receiptPending = false;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(Error('timeout'));
+      }, 15000);
+    });
+    const receipt = await Promise.race([
+      (async () => {
+        const response = await apiFetch(
+          `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue/steer`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(input),
+            signal: controller.signal,
+          },
+        );
+        return { ok: response.ok, status: response.status, body: await response.json() };
+      })(),
+      expired,
+    ]);
+    if (
+      receipt.body.code === 'turn_steering_unconfirmed' &&
+      typeof receipt.body.diagnosticId === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        receipt.body.diagnosticId,
+      )
+    )
+      diagnosticId = receipt.body.diagnosticId;
+    if (
+      receipt.body.requestId === input.requestId &&
+      ['accepted', 'rejected', 'stale_target', 'unconfirmed', 'uncertain'].includes(
+        receipt.body.status,
+      )
+    ) {
+      status = receipt.body.status;
+      receiptPending = status === 'uncertain';
+      // `unconfirmed` is terminal but proves nothing: its turn ended without the
+      // provider echo, so the correction may or may not have been applied. It
+      // retires the original identity (never replayed) and returns the text to the
+      // operator, who decides whether to resend it as a new message.
+      refusalProven = ['rejected', 'stale_target', 'unconfirmed'].includes(status);
+    }
+    // An auth/input denial without the matching receipt proves nothing about an earlier attempt.
+  } catch {
+    /* A lost response never authorizes a replacement correction. */
+  } finally {
+    clearTimeout(timer);
+  }
+  return { status, refusalProven, diagnosticId, receiptPending };
+}
 export function useTurnSteering(
   sessionId: string | null,
   targetCommandId: string | undefined,
@@ -86,61 +156,31 @@ export function useTurnSteering(
       delivery?.('failed');
       return;
     }
-    let status = 'uncertain';
-    let refusalProven = false;
-    let diagnosticId: string | undefined;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let receipt: Awaited<ReturnType<typeof checkReceipt>>;
     try {
-      const expired = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          controller.abort();
-          reject(Error('timeout'));
-        }, 15000);
-      });
-      const receipt = await Promise.race([
-        (async () => {
-          const response = await apiFetch(
-            `/api/sessions/${encodeURIComponent(scope.sessionId!)}/codex-queue/steer`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(input),
-              signal: controller.signal,
-            },
-          );
-          return { ok: response.ok, status: response.status, body: await response.json() };
-        })(),
-        expired,
-      ]);
-      if (
-        receipt.body.code === 'turn_steering_unconfirmed' &&
-        typeof receipt.body.diagnosticId === 'string' &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          receipt.body.diagnosticId,
-        )
-      )
-        diagnosticId = receipt.body.diagnosticId;
-      if (
-        receipt.body.requestId === input.requestId &&
-        ['accepted', 'rejected', 'stale_target', 'unconfirmed', 'uncertain'].includes(
-          receipt.body.status,
-        )
-      ) {
-        status = receipt.body.status;
-        // `unconfirmed` is terminal but proves nothing: its turn ended without the
-        // provider echo, so the correction may or may not have been applied. It
-        // retires the original identity (never replayed) and returns the text to the
-        // operator, who decides whether to resend it as a new message.
-        refusalProven = ['rejected', 'stale_target', 'unconfirmed'].includes(status);
+      receipt = await checkReceipt(scope.sessionId, input);
+      // Only the server's own matching `uncertain` receipt is re-read: it proves
+      // the original correction is retained and still awaiting its provider echo
+      // (stdin release plus echo can outlast the server's short wait, notably
+      // with screenshots). The same identity is idempotent on every route and
+      // never dispatches again. Lost responses keep the explicit Retry path.
+      for (const delay of RECEIPT_RECHECK_DELAYS_MS) {
+        if (!receipt.receiptPending || owner.current !== scope) break;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        if (owner.current !== scope) break;
+        receipt = await checkReceipt(scope.sessionId, input);
       }
-      // An auth/input denial without the matching receipt proves nothing about an earlier attempt.
-    } catch {
-      /* A lost response never authorizes a replacement correction. */
+      if (receipt.receiptPending && owner.current === scope)
+        console.warn('[mitzo] Turn correction receipt still pending', {
+          code: 'turn_steering_receipt_pending',
+          stage: 'receipt_recheck',
+          sessionId: scope.sessionId,
+          requestId: input.requestId,
+        });
     } finally {
-      clearTimeout(timer);
       scope.busy = false;
     }
+    const { status, refusalProven, diagnosticId } = receipt;
     if (
       status === 'accepted' ||
       status === 'rejected' ||
