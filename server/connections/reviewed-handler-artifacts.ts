@@ -1840,7 +1840,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/pr-landing.mjs':
     'b9b053bd41da755db77d8505869f3f15ccdd4e556be5bfed9a355e379b992769',
   '../../scripts/qualify-codex-native-permissions.mjs':
-    '05e2d438c87366bdd20fbf93a7d9dfa852aba0a5b038128f482c15ec18e2f24b',
+    '10f0e6208bbdbc2b96b6af4c45ae517427d61f0da399e168be6ceebe02b70893',
   '../../scripts/ci-native-failure.mjs':
     '7c89d3c7641225c192f69566da1233b78fc58811e74843f1b68c842d5abfa65a',
   '../../scripts/ci-native-failure.d.mts':

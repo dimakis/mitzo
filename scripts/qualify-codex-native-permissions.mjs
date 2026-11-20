@@ -224,13 +224,27 @@ const request = (method, params) =>
     });
     child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
   });
-const command = (profile, argv) =>
-  request('command/exec', {
+let qualificationStage = 'kernel-permissions';
+let primaryFailure = false;
+const cleanup = () => {
+  child.kill('SIGTERM');
+  lines.close();
+  try {
+    rmSync(root, { recursive: true, force: true });
+  } catch (error) {
+    console.error(nativeCiFailure('kernel-cleanup', error).annotation);
+    if (!primaryFailure) throw error;
+  }
+};
+const command = (profile, argv, stage = 'kernel-permissions') => {
+  qualificationStage = stage;
+  return request('command/exec', {
     command: argv,
     cwd: workspace,
     permissionProfile: profile,
     timeoutMs: 5000,
   });
+};
 try {
   await request('initialize', {
     clientInfo: { name: 'mitzo-offline-permission-qualification', version: '1' },
@@ -305,14 +319,43 @@ try {
   const blocked = await command('base', ['/usr/bin/touch', join(extra, 'blocked')]);
   assert.notEqual(blocked.exitCode, 0, JSON.stringify(blocked));
   assert.ok(!existsSync(join(extra, 'blocked')));
-  const granted = await command('granted', [
-    '/bin/sh',
-    '-c',
-    'mkdir -p "$1/granted/src" && git -C "$1/granted" init --template= -q -b main && git -C "$1/granted" remote add origin https://example.invalid/team/project.git && git -C "$1/granted" remote set-url origin https://example.invalid/team/renamed.git',
-    'project-setup',
-    extra,
-  ]);
-  assert.equal(granted.exitCode, 0, JSON.stringify(granted));
+  // Keep every setup operation required, while identifying which operation
+  // failed without copying its command output into a public annotation.
+  const grantedProject = join(extra, 'granted');
+  for (const [stage, argv] of [
+    ['kernel-granted-mkdir', ['/bin/mkdir', '-p', join(grantedProject, 'src')]],
+    [
+      'kernel-granted-git-init',
+      ['/usr/bin/git', '-C', grantedProject, 'init', '--template=', '-q', '-b', 'main'],
+    ],
+    [
+      'kernel-granted-remote-add',
+      [
+        '/usr/bin/git',
+        '-C',
+        grantedProject,
+        'remote',
+        'add',
+        'origin',
+        'https://example.invalid/team/project.git',
+      ],
+    ],
+    [
+      'kernel-granted-remote-update',
+      [
+        '/usr/bin/git',
+        '-C',
+        grantedProject,
+        'remote',
+        'set-url',
+        'origin',
+        'https://example.invalid/team/renamed.git',
+      ],
+    ],
+  ]) {
+    const granted = await command('granted', argv, stage);
+    assert.equal(granted.exitCode, 0, JSON.stringify(granted));
+  }
   assert.ok(existsSync(join(extra, 'granted', 'src')));
   assert.match(
     readFileSync(join(extra, 'granted', '.git', 'config'), 'utf8'),
@@ -605,7 +648,8 @@ try {
     ),
   );
 } catch (error) {
-  const failure = nativeCiFailure('kernel-permissions', error);
+  primaryFailure = true;
+  const failure = nativeCiFailure(qualificationStage, error);
   console.error(failure.annotation);
   console.log(
     JSON.stringify({
@@ -618,7 +662,5 @@ try {
   );
   throw error;
 } finally {
-  child.kill('SIGTERM');
-  lines.close();
-  rmSync(root, { recursive: true, force: true });
+  cleanup();
 }
