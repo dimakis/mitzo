@@ -20,7 +20,8 @@ import {
 } from './host-codex-continuity.js';
 import type { OrdinaryLocalCodexCapabilityCatalog } from './ordinary-local-codex-capabilities.js';
 
-const unavailable = () => new Error('Host Codex runtime observation unavailable');
+const unavailable = (cause?: unknown) =>
+  new Error('Host Codex runtime observation unavailable', { cause });
 const Native = z.strictObject({
   version: z.literal(2),
   executablePath: z.string().max(4096).refine(isAbsolute),
@@ -141,8 +142,8 @@ export class OrdinaryLocalCodexHostRuntime {
         ],
         selectors,
       );
-    } catch {
-      throw unavailable();
+    } catch (cause) {
+      throw unavailable(cause);
     }
   }
   target(): OrdinaryLocalCodexTarget {

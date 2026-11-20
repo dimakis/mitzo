@@ -12,7 +12,7 @@ import {
 const fixture = () =>
   JSON.parse(
     readFileSync(
-      new URL('./fixtures/codex-native-permission-protocol-0.160.0.json', import.meta.url),
+      new URL('./fixtures/codex-native-permission-protocol-0.171.0.json', import.meta.url),
       'utf8',
     ),
   );

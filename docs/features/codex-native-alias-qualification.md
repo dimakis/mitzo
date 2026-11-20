@@ -1,7 +1,7 @@
 # Pinned native alias qualification
 
-`scripts/qualify-codex-native-aliases.mjs` uses official Codex `0.160.0`, digest
-`112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b`, and synthetic
+`scripts/qualify-codex-native-aliases.mjs` now selects official Codex `0.171.0`, digest
+`fc8d77cf7585aded2b9bc487dad29c4ee2f066123e4e76dd3b17653a8322ce42`, and synthetic
 named profiles through actual `command/exec`. All files, credentials and mutations
 are disposable. It makes no model calls and uses no account, production or staging
 configuration. Run outside an existing macOS Seatbelt sandbox:
@@ -10,7 +10,10 @@ configuration. Run outside an existing macOS Seatbelt sandbox:
 node scripts/qualify-codex-native-aliases.mjs /absolute/pinned/codex
 ```
 
-The checked-in JSON records the observed results. The diagnostic exits **1**
+The existing checked-in JSON and results below describe the prior 0.160.0 run;
+they do not qualify the new executable. Local kernel execution was blocked by
+the host's nested Seatbelt restriction; see [the upgrade evidence](codex-runtime-0.171.0.md).
+The diagnostic exits **1**
 because the deliberately host-preexisting hardlink cases violate the broader
 original-unchanged/read-denied invariants. `testedNativeControlsPreservedOriginals`
 is true for the specific native creation/replacement controls below; it is not a

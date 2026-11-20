@@ -150,7 +150,7 @@ it('refuses a private settings leaf replaced during its bounded read', async () 
   expect(() => runtime.assertCurrentSync()).toThrow('Host Codex runtime observation unavailable');
 });
 
-it('keeps v2 conversation identity stable across attested deployments and qualifies only reviewed legacy transitions', async () => {
+it('keeps v2 conversation identity stable across attested deployments but refuses the old CLI legacy bridge', async () => {
   const f = fixture();
   f.writeTarget({ version: 2, continuityContract: 'codex-native-thread-v1' });
   const first = new OrdinaryLocalCodexHostRuntime(f.env);
@@ -184,10 +184,12 @@ it('keeps v2 conversation identity stable across attested deployments and qualif
   const revision = createHash('sha256')
     .update(JSON.stringify(['ordinary-local-codex-target-v1', 'local-mac', hostname(), legacy]))
     .digest('hex');
-  expect(next.continuationDeclaration(revision).targetRevision).toBe(revision);
+  expect(() => next.continuationDeclaration(revision)).toThrow(
+    'Host Codex runtime observation unavailable',
+  );
   expect(await next.observe()).toMatchObject({
     targetRevision: identity,
-    compatibleTargetRevisions: expect.arrayContaining([revision]),
+    compatibleTargetRevisions: [identity],
   });
 });
 

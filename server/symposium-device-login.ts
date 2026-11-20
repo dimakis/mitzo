@@ -17,6 +17,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import { CodexAppServerClient } from './codex-app-server-client.js';
+import { MAX_NATIVE_EXECUTABLE_BYTES } from './frozen-host-codex-executable.js';
 import type {
   SubscriptionTokens,
   SymposiumSubscriptionProvisioner,
@@ -63,7 +64,7 @@ function frozenDeviceExecutable(home: string, pin: DeviceLoginExecutable): strin
       ![0, process.getuid?.()].includes(stat.uid) ||
       stat.mode & 0o022 ||
       !(stat.mode & 0o111) ||
-      stat.size > 256 * 1024 * 1024
+      stat.size > MAX_NATIVE_EXECUTABLE_BYTES
     )
       throw Error('Pinned device executable metadata changed');
     bytes = readFileSync(fd);

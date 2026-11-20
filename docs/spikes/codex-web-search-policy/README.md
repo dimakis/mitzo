@@ -4,7 +4,7 @@ Status: accepted contract spike for Telos outcome `11241b89c0aac3df`.
 
 ## Supported protocol
 
-The ordinary OpenShell runtime is pinned by `docs/spikes/openshell-codex/runtime-codex-version` (currently `codex-cli 0.160.0`). The 0.160.0 fixture was regenerated offline from the production image; the search approval and lifecycle fields below are unchanged. Host validation and the lifecycle probe read the same pin. The runtime builder automatically regenerates the stable `app-server-contract.json` fixture from the built image without networking.
+The ordinary OpenShell runtime is pinned by `docs/spikes/openshell-codex/runtime-codex-version` (currently `codex-cli 0.171.0`). On 20 November 2026 the current fixture was regenerated offline from the checksum-qualified official macOS ARM64 binary. The search approval and lifecycle fields below are unchanged from 0.160.0; the obsolete `currentTime/read` request is absent. This qualifies the schema without claiming a deployed image upgrade. Host validation and the lifecycle probe read the same pin. The runtime builder automatically regenerates the stable `app-server-contract.json` fixture from the built image without networking.
 The host launcher runs `codex --version` and refuses to start if the executable
 does not match that exact reviewed version. The lifecycle probe performs the
 same check before opening app-server stdio.
@@ -96,7 +96,7 @@ separate actions; this contract does not authorize staging or deployment.
 ## Reproducing the boundary check
 
 `node docs/spikes/codex-web-search-policy/lifecycle-config-probe.mjs` performs a
-no-model app-server probe against an installed `codex-cli 0.153.4`. It uses an
+no-model app-server probe against the shared pinned CLI version. It uses an
 isolated temporary `CODEX_HOME` and starts a thread with search disabled. An
 empty thread has no persisted rollout, so resume and fork are expected to reach
 the provider-thread lookup and return `no rollout found`; that proves the

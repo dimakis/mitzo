@@ -7,6 +7,8 @@ const frontierEfforts = [...ordinaryEfforts, 'ultra'];
 /** Availability comes from this account; labels and capability bounds remain code-owned. */
 export const REVIEWED_OPENAI_ENROLLMENT_MODELS: readonly CatalogModel[] = Object.freeze(
   [
+    { id: 'gpt-6.2-sol', label: 'Sol 6.2', reasoningEfforts: frontierEfforts },
+    { id: 'gpt-6.2-astra', label: 'Astra 6.2', reasoningEfforts: frontierEfforts },
     { id: 'gpt-6.1-sol', label: 'Sol 6.1', reasoningEfforts: frontierEfforts },
     { id: 'gpt-6-astra', label: 'Astra 6', reasoningEfforts: frontierEfforts },
     { id: 'gpt-6-sol', label: 'Sol 6', reasoningEfforts: frontierEfforts },

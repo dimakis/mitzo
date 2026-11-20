@@ -1,4 +1,5 @@
 import { runBrowserCommand } from '../../../../scripts/ci-browser-run.mjs';
+import { nativeCiFailure } from '../../../../scripts/ci-native-failure.mjs';
 import process from 'node:process';
 import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
@@ -60,11 +61,22 @@ for (const selected of cases) {
   const result = JSON.parse(readFileSync(join(directory, 'exit.json'), 'utf8'));
   try {
     const observed = JSON.parse(readFileSync(join(directory, 'run.json'), 'utf8'));
-    if (exitCode !== 0 || result.signal || result.error)
+    if (exitCode !== 0 || result.signal || result.error) {
+      const failed = (observed.testResults ?? []).flatMap((suite) =>
+        (suite.assertionResults ?? []).filter((test) => test.status === 'failed'),
+      );
+      for (const test of failed.slice(0, 3))
+        console.error(
+          nativeCiFailure(selected.name, {
+            stack: (test.failureMessages ?? []).join('\n'),
+          }).annotation,
+        );
       throw Error('Joined acceptance process did not complete successfully');
+    }
     requireJoinedReport(observed, selected);
     summary.push({ ...selected, status: 'passed', result: join(directory, 'run.json') });
   } catch (error) {
+    console.error(nativeCiFailure(selected.name, error).annotation);
     failures.push(selected.name);
     summary.push({
       ...selected,

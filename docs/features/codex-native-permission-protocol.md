@@ -1,7 +1,13 @@
 # Pinned native permission protocol
 
-Qualified offline against the official `rust-v0.160.0` macOS ARM64 executable
-(SHA-256 `112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b`).
+The current protocol fixture is generated from the official `rust-v0.171.0`
+macOS ARM64 executable (SHA-256
+`fc8d77cf7585aded2b9bc487dad29c4ee2f066123e4e76dd3b17653a8322ce42`).
+Its reduced permission declarations are byte-identical to the previously
+qualified 0.160.0 declarations. The kernel/source findings below describe that
+earlier qualification; current kernel qualification runs as a required macOS CI
+step. See [the runtime upgrade evidence](codex-runtime-0.171.0.md) for the current
+checks and limitations.
 The checked-in reduced fixture retains generated experimental TypeScript declarations
 and synthetic wire examples. Generation used an empty temporary `CODEX_HOME`:
 
@@ -11,7 +17,7 @@ codex app-server generate-ts --experimental --out <schema>
 ```
 
 The executable and source are public release artifacts from
-[upstream rust-v0.160.0](https://github.com/openai/codex/tree/rust-v0.160.0).
+[upstream rust-v0.171.0](https://github.com/openai/codex/tree/rust-v0.171.0).
 No login, real credentials, model calls or provider requests were used.
 
 `codex-native-permission-protocol.ts` validates wire data; it does not authorize
@@ -83,7 +89,7 @@ than assume approval. Transport loss or recovery must not replay uncertain effec
 
 ## macOS kernel qualification
 
-Run `node scripts/qualify-codex-native-permissions.mjs /absolute/pinned/codex`
+Run `node --import tsx scripts/qualify-codex-native-permissions.mjs /absolute/pinned/codex`
 outside any existing Seatbelt sandbox. It rejects an unqualified binary digest,
 uses a temporary empty account environment and synthetic paths, and exercises
 standalone `command/exec` without a thread, turn, account login or model call.

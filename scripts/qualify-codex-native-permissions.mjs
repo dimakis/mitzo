@@ -1,5 +1,5 @@
 /** No model calls. Run outside an existing macOS Seatbelt sandbox.
- * Usage: node scripts/qualify-codex-native-permissions.mjs /absolute/pinned/codex
+ * Usage: node --import tsx scripts/qualify-codex-native-permissions.mjs /absolute/pinned/codex
  * Only an official pinned digest is accepted. Every file/home is synthetic.
  * This proves named profile union enforcement, not a model approval round trip.
  */
@@ -28,18 +28,20 @@ import { tmpdir } from 'node:os';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { Buffer } from 'node:buffer';
+import { nativeCiFailure, syntheticKernelCommandReport } from './ci-native-failure.mjs';
 
 assert.equal(process.platform, 'darwin', 'This fixture qualifies macOS Seatbelt only');
 const binary = process.argv[2];
 assert.ok(binary && isAbsolute(binary), 'Supply the pinned executable absolute path');
 const digest = createHash('sha256').update(readFileSync(binary)).digest('hex');
-assert.equal(digest, '112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b');
+assert.equal(digest, 'fc8d77cf7585aded2b9bc487dad29c4ee2f066123e4e76dd3b17653a8322ce42');
 const root = mkdtempSync(join(tmpdir(), 'mitzo-native-enforcement-'));
 const home = join(root, 'private-home');
 const workspace = join(root, 'work');
 const extra = join(root, 'extra');
 const secrets = join(home, 'credentials');
-const runtime = join(home, 'tmp', 'arg0');
+// Upstream 0.171.0 isolates helper cleanup by OS; legacy tmp/arg0 stays unused.
+const runtime = join(home, 'tmp', 'arg0-macos');
 const osTemp = join(root, 'os-temp');
 const credentialChild = join(secrets, 'child');
 const safe = join(extra, 'safe');
@@ -175,7 +177,7 @@ const env = {
 };
 const version = spawnSync(binary, ['--version'], { env, encoding: 'utf8' });
 assert.equal(version.status, 0);
-assert.equal(version.stdout.trim(), 'codex-cli 0.160.0');
+assert.equal(version.stdout.trim(), 'codex-cli 0.171.0');
 const child = spawn(binary, ['app-server', '--listen', 'stdio://'], {
   cwd: workspace,
   env,
@@ -222,13 +224,32 @@ const request = (method, params) =>
     });
     child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
   });
-const command = (profile, argv) =>
-  request('command/exec', {
+let qualificationStage = 'kernel-permissions';
+let primaryFailure = false;
+let lastCommand;
+const cleanup = () => {
+  child.kill('SIGTERM');
+  lines.close();
+  try {
+    rmSync(root, { recursive: true, force: true });
+  } catch (error) {
+    console.error(nativeCiFailure('kernel-cleanup', error).annotation);
+    if (!primaryFailure) throw error;
+  }
+};
+const command = (profile, argv, stage = 'kernel-permissions') => {
+  qualificationStage = stage;
+  lastCommand = syntheticKernelCommandReport(profile, null, root);
+  return request('command/exec', {
     command: argv,
     cwd: workspace,
     permissionProfile: profile,
     timeoutMs: 5000,
+  }).then((result) => {
+    lastCommand = syntheticKernelCommandReport(profile, result, root);
+    return result;
   });
+};
 try {
   await request('initialize', {
     clientInfo: { name: 'mitzo-offline-permission-qualification', version: '1' },
@@ -303,14 +324,43 @@ try {
   const blocked = await command('base', ['/usr/bin/touch', join(extra, 'blocked')]);
   assert.notEqual(blocked.exitCode, 0, JSON.stringify(blocked));
   assert.ok(!existsSync(join(extra, 'blocked')));
-  const granted = await command('granted', [
-    '/bin/sh',
-    '-c',
-    'mkdir -p "$1/granted/src" && git -C "$1/granted" init --template= -q -b main && git -C "$1/granted" remote add origin https://example.invalid/team/project.git && git -C "$1/granted" remote set-url origin https://example.invalid/team/renamed.git',
-    'project-setup',
-    extra,
-  ]);
-  assert.equal(granted.exitCode, 0, JSON.stringify(granted));
+  // Keep every setup operation required, while identifying which operation
+  // failed without copying its command output into a public annotation.
+  const grantedProject = join(extra, 'granted');
+  for (const [stage, argv] of [
+    ['kernel-granted-mkdir', ['/bin/mkdir', '-p', join(grantedProject, 'src')]],
+    [
+      'kernel-granted-git-init',
+      ['/usr/bin/git', '-C', grantedProject, 'init', '--template=', '-q', '-b', 'main'],
+    ],
+    [
+      'kernel-granted-remote-add',
+      [
+        '/usr/bin/git',
+        '-C',
+        grantedProject,
+        'remote',
+        'add',
+        'origin',
+        'https://example.invalid/team/project.git',
+      ],
+    ],
+    [
+      'kernel-granted-remote-update',
+      [
+        '/usr/bin/git',
+        '-C',
+        grantedProject,
+        'remote',
+        'set-url',
+        'origin',
+        'https://example.invalid/team/renamed.git',
+      ],
+    ],
+  ]) {
+    const granted = await command('granted', argv, stage);
+    assert.equal(granted.exitCode, 0, JSON.stringify(granted));
+  }
   assert.ok(existsSync(join(extra, 'granted', 'src')));
   assert.match(
     readFileSync(join(extra, 'granted', '.git', 'config'), 'utf8'),
@@ -602,8 +652,21 @@ try {
       2,
     ),
   );
+} catch (error) {
+  primaryFailure = true;
+  const failure = nativeCiFailure(qualificationStage, error);
+  console.error(failure.annotation);
+  console.log(
+    JSON.stringify({
+      version: version.stdout.trim(),
+      executableSha256: digest,
+      modelCalls: 0,
+      passed: false,
+      syntheticCommand: lastCommand,
+      ...failure.diagnostic,
+    }),
+  );
+  throw error;
 } finally {
-  child.kill('SIGTERM');
-  lines.close();
-  rmSync(root, { recursive: true, force: true });
+  cleanup();
 }
