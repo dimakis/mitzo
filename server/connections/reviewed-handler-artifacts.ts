@@ -1488,7 +1488,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/account-binding.ts':
     'd8dffcafa6d25beb3dc2a32631300d5ba412f02b8e8ed0e86d2ab9f8b731712b',
   '../../packages/protocol/src/agent-communication-store.ts':
-    '0914e77a03c172569e758beacea29c416cdcc7f060c93e9aa9ca713be9feddf2',
+    '851c57e112d93e7a36f0b8e4a392e4e8bae112ce0353b193eb5d616aa3e52a54',
   '../../packages/protocol/src/agent-communication.ts':
     'e9e62109ca5af2c47282197761d703e1de35d28a0aa940c6c65b7e30496fa7c9',
   '../../packages/protocol/src/agent-context-pack.ts':
@@ -2420,7 +2420,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/adviser-task-scope.test.ts':
     '9584230a5f559996fa5949ba24a773dbb917f2647f8515ce4e22798abca41226',
   '../__tests__/agent-communication-cross-runtime.test.ts':
-    '6cc18a11e47e36bcf84fb07922b4188297f3c7a8176925f924f0cff63c6ce516',
+    '4a0bc7dcf3139d61fc5ce7bd5c440ef21904848954b02fe53d16dc474f77c4d6',
   '../__tests__/agent-communication-diagnostics.test.ts':
     '6ac8334a42d9e829e459a50c97cebc99234ba5616af5134886b7cb9b0edd8743',
   '../__tests__/agent-communication-native.test.ts':
@@ -4289,7 +4289,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-sdk-process.ts':
     'fb9323a7fe3a55d6998dd70e0b6e16ff5f008ecb763bc8da9777b7f24514a30e',
   '../ordinary-local-vertex-sdk-query.ts':
-    'ad376e47776088bc0c4095efa0a6a42f684b8db66ea860a9858b8d11224e9cee',
+    'c14eef73493f36c9ffa2a0231231db4ce252ce7ee482cd5ca4cdbd3d61669363',
   '../ordinary-local-workspace-owner.ts':
     'a3b3f0ffe8157de1a95f1bb490510baa5a7437750cf7f4a49713e514b827ec04',
   '../ordinary-openshell-codex-entry-owner.ts':
@@ -4454,7 +4454,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1be733fc3e54b3345b9f93183a05a0378ed503df2c0413b2d510c5f94e3dd8f1',
   '../sandboxed-command.ts': '77d82d8b4c8c7c975a944193e8a657fb19de73abeb2c8fd6385a8417350b020d',
   '../sdk-agent-message-runtime.ts':
-    'cd08583a24eb93b8ef46473ff09d8e0fb120204dfec0dcae90d058106d8b50a6',
+    '50dea91f31d906838fa59d906fb06adfd837719f172c787220e1c902d4ed1055',
   '../sdk-authority-observation.ts':
     'a5be44c87dc13b4d8622b1ce0b880bbe0ca5172f8f8da19384ba99c3fb11898d',
   '../sdk-late-steer-hold.ts': '88117dc1e75988131bd7c3d76a07dce377e4461a6804c6343a46586afd2e850c',

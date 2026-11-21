@@ -659,7 +659,10 @@ export function createOrdinaryLocalVertexSdkQuery<
           retired: state.retired,
         });
       } finally {
-        owners.peerMessages?.()?.retireQuery?.(states.get(run)!);
+        const state = states.get(run)!;
+        state.retired = true;
+        state.callbacks.seal();
+        owners.peerMessages?.()?.retireQuery?.(state);
       }
       // This native iterator has ended; the joined iterator can remain open
       // while waiting for another admitted query on the same SDK history.
@@ -730,7 +733,14 @@ export function createOrdinaryLocalVertexSdkQuery<
       return true;
     },
     push(message: SDKUserMessage) {
-      owners.peerMessages?.()?.bindInputToQuery?.(message, states.get(native)!);
+      const state = states.get(native)!;
+      const peers = owners.peerMessages?.();
+      if (state.retired || state.completing) {
+        // A session can remain live after its native query ends. Positively
+        // refuse peer inputs here; no stdin owner remains to consume them.
+        if (peers?.beforeInput(message, false, state) === false) return;
+      }
+      peers?.bindInputToQuery?.(message, state);
       input.push(message);
     },
     isCommandInputEcho: (event: object) => commandInputEchoes.has(event),

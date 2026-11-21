@@ -190,7 +190,7 @@ async function signedOperator() {
 }
 
 it.each(
-  (['successor', 'stream_end', 'close'] as const).flatMap((retirement) =>
+  (['successor', 'stream_end', 'close', 'during_admission'] as const).flatMap((retirement) =>
     (['submitted', 'unsubmitted', 'acknowledged'] as const).map(
       (delivery) => [retirement, delivery] as const,
     ),
@@ -254,17 +254,35 @@ it.each(
       enqueue: vi.fn(),
     });
     cleanups.push(registerAgentMessageRuntime(session, runtime));
+    let releaseAdmission!: () => void;
+    let inputInserted!: () => void;
+    const inserted = new Promise<void>((resolve) => {
+      inputInserted = resolve;
+    });
+    const admission = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    if (retirement === 'during_admission') {
+      const steer = runtime.steer.bind(runtime);
+      vi.spyOn(runtime, 'steer').mockImplementation(async (...args) => {
+        const result = await steer(...args);
+        inputInserted();
+        await admission;
+        return result;
+      });
+    }
     const sendInput = {
       operation: 'send',
       requestId: randomUUID(),
       recipientConversationId: 'claude-worker',
       text: 'Keep this correction on its original query.',
     };
-    const sent = await f.execute(sendInput);
-    expect(sent).toMatchObject({ status: 'queued', reason: null });
+    const sending = f.execute(sendInput);
+    const iterator = owner.query[Symbol.asyncIterator]();
+    if (retirement === 'during_admission') await inserted;
+    else expect(await sending).toMatchObject({ status: 'queued', reason: null });
     if (delivery !== 'unsubmitted')
       expect((await prompts[0][Symbol.asyncIterator]().next()).value).toBe(input);
-    const iterator = owner.query[Symbol.asyncIterator]();
     if (delivery === 'acknowledged') {
       streams[0].push({ type: 'user', uuid: input.uuid, message: input.message });
       streams[0].push({ type: 'assistant', session_id: 'claude-worker' });
@@ -277,7 +295,7 @@ it.each(
       await owner.apply({} as never);
       await owner.apply({} as never);
     } else {
-      if (retirement === 'close') owner.query.close();
+      if (retirement === 'close' || retirement === 'during_admission') owner.query.close();
       else streams[0].close();
       expect((await iterator.next()).value).toMatchObject({ type: 'sdk_query_retired' });
     }
@@ -286,6 +304,11 @@ it.each(
       delivery === 'acknowledged'
         ? { status: 'delivered', reason: null }
         : { status: 'uncertain', reason: 'admission_uncertain' };
+    if (retirement === 'during_admission') {
+      releaseAdmission();
+      expect(await sending).toMatchObject(settled);
+      vi.mocked(runtime.steer).mockRestore();
+    }
     expect(await f.execute({ operation: 'lookup', requestId: sendInput.requestId })).toMatchObject(
       settled,
     );
@@ -297,6 +320,11 @@ it.each(
       expect((await iterator.next()).value).toMatchObject({ type: 'assistant' });
       expect(await f.execute(sendInput)).toMatchObject(settled);
       expect(query).toHaveBeenCalledTimes(2);
+    } else {
+      // An ended query stays retired even though its session has not aborted.
+      expect(
+        await f.execute({ ...sendInput, requestId: randomUUID(), text: 'After retirement' }),
+      ).toMatchObject({ status: 'failed', reason: 'before_provider_submission' });
     }
     owner.query.close();
     await iterator.return?.();

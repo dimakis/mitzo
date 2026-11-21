@@ -275,8 +275,8 @@ export class AgentCommunicationStore {
     return row?.admission_claimed === 1 && this.retained(messageId).message.status === 'pending';
   }
   /** The claiming admission owner records what its adapter established. It only
-   * replaces the claim's own in-flight or unknown state: an exact provider
-   * ACK or a runtime-owned failure recorded meanwhile is never overwritten. */
+   * replaces the claim's own in-flight state: a runtime-owned terminal outcome
+   * (including uncertainty after query retirement) is never overwritten. */
   settleAdmission(
     messageId: string,
     status: 'queued' | 'failed' | 'uncertain',
@@ -291,10 +291,7 @@ export class AgentCommunicationStore {
         const { message } = value;
         if (
           row?.admission_claimed !== 1 ||
-          !(
-            message.status === 'pending' ||
-            (message.status === 'uncertain' && message.reason === 'admission_uncertain')
-          ) ||
+          message.status !== 'pending' ||
           (message.status === status && message.reason === reason)
         )
           return;

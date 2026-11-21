@@ -91,7 +91,7 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
       const { messageId } = pending.message;
       try {
         const { message } = this.owners.events.agentCommunication.forHost(messageId);
-        if (message.status === 'queued')
+        if (message.status === 'pending' || message.status === 'queued')
           this.owners.events.agentCommunication.recordForHost(
             messageId,
             'uncertain',
