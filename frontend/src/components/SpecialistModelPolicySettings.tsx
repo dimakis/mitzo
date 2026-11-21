@@ -5,12 +5,15 @@ import {
   SpecialistModelPolicySchema,
   SpecialistModelPolicyViewSchema,
   SpecialistModelPolicyVersionSchema,
+  SpecialistAllowanceSummarySchema,
   type SpecialistModelPolicy,
 } from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { MotionDetails } from './MotionDetails';
+import { SpecialistAllowanceEditor } from './SpecialistAllowanceEditor';
 
 const SettingsSchema = SpecialistModelPolicyViewSchema.extend({
+  allowances: z.array(SpecialistAllowanceSummarySchema).default([]),
   accounts: z.array(
     z.object({
       id: z.string(),
@@ -26,6 +29,21 @@ const SaveSchema = SpecialistModelPolicySaveSchema.extend({
 type Save = z.infer<typeof SaveSchema>;
 
 export function SpecialistModelPolicySettings({ sessionId }: { sessionId: string }) {
+  const [requested, setRequested] = useState(false);
+  return (
+    <MotionDetails
+      summary="Model policy"
+      summaryClassName="collection-section-toggle"
+      onExpandedChange={(open) => {
+        if (open) setRequested(true);
+      }}
+    >
+      {requested && <SpecialistModelPolicyEditor key={sessionId} sessionId={sessionId} />}
+    </MotionDetails>
+  );
+}
+
+function SpecialistModelPolicyEditor({ sessionId }: { sessionId: string }) {
   const [view, setView] = useState<Settings>();
   const [scope, setScope] = useState<'workspace' | 'conversation'>('conversation');
   const [draft, setDraft] = useState<SpecialistModelPolicy>({ models: [] });
@@ -143,7 +161,7 @@ export function SpecialistModelPolicySettings({ sessionId }: { sessionId: string
       models: old.models.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)),
     }));
   return (
-    <MotionDetails summary="Model policy" summaryClassName="collection-section-toggle">
+    <>
       <div className="conversation-agent-identity">
         <p>
           Ask reviews each admission. Auto permits admissions under an approved consultation policy.
@@ -316,9 +334,16 @@ export function SpecialistModelPolicySettings({ sessionId }: { sessionId: string
                 Use workspace defaults
               </button>
             )}
+            {view?.allowances.map((policy) => (
+              <SpecialistAllowanceEditor
+                key={`${policy.policyId}:${policy.revision}`}
+                sessionId={sessionId}
+                policy={policy}
+              />
+            ))}
           </fieldset>
         )}
       </div>
-    </MotionDetails>
+    </>
   );
 }

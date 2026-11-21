@@ -9,12 +9,14 @@ export function MotionDetails({
   className = '',
   summaryClassName,
   defaultOpen = false,
+  onExpandedChange,
 }: {
   summary: ReactNode;
   children: ReactNode;
   className?: string;
   summaryClassName?: string;
   defaultOpen?: boolean;
+  onExpandedChange?(expanded: boolean): void;
 }) {
   const [expanded, setExpanded] = useState(defaultOpen);
   const { ref, present } = useMotionPresence(expanded, 'disclosure', false);
@@ -33,6 +35,7 @@ export function MotionDetails({
         event.preventDefault();
         event.stopPropagation();
         setExpanded(false);
+        onExpandedChange?.(false);
         summaryRef.current?.focus({ preventScroll: true });
       }}
     >
@@ -49,6 +52,7 @@ export function MotionDetails({
             return;
           event.preventDefault();
           setExpanded((previous) => !previous);
+          onExpandedChange?.(!expanded);
         }}
       >
         {summary}

@@ -168,6 +168,18 @@ it('reviews editable allowance, requires Ask admission and blocks Off before res
   });
 }, 30000);
 
+it('edits a retained policy allowance through its operator route and replays the original authorization', async () => {
+  const { h, service, authority, input, approve } = await authorizationFixture();
+  const policy = await service.authorize(authority, input, approve);
+  const endpoint = `/api/specialist-model-policy/existing-chat/allowances/${policy.policyId}`;
+  const edit = { requestId: crypto.randomUUID(), expectedRevision: 0, maxConsultations: null };
+  const result = await h.fetch(endpoint, { method: 'PUT', body: JSON.stringify(edit) });
+  expect(result.status).toBe(200);
+  expect(await result.json()).toMatchObject({ revision: 1, maxConsultations: null });
+  expect((await service.authorize(authority, input, approve)).maxConsultations).toBeNull();
+  expect(approve).toHaveBeenCalledOnce();
+}, 30000);
+
 it('lets an ordinary lead recruit a saved planner, read its attributed result and request independent review without replay', async () => {
   const h = await journey.getApplicationUiJourney();
   const { getSpecialistConsultations } = await import('../specialist-consultation-runtime.js');

@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SpecialistModelPolicySettings } from '../SpecialistModelPolicySettings';
+import { SpecialistAllowanceEditor } from '../SpecialistAllowanceEditor';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), AUTH_LOST_EVENT: 'auth-lost' }));
 afterEach(() => {
@@ -25,6 +26,41 @@ const view = {
     },
   ],
 };
+it('removes an existing consultation policy cap with a revision-bound request', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async () =>
+      new Response(
+        JSON.stringify({
+          policyId: '41843ff6-4416-458f-9220-b0398cb34e93',
+          revision: 1,
+          maxConsultations: null,
+          roles: ['planner'],
+          expiresAt: Date.now() + 60000,
+        }),
+      ),
+  );
+  render(
+    <SpecialistAllowanceEditor
+      sessionId="chat"
+      policy={{
+        policyId: '41843ff6-4416-458f-9220-b0398cb34e93',
+        revision: 0,
+        maxConsultations: 4,
+        roles: ['planner'],
+        expiresAt: Date.now() + 60000,
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Consultation allowance: planner'), {
+    target: { value: '' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save consultation allowance' }));
+  await screen.findByText('Consultation allowance saved.');
+  expect(JSON.parse(String(vi.mocked(apiFetch).mock.calls[0][1]!.body))).toMatchObject({
+    expectedRevision: 0,
+    maxConsultations: null,
+  });
+});
 it('edits inherited policy as a conversation override with explicit unlimited allowance', async () => {
   vi.mocked(apiFetch).mockImplementation(
     async (_url, options) =>
