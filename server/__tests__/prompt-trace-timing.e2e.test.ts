@@ -11,6 +11,11 @@ import {
 } from '@opentelemetry/sdk-trace-node';
 import { context, trace, ROOT_CONTEXT, type Context, type Span } from '@opentelemetry/api';
 import { summarizePromptTiming, type PromptTimingCommand } from './fixtures/prompt-trace-timing.js';
+import {
+  startPhaseAResources,
+  summarizePhaseA,
+  type PhaseStart,
+} from './fixtures/phase-a-measurement.js';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import type { Response } from 'express';
@@ -81,11 +86,14 @@ const processor = new SimpleSpanProcessor(exporter);
 // time independently per span. Capture real monotonic hook times without changing
 // production spans or relaxing cross-span ordering for that clock quantization.
 const monotonic = new Map<string, { start: [number, number]; end?: [number, number] }>();
+const observedStarts: PhaseStart[] = [];
 const provider = new NodeTracerProvider({
   spanProcessors: [
     {
       onStart(span, parent) {
-        monotonic.set(span.spanContext().spanId, { start: process.hrtime() });
+        const start = process.hrtime();
+        monotonic.set(span.spanContext().spanId, { start });
+        observedStarts.push({ name: span.name, ...span.spanContext(), startTime: start });
         processor.onStart(span, parent);
       },
       onEnd(span) {
@@ -124,6 +132,13 @@ const startup = await vi.hoisted(async () => {
 });
 beforeEach(async () => {
   vi.resetModules();
+  exporter.reset();
+  monotonic.clear();
+  observedStarts.length = 0;
+  frames.length = 0;
+  writes.clear();
+  writeQueuedTimes.clear();
+  finishHeld = undefined;
   turnSequence = 0;
   const nativeProcess = process;
   const dlopen = nativeProcess.dlopen;
@@ -388,6 +403,11 @@ it('traces actual cold, warm and queued HTTP commands through durable custody to
     vi.waitFor(() =>
       expect(nativeStore.commandStatus(input.sessionId, f.binding, commandId)).toBe('completed'),
     );
+  const startOffset = observedStarts.length;
+  const resourceMonitor = startPhaseAResources();
+  cleanup.push(() => {
+    resourceMonitor.stop();
+  });
   await settled(await send('cold', true));
   await settled(await send('warm'));
   await send('warm');
@@ -402,6 +422,8 @@ it('traces actual cold, warm and queued HTTP commands through durable custody to
   await new Promise((resolve) => setTimeout(resolve, 30));
   finishHeld!();
   await settled(await queuedSend);
+  const resources = resourceMonitor.stop();
+  const windowStarts = observedStarts.slice(startOffset);
   expect(native.CodexAppServerClient.launchIsolated).toHaveBeenCalledOnce();
   expect(frames.filter((f) => f.method === 'initialize')).toHaveLength(1);
   expect(frames.filter((f) => f.method === 'thread/start')).toHaveLength(1);
@@ -416,23 +438,24 @@ it('traces actual cold, warm and queued HTTP commands through durable custody to
     expect(chat.eventStore.getOrdinaryCommandAdmission(command.commandId)?.state).toBe('consumed');
   await provider.forceFlush();
   const budget = process.env.MITZO_PROMPT_DISPATCH_BUDGET_MS;
+  const captured = exporter.getFinishedSpans().map((span) => {
+    const times = monotonic.get(span.spanContext().spanId);
+    if (!times?.end) throw Error('Finished trace lacks monotonic boundaries');
+    return {
+      ...span,
+      spanContext: () => span.spanContext(),
+      startTime: times.start,
+      endTime: times.end,
+      events: span.events.map((event) =>
+        event.name === 'write_queued'
+          ? { ...event, time: writeQueuedTimes.get(span.spanContext().spanId)! }
+          : event,
+      ),
+      otel: { startTime: span.startTime, endTime: span.endTime, events: span.events },
+    };
+  });
   const result = summarizePromptTiming(
-    exporter.getFinishedSpans().map((span) => {
-      const times = monotonic.get(span.spanContext().spanId);
-      if (!times?.end) throw Error('Finished trace lacks monotonic boundaries');
-      return {
-        ...span,
-        spanContext: () => span.spanContext(),
-        startTime: times.start,
-        endTime: times.end,
-        events: span.events.map((event) =>
-          event.name === 'write_queued'
-            ? { ...event, time: writeQueuedTimes.get(span.spanContext().spanId)! }
-            : event,
-        ),
-        otel: { startTime: span.startTime, endTime: span.endTime, events: span.events },
-      };
-    }),
+    captured,
     expected,
     budget === undefined ? undefined : Number(budget),
   );
@@ -442,6 +465,12 @@ it('traces actual cold, warm and queued HTTP commands through durable custody to
   expect(f.legacyLookup).not.toHaveBeenCalled();
   const artifact = {
     ...result,
+    phaseA: summarizePhaseA(
+      captured.filter((s) => windowStarts.some((start) => start.spanId === s.spanContext().spanId)),
+      windowStarts,
+      expected,
+    ),
+    resources,
     fixture: {
       browser: false,
       provider: 'controlled in-process stdio peer',
@@ -455,6 +484,14 @@ it('traces actual cold, warm and queued HTTP commands through durable custody to
       'process.hrtime at genuine OTel SpanProcessor hooks; write_queued observer uses same monotonic clock; original OTel times also retained as relative offsets',
     runtime: process.version,
   };
+  expect(artifact).toMatchObject({
+    phaseA: {
+      coverage: { complete: true, unfinished: 0, unattributed: 0 },
+      concurrency: { sessions: 1, commands: 4, maxOutstandingCommands: 2, maxActiveTurns: 1 },
+      route: { account: 'synthetic-personal', model: 'fixture-model' },
+    },
+    resources: { eventLoop: { sampleCount: expect.any(Number) } },
+  });
   if (process.env.MITZO_PROMPT_TIMING_OUTPUT)
     await writeFile(
       process.env.MITZO_PROMPT_TIMING_OUTPUT,
