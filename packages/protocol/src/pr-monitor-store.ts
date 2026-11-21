@@ -72,6 +72,8 @@ export class PrMonitorStore {
       };
       if (count.total >= 100 || count.conversation >= 20) throw Error('subscription_limit');
       const result: PrMonitorObservation = {
+        baselinePending: true,
+        failureCount: 0,
         subscription: { ...subscription, eligibilityDigest: prMonitorDigest([]) },
         snapshot: null,
         events: [],
@@ -117,6 +119,39 @@ export class PrMonitorStore {
         )
         .all(operatorId, conversationId) as { id: string }[]
     ).map((r) => this.read(operatorId, conversationId, r.id));
+  }
+  /** Bounded oldest-attempt rotation; caller invokes from the existing scheduler. */
+  due(now: number): PrMonitorSubscription[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT data FROM pr_monitor_subscriptions WHERE json_extract(data,'$.subscription.lifecycle')='watching' AND json_extract(data,'$.subscription.nextRefreshAt')<=? ORDER BY COALESCE(json_extract(data,'$.subscription.lastAttemptAt'),0),id LIMIT 2",
+        )
+        .all(now) as { data: string }[]
+    ).map((r) =>
+      PrMonitorSubscriptionSchema.parse((JSON.parse(r.data) as PrMonitorObservation).subscription),
+    );
+  }
+  stopConversation(conversationId: string, reason: 'deleted' | 'stopped') {
+    this.db.transaction(() => {
+      const rows = this.db
+        .prepare('SELECT operator_id,id FROM pr_monitor_subscriptions WHERE conversation_id=?')
+        .all(conversationId) as { operator_id: string; id: string }[];
+      for (const r of rows) {
+        const view = this.read(r.operator_id, conversationId, r.id);
+        view.subscription.revision++;
+        view.subscription.lifecycle = reason === 'deleted' ? 'removed' : 'paused';
+        view.subscription.nextRefreshAt = null;
+        view.subscription.eligibilityRevision++;
+        view.subscription.eligibilityDigest = prMonitorDigest([]);
+        view.baselinePending = true;
+        view.outbox = null;
+        view.refreshState = 'blocked';
+        for (const event of view.events)
+          if (event.disposition === 'actionable') event.disposition = 'superseded';
+        this.save(view);
+      }
+    })();
   }
   private save(view: PrMonitorObservation) {
     this.db
@@ -188,6 +223,7 @@ export class PrMonitorStore {
         // A new Watch is a new baseline. Delivery sees revision invalidation;
         // its native cancellation/uncertainty remains solely delivery-owned.
         view.outbox = null;
+        view.baselinePending = true;
         for (const event of view.events)
           if (event.disposition === 'actionable') event.disposition = 'superseded';
         view.subscription.eligibilityRevision++;
@@ -274,9 +310,23 @@ export class PrMonitorStore {
       s.eligibilityDigest = eligibilityDigest;
       const now = snapshot.observedAt;
       const old = view.outbox;
-      view.outbox = eligible.length
+      const bounded = [] as PrMonitorObservation['events'];
+      let references = 0;
+      for (const id of eligible) {
+        const event = view.events.find((e) => e.id === id)!;
+        if (
+          bounded.length >= 20 ||
+          references + event.references.length > 20 ||
+          Buffer.byteLength(JSON.stringify([...bounded, event])) > 16384
+        )
+          continue;
+        bounded.push(event);
+        references += event.references.length;
+      }
+      const firstObservedAt = old?.headSha === snapshot.headSha ? old.firstObservedAt : now;
+      view.outbox = bounded.length
         ? {
-            eventIds: eligible.slice(0, 20),
+            eventIds: bounded.map((e) => e.id),
             eligibilityRevision: s.eligibilityRevision,
             eligibilityDigest,
             headSha: snapshot.headSha,
@@ -284,8 +334,9 @@ export class PrMonitorStore {
             availableAt:
               old?.eligibilityDigest === eligibilityDigest
                 ? old.availableAt
-                : Math.min(now + 15000, (old?.availableAt ?? now + 15000) + 45000),
-            overflow: Math.max(0, eligible.length - 20),
+                : Math.min(now + 15000, firstObservedAt + 60000),
+            firstObservedAt,
+            overflow: eligible.length - bounded.length,
           }
         : null;
       s.snapshotRevision++;
@@ -296,6 +347,8 @@ export class PrMonitorStore {
       view.snapshot = snapshot;
       view.refreshState = 'current';
       view.diagnostic = null;
+      view.baselinePending = false;
+      view.failureCount = 0;
       view.counters.observations++;
       view.counters.distinctEvents = view.events.length;
       input.assertCurrent();
@@ -324,7 +377,16 @@ export class PrMonitorStore {
               ? 'blocked'
               : 'partial';
       view.subscription.lastAttemptAt = now;
-      view.subscription.nextRefreshAt = diagnostic.nextRefreshAt;
+      view.failureCount++;
+      view.subscription.nextRefreshAt =
+        diagnostic.nextRefreshAt === null
+          ? null
+          : Math.max(
+              diagnostic.nextRefreshAt,
+              now + Math.min(1800000, 60000 * 2 ** Math.min(5, view.failureCount - 1)),
+            );
+      view.diagnostic.nextRefreshAt = view.subscription.nextRefreshAt;
+      if (diagnostic.code.endsWith('unavailable')) view.subscription.lifecycle = 'unavailable';
       this.save(view);
       return view;
     })();

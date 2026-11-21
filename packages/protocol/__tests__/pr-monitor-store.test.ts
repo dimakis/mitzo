@@ -79,6 +79,43 @@ afterEach(() => {
 });
 
 describe('PR monitor event-store owner', () => {
+  it('bounds combined evidence by references and bytes, and pauses stopped conversations durably', () => {
+    const s = open();
+    s.prMonitor.create('request', input());
+    const findings = Array.from({ length: 25 }, (_, i) => ({
+      ...failure,
+      sourceIds: [`job-${i}`],
+      summary: '😀'.repeat(1000),
+      references: [
+        {
+          kind: 'job' as const,
+          id: String(i),
+          url: `https://github.com/owner/repo/actions/runs/1/job/${i}`,
+        },
+      ],
+    }));
+    const view = s.prMonitor.publish({
+      operatorId: 'ordinary:user',
+      conversationId: 'chat',
+      subscriptionId: id,
+      expectedRevision: 1,
+      expectedSnapshotRevision: 0,
+      snapshot,
+      findings,
+      baseline: false,
+      assertCurrent: () => undefined,
+    });
+    const batch = view.events.filter((e) => view.outbox?.eventIds.includes(e.id));
+    expect(batch.reduce((n, e) => n + e.references.length, 0)).toBeLessThanOrEqual(20);
+    expect(Buffer.byteLength(JSON.stringify(batch))).toBeLessThanOrEqual(16384);
+    expect(view.outbox?.overflow).toBeGreaterThan(0);
+    s.prMonitor.stopConversation('chat', 'stopped');
+    const stopped = s.prMonitor.read('ordinary:user', 'chat', id);
+    expect(stopped.subscription.lifecycle).toBe('paused');
+    expect(stopped.outbox).toBeNull();
+    expect(stopped.baselinePending).toBe(true);
+    expect(s.prMonitor.due(100000)).toEqual([]);
+  });
   it('rejects executable fields and invalid binding instead of stripping them', () => {
     expect(() => PrMonitorSubscriptionSchema.parse({ ...input(), command: 'run this' })).toThrow();
     expect(() =>

@@ -148,6 +148,8 @@ export type PrMonitorDiagnostic = {
 };
 /** Observation outbox only. Delivery owns command allocation and native receipts. */
 export type PrMonitorObservation = {
+  baselinePending: boolean;
+  failureCount: number;
   subscription: PrMonitorSubscription;
   snapshot: PrMonitorSnapshot | null;
   events: PrMonitorEvent[];
@@ -158,6 +160,7 @@ export type PrMonitorObservation = {
     headSha: string;
     generation: number;
     availableAt: number;
+    firstObservedAt: number;
     overflow: number;
   } | null;
   refreshState: 'current' | 'partial' | 'stale' | 'quota_delayed' | 'backoff' | 'blocked';

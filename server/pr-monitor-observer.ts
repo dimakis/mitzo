@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import type { PrMonitorDiagnostic, PrMonitorFinding, PrMonitorSubscription } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
+import { createLogger } from './logger.js';
+const log = createLogger('pr-monitor');
 
 const ref = z.string().min(1).max(200);
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
@@ -101,6 +103,10 @@ export class PrMonitorObserver {
     const operation = this.collect(view.subscription).finally(() => this.inFlight.delete(key));
     this.inFlight.set(key, operation);
     return operation;
+  }
+  async reconcileDue(): Promise<void> {
+    for (const s of this.options.store.due(this.now()))
+      await this.observe(s.operatorId, s.conversationId, s.id);
   }
   private async collect(s: PrMonitorSubscription) {
     const initial = this.options.store.read(s.operatorId, s.conversationId, s.id);
@@ -262,7 +268,7 @@ export class PrMonitorObserver {
         subscriptionId: s.id,
         expectedRevision: s.revision,
         expectedSnapshotRevision: s.snapshotRevision,
-        baseline: initial.snapshot === null,
+        baseline: initial.baselinePending,
         snapshot: {
           title: opening.title,
           state: opening.state,
@@ -307,6 +313,12 @@ export class PrMonitorObserver {
         current.subscription.snapshotRevision !== s.snapshotRevision
       )
         return;
+      log.warn('PR observation could not publish complete evidence', {
+        stage: 'read',
+        code: failure.code,
+        subscriptionId: s.id,
+        conversationId: s.conversationId,
+      });
       this.options.store.fail(
         s.operatorId,
         s.conversationId,

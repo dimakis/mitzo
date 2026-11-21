@@ -181,3 +181,13 @@ it('rejects renewal with changed reviewed scope and stale revisions without chan
   ).toThrow('scope_changed');
   expect(f.consent.capture('one', id).authority).toEqual(original);
 });
+it('renewing Watch establishes a new baseline and due reconciliation without creating a model command', async () => {
+  const f = await fixture();
+  f.issue();
+  expect(f.store.prMonitor.due(Date.now()).map((s) => s.id)).toEqual([id]);
+  const v = f.store.prMonitor.read('ordinary:user', 'one', id);
+  expect(v.baselinePending).toBe(true);
+  f.store.prMonitor.stopConversation('one', 'deleted');
+  expect(f.store.prMonitor.read('ordinary:user', 'one', id).subscription.lifecycle).toBe('removed');
+  expect(() => f.consent.capture('one', id)).toThrow('authority_unavailable');
+});
