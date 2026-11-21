@@ -3,6 +3,10 @@ import express from 'express';
 import request from 'supertest';
 import { registerAuthSession, revokeAuthSession } from '../auth.js';
 import { createTerminalRouter } from '../terminal-router.js';
+const diagnostics = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', () => ({
+  createLogger: () => ({ ...diagnostics, info: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+}));
 function setup(planAdvisers?: Parameters<typeof createTerminalRouter>[0]['planAdvisers']) {
   const service = {
     bindOwner: vi.fn(),
@@ -41,6 +45,27 @@ function setup(planAdvisers?: Parameters<typeof createTerminalRouter>[0]['planAd
   return { app, service };
 }
 describe('operator terminal API', () => {
+  it('reports a bounded opening diagnostic without disclosing the original error', async () => {
+    const { app, service } = setup();
+    service.open.mockRejectedValueOnce(Error('secret transport token and private path'));
+    const response = await request(app)
+      .post('/api/terminals')
+      .set('authorization', 'Bearer operator')
+      .send({ sessionId: 'chat-a' })
+      .expect(409);
+    expect(response.body).toMatchObject({
+      code: 'terminal_open_failed',
+      diagnosticId: expect.any(String),
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(/secret|private path/);
+    expect(diagnostics.warn).toHaveBeenLastCalledWith('Terminal open failed', {
+      code: 'terminal_open_failed',
+      stage: 'open',
+      diagnosticId: response.body.diagnosticId,
+      sessionId: 'chat-a',
+      causes: ['terminal_open_failed', 'unclassified_error'],
+    });
+  });
   it('recovers a pending subscription attempt only through the authenticated operator snapshot', async () => {
     const pendingAttempt = vi.fn((owner: string) =>
       owner === 'login-a' ? { id: 'owned-attempt', state: 'pending' } : null,
