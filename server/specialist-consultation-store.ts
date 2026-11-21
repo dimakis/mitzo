@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { SpecialistModelPolicyStore } from './specialist-model-policy-store.js';
 import {
   SpecialistPolicyInputSchema,
   SpecialistPolicySchema,
@@ -15,9 +16,11 @@ import {
  * remain exclusively with the shared-conversation and ordinary command owners. */
 export class SpecialistConsultationStore {
   private readonly db: Database.Database;
+  readonly modelPolicies: SpecialistModelPolicyStore;
   constructor(path: string) {
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
+    this.modelPolicies = new SpecialistModelPolicyStore(this.db);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS specialist_consultation_policies (
         lead_id TEXT NOT NULL, policy_id TEXT NOT NULL, input TEXT NOT NULL, body TEXT NOT NULL,
@@ -136,6 +139,7 @@ export class SpecialistConsultationStore {
     raw: unknown,
     boundary: ConsultationRecord['boundary'],
     selectedRoute?: ConsultationRecord['route'],
+    modelPolicyRevision?: string,
   ) {
     const input = ConsultationInputSchema.parse(raw);
     return this.db
@@ -153,6 +157,9 @@ export class SpecialistConsultationStore {
           )
           .get(lead, policyId) as { count: number };
         this.assertAllowance(lead, policy);
+        const route = selectedRoute ?? policy.routes.find((route) => route.role === input.role);
+        if (!route) throw Error('Specialist route unavailable');
+        this.assertModelAllowance(lead, route);
         const record = ConsultationRecordSchema.parse({
           requestId: input.requestId,
           policyId,
@@ -160,8 +167,9 @@ export class SpecialistConsultationStore {
           revision: 0,
           attemptOrdinal: count.count,
           allowanceState: 'held',
+          modelPolicyRevision,
           input,
-          route: selectedRoute ?? policy.routes.find((route) => route.role === input.role),
+          route,
           boundary,
           workspaceId: randomUUID(),
           reviewRequestId: randomUUID(),
@@ -179,6 +187,22 @@ export class SpecialistConsultationStore {
       })
       .immediate();
   }
+  assertModelAllowance(lead: string, route: ConsultationRecord['route'], excludeRequest?: string) {
+    const settings = this.modelPolicies.resolve(lead, route.accountId, route.model);
+    if (settings.admission === 'off')
+      throw Error('Selected model is Off in the current Symposium policy');
+    if (settings.allowance !== null) {
+      const used = this.db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM specialist_consultations
+        WHERE lead_id=? AND json_extract(body, '$.route.accountId')=? AND json_extract(body, '$.route.model')=?
+        AND request_id != ? AND COALESCE(json_extract(body, '$.allowanceState'), 'charged') != 'released'`,
+        )
+        .get(lead, route.accountId, route.model, excludeRequest ?? '') as { count: number };
+      if (used.count >= settings.allowance) throw Error('Model consultation allowance exhausted');
+    }
+    return settings;
+  }
   private assertAllowance(lead: string, policy: SpecialistPolicy) {
     const used = this.db
       .prepare(
@@ -194,6 +218,7 @@ export class SpecialistConsultationStore {
       .transaction(() => {
         const record = this.read(lead, requestId);
         const policy = this.assertPolicy(lead, login, record.policyId);
+        this.assertModelAllowance(lead, record.route, record.requestId);
         if (record.allowanceState !== 'released') return record;
         this.assertAllowance(lead, policy);
         return this.update(lead, requestId, record.revision, { allowanceState: 'held' });
@@ -215,6 +240,7 @@ export class SpecialistConsultationStore {
         | 'diagnostic'
         | 'routingAudit'
         | 'allowanceState'
+        | 'modelPolicyRevision'
       >
     >,
   ) {

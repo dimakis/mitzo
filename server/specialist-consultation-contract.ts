@@ -80,6 +80,7 @@ export const ConsultationRecordSchema = z.strictObject({
   attemptOrdinal: z.number().int().nonnegative(),
   // Old receipts remain charged: missing evidence never refunds dispatched work.
   allowanceState: z.enum(['held', 'charged', 'released']).default('charged'),
+  modelPolicyRevision: z.string().optional(),
   input: ConsultationInputSchema,
   route: SpecialistRouteSchema,
   boundary: CollaborationSnapshotSelectionSchema.shape.boundary,

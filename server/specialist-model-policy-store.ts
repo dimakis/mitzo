@@ -9,8 +9,10 @@ import {
  * routes write settings; agents can read effective policy, never relax it. */
 export class SpecialistModelPolicyStore {
   private readonly db: Database.Database;
-  constructor(path: string) {
-    this.db = new Database(path);
+  private readonly ownsDatabase: boolean;
+  constructor(path: string | Database.Database) {
+    this.ownsDatabase = typeof path === 'string';
+    this.db = typeof path === 'string' ? new Database(path) : path;
     this.db.pragma('journal_mode = WAL');
     this.db.exec(`CREATE TABLE IF NOT EXISTS specialist_model_settings (
       scope TEXT PRIMARY KEY, body TEXT NOT NULL);
@@ -18,7 +20,7 @@ export class SpecialistModelPolicyStore {
       request_id TEXT PRIMARY KEY, scope TEXT NOT NULL, input TEXT NOT NULL, result TEXT NOT NULL);`);
   }
   close() {
-    this.db.close();
+    if (this.ownsDatabase) this.db.close();
   }
   read(scope: string) {
     const row = this.db
