@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1270-context-measurement-contract';
+  'v1.0.1271-context-measurement-control-fences';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,11 +26,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/context-measurement.ts':
     '0d89c2ebfee3a80604c64c8174aa8001b35a3f8854dccac845cab40f3af3d925',
   '../context-measurement-adapters.ts':
-    'f900741ba65229ab109815f65ed2d1d489df21d7971c4cf79b6ebfc544060b8f',
+    '1f71dedb3133083fd79ab9134db23af2627b1cac524d665e84f9138dc59731de',
   '../context-measurement-control.ts':
-    '3396c577c820a4044fc61fe3fe641488528dfaf85a690fbc7ee2bd3fa10d8fd0',
+    '84675c4f36c776cf6fca2b6379cb1d63db80bc49212742197674a36f38e41da6',
   '../__tests__/context-measurement.test.ts':
-    '9627274b31d6713148c5fc64df6a7bab147071bc2817ffd1148aff2992d1b259',
+    '1e22b5ac54c566bdb7c2e5ed668d62ee5db9f6b3a48bd69428bd04f85006152b',
   '../__tests__/chat-sdk-query-adapter.test.ts':
     '9601a0147184fd2adb2a2d430cca1e6bc79b8eb96c85e0ef058dc419957747d9',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',

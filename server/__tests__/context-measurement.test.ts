@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { SDKControlGetContextUsageResponse } from '@anthropic-ai/claude-agent-sdk';
 import {
   ContextMeasurementSchema,
   type ContextObservation,
@@ -276,6 +277,46 @@ describe('bounded Claude context inspection', () => {
     });
     expect(f.query.getContextUsage).toHaveBeenCalledExactlyOnceWith({ detail: 'full' });
   });
+  it('accepts the installed SDK skills object without exposing source metadata or adding it twice', async () => {
+    const f = fixture();
+    const skills: NonNullable<SDKControlGetContextUsageResponse['skills']> = {
+      totalSkills: 2,
+      includedSkills: 1,
+      tokens: 5,
+      skillFrontmatter: [
+        { name: 'private skill', source: 'project', path: '/private/skill', tokens: 5 },
+      ],
+    };
+    const response = { ...claude(), skills };
+    f.query.getContextUsage.mockResolvedValue(response);
+    const result = await inspectClaudeContext({
+      current: f.current,
+      signal: new AbortController().signal,
+    });
+    expect(result.status).toBe('available');
+    if (result.status !== 'available') return;
+    expect(result.snapshot.usedTokens).toBe(60);
+    expect(result.snapshot.contributions).toContainEqual({
+      id: 'skills:0',
+      sourceRef: 'sdk:skills:0',
+      tokens: 5,
+      relation: 'unknown',
+      assurance: 'estimated',
+    });
+    expect(JSON.stringify(result)).not.toContain('private');
+  });
+  it.each(['cancelled', 'scope_changed'] as const)(
+    'does not dispatch after pre-dispatch %s',
+    async (reason) => {
+      const f = fixture();
+      const controller = new AbortController();
+      const pending = inspectClaudeContext({ current: f.current, signal: controller.signal });
+      if (reason === 'cancelled') controller.abort();
+      else f.owner.active = false;
+      expect(await pending).toEqual({ status: 'unavailable', reason });
+      expect(f.query.getContextUsage).not.toHaveBeenCalled();
+    },
+  );
   it.each(['retired', 'binding', 'query'] as const)(
     'discards a late response after %s changes',
     async (change) => {

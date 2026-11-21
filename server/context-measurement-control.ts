@@ -92,9 +92,12 @@ export async function inspectClaudeContext(input: {
     });
     const work = async (): Promise<ContextInspectionResult> => {
       await authorize();
+      // Authorization yields even for summary; retirement/cancellation can win that gap.
+      assertCurrent();
       const response: unknown = await control.call(query, { detail });
       assertCurrent();
       await authorize();
+      assertCurrent();
       let snapshot: ContextMeasurement;
       try {
         snapshot = normalizeClaudeContext(

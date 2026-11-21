@@ -20,7 +20,7 @@ NODE_OPTIONS=--max-old-space-size=1024 node node_modules/vitest/vitest.mjs run \
   server/__tests__/session-control-support.test.ts --maxWorkers=1
 ```
 
-Result: **67 tests in 5 files passed**, including a test-first follow-up ensuring
+Result before the review follow-up: **67 tests in 5 files passed**, including a test-first follow-up ensuring
 malformed owner identity cannot break failure reporting. The first broader attempt encountered a
 missing local SQLite native artifact and a denied Supertest listener. Copying the
 matching release's existing SQLite build and using a bounded loopback test grant
@@ -40,6 +40,16 @@ the protocol export and SDK wrapper probe. The follow-up intentionally advances
 the runtime contract revision and refreshes those fingerprints, also registering
 the new measurement modules/probes. The source artifact check passes locally;
 this is source identity maintenance, not a Centaur review approval.
+
+Focused local review found two additional defects: the optional SDK `skills`
+breakdown is an object containing `skillFrontmatter`, and awaiting authorization
+left a cancellation/retirement gap before control dispatch. Three regression
+cases failed before the fixes and passed afterward. The skills fixture is typed
+against installed SDK 0.3.322; its source metadata remains private and its tokens
+are not added to occupancy again. Owner/cancellation checks now run immediately
+after authorization awaits, including before returning a normalized snapshot.
+The focused regression rerun passed **70 tests in 5 files**, together with focused
+strict TypeScript, ESLint, formatting and refreshed source-artifact verification.
 
 Not qualified: real SDK CLI control execution, summary/full latency or cost,
 model-specific context limits, ordinary OpenShell event transport, ordinary

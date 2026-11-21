@@ -22,7 +22,14 @@ const ClaudeResponse = z.object({
   memoryFiles: breakdown,
   mcpTools: breakdown,
   agents: breakdown,
-  skills: breakdown.optional(),
+  skills: z
+    .object({
+      totalSkills: count,
+      includedSkills: count,
+      tokens: count,
+      skillFrontmatter: breakdown,
+    })
+    .optional(),
   systemTools: breakdown.optional(),
   systemPromptSections: breakdown.optional(),
   mcpInstructions: breakdown.optional(),
@@ -60,7 +67,7 @@ export function normalizeClaudeContext(
     ['memory_files', raw.memoryFiles],
     ['mcp_tools', raw.mcpTools],
     ['custom_agents', raw.agents],
-    ['skills', raw.skills],
+    ['skills', raw.skills?.skillFrontmatter],
     ['system_tools', raw.systemTools],
     ['system_prompt', raw.systemPromptSections],
     ['mcp_instructions', raw.mcpInstructions],
