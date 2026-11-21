@@ -47,6 +47,23 @@ policy state and allow explicit removal. Preserve Add agent, preview, Details an
 Chat settings. Approved by Dimitri on 16 November 2026 after interactive revision 3;
 see the appended Symposium approval in the ledger. Runtime adoption remains separate.
 
+On constrained composer widths, secondary controls share the existing **More
+composer actions** disclosure before they can crowd Send, Queue, Steer or Stop.
+Resources, Agents, context usage and voice keep their existing components and
+mounted state inside that disclosure. Escape returns to its trigger; resizing
+between inline and overflow layouts preserves reachable keyboard focus. Nested
+dialogs retain their original control for focus restoration. The overflow scrolls
+within the space above the action row, including visual-viewport changes.
+
+The inline @ selector remains separate. Expanded recipients use a bounded,
+scrollable row across the composer, with wrapping full names and their existing
+selection behavior. Text entry has a viewport-relative height limit even when
+expanded, so long drafts do not displace primary controls. Existing status and
+Send/Queue owners remain unchanged. This responsive repair was explicitly
+requested in the S6 implementation handoff on 21 November 2026; it preserves the
+revision-3 control identities and adds no alternate recipient dialog or palette.
+See [validation and remaining browser/phone gates](../evidence/symposium-responsive-composer-2026-11-21.md).
+
 ## Conversation tree navigation
 
 The existing Return to lead chat link resolves the current canonical reporting

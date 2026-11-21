@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1270-claude-turn-attribution';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1271-symposium-responsive-composer';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/ComposerTools.css':
+    'a87d86c028e990131fc0112f7a9337c6a01cee9bbe37b875b804408faafa2eeb',
+  '../../frontend/src/components/__tests__/ComposerTools.overflow.test.tsx':
+    '6fe05fa7239aff463f1192fcb7e92bbadd70b09adcaac6d2fe5443dcf4deb59c',
+  '../../tests/fixtures/composer-responsive.tsx':
+    '9d4a4c05e594838cbd76fc8709e4c55253263682f621c055f0eb6149151ecea4',
+  '../../tests/offline/composer-responsive.spec.ts':
+    '8334da8b08f7a40c790aba6ea23e3f3e26fe50ee4d42f078d02ac2df0430185a',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -75,7 +83,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/telos-workspaces/s6-codex-peer-communication.md':
     'be26559bbb82e40dde63cc0669f88a174cf59d0c929e399d826e6489ed43e822',
   '../../docs/design/ui-design-system.md':
-    'c0de712baf95d09dbd3eecfe56648e4f4a05dc7eb6af253d9ab3173185c18af4',
+    '3804e89630cec777d74e226bdeb8891b30ed75a31b4c032f618c22424567be64',
   '../../docs/evidence/symposium-forwarding-ui-2026-11-11.md':
     '160b7f429e0a507f6dd29acb5600541b098b1705d0aed781372c939f56977945',
   '../../docs/evidence/symposium-integration-acceptance.md':
@@ -315,7 +323,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '6efb121831e74a40fe2181409b8dde78524a06d7fb222d007fe212530bca30e4',
   '../../frontend/src/components/ChatInput.tsx':
-    '576900cfde0194775c277e4513d4583d15e732926ec8464c8e55b051595db8dc',
+    'd34cb41dde310d1afc9e8a02bd65e138bed3d72861eb0ddc422a66a347cea211',
   '../../frontend/src/components/ChatInputHost.css':
     '6ac695e0ec3850781d32e6257738c2900657499c2545303321f200488e3ccc20',
   '../../frontend/src/components/ChatInputHost.tsx':
@@ -347,7 +355,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ComposerStatus.tsx':
     'da4fc2df254abdfbe88dad54b44e302927425fd1dece845b9cea7672fd780d3f',
   '../../frontend/src/components/ComposerTools.tsx':
-    '4d12ffa29195b6f3b60277e5e76e87120ec18da8bed6080b49a4813c052a2e6d',
+    'ef6cf1fe9ca76e9d66146cec16de3dc2c66ccd1c20670d779c8ebe6a91d57439',
   '../../frontend/src/components/ConnectionSetupCard.tsx':
     'aa50d51188da08cd8fa6b72435493d93b0063541d799cbd6987e285142c9de25',
   '../../frontend/src/components/ContextInjectionDisclosure.tsx':
@@ -1274,7 +1282,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/tool-result.css':
     'c232bf0777c08438666ae4fc154f2387b2cc8517a71ab004c808f71ad06a82ea',
   '../../frontend/src/styles/workspace-chat.css':
-    '69957d1c5fff52e0d070938263433e911207fccb57cfb0cacb72300a600680d6',
+    '623b643c1ac80ad497c8e1bcce445f02a258a3fa1d898d8f0ca56ee4eaaf558d',
   '../../frontend/src/styles/workspace.css':
     'b771e9b97b5c006092d67d592f765e0d5ac7659f13669ee0d109bfe8ac477d8f',
   '../../frontend/src/test-utils/multi-runtime-inventory-fixture.ts':

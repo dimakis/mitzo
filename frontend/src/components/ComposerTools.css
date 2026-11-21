@@ -1,0 +1,166 @@
+/* Reserve room for the largest primary-action group before secondary controls
+   overflow. rem also responds to larger text. Controls keep the same DOM. */
+.chat-input--compact .composer-toolbar,
+.chat-input--compact .composer-actions {
+  flex-wrap: nowrap;
+}
+.composer-secondary-control {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--space-2);
+}
+.chat-input--compact .chat-input-field {
+  max-height: min(10rem, 25dvh);
+  overflow-y: auto;
+}
+.chat-input--compact.chat-input--expanded .chat-input-field {
+  max-height: min(30rem, 40dvh);
+}
+/* Expanded recipients use the full composer width, independently of actions. */
+.chat-input--compact .composer-toolbar:has(.composer-responders-inline) {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: var(--space-1);
+}
+.composer-toolbar:has(.composer-responders-inline) .chat-input-command-strip,
+.composer-toolbar:has(.composer-responders-inline) .composer-recipient-slot,
+.composer-toolbar .composer-responders-inline {
+  display: contents;
+}
+.composer-toolbar .composer-responder-inline-trigger {
+  grid-column: 1;
+  grid-row: 2;
+}
+.composer-toolbar .composer-tools-anchor {
+  grid-column: 2;
+  grid-row: 2;
+}
+.composer-toolbar .composer-actions {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+  gap: var(--space-1);
+}
+.composer-toolbar .composer-responder-names {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  max-width: 100%;
+  max-height: min(8rem, 20dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  flex-wrap: wrap;
+}
+.composer-toolbar .composer-responder-name {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+  flex-shrink: 1;
+}
+@container (max-width: 52rem) {
+  .chat-input--compact .composer-tools-anchor--secondary {
+    --composer-tools-layout: popover;
+    position: static;
+  }
+  .chat-input--compact .composer-tools-anchor--secondary .composer-tools-toggle {
+    display: inline-flex;
+    color: var(--color-muted);
+    background: transparent;
+  }
+  .composer-tools-anchor--secondary .composer-tools {
+    display: none;
+    position: absolute;
+    inset-inline: 0;
+    bottom: calc(100% + var(--space-2));
+    z-index: 60;
+    width: min(24rem, 100%);
+    box-sizing: border-box;
+    max-height: min(60dvh, var(--composer-tools-space, 60dvh));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-panel);
+    background: var(--color-surface);
+    box-shadow: 0 var(--space-2) var(--space-6) var(--color-shadow);
+  }
+  .composer-tools-anchor--secondary .composer-tools[data-expanded='true'] {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .chat-input--compact .composer-tools-anchor--secondary .composer-tools > .chat-input-btn {
+    justify-content: flex-start;
+    width: 100%;
+    height: auto;
+    min-height: var(--control-height);
+    padding: var(--space-2);
+    gap: var(--space-2);
+    border-radius: var(--radius-control);
+    white-space: normal;
+    line-height: 1.5;
+    text-align: start;
+  }
+  .composer-tools-anchor--secondary .composer-tools-label,
+  .chat-input--compact .composer-tools-anchor--secondary .chat-input-command-label {
+    display: inline;
+    position: static;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+  .chat-input--compact .composer-tools .composer-secondary-control :is(.chat-input-btn, .mic-btn) {
+    width: var(--control-height);
+    min-width: var(--control-height);
+    flex-shrink: 0;
+    justify-content: center;
+    padding: 0;
+  }
+  .composer-secondary-control:has(.token-bar-detail) {
+    flex-wrap: wrap;
+  }
+  .composer-secondary-control .token-wheel-control {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+  .composer-secondary-control .token-bar-detail {
+    position: static;
+    flex-basis: 100%;
+    width: 100%;
+  }
+  .composer-tools-anchor--secondary .composer-workspace-details {
+    position: static;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .chat-input--compact .composer-responders-trigger {
+    width: var(--control-height);
+    max-width: var(--control-height);
+  }
+  .composer-responders-trigger > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    clip-path: inset(50%);
+  }
+}
+@container (max-width: 22rem) {
+  /* A retained source may have an additional Stop. Keep both Stops reachable. */
+  .composer-toolbar[data-source-stop]:has(.composer-responders-inline)
+    .composer-responder-inline-trigger {
+    grid-row: 1;
+  }
+  .composer-toolbar[data-source-stop]:has(.composer-responders-inline) .composer-responder-names {
+    grid-column: 2 / -1;
+  }
+  .composer-toolbar[data-source-stop]:has(.composer-responders-inline) .composer-tools-anchor {
+    grid-column: 1;
+  }
+  .composer-toolbar[data-source-stop]:has(.composer-responders-inline) .composer-actions {
+    grid-column: 2 / -1;
+  }
+}

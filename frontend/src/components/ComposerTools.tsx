@@ -1,10 +1,13 @@
 import { Link, useInRouterContext } from 'react-router-dom';
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { UiIcon } from './UiIcon';
 import { useMotionPresence } from '../hooks/useMotionPresence';
 import { MotionPresence } from './MotionPresence';
+import './ComposerTools.css';
 
 interface Props {
+  /** Mounted secondary controls share the overflow; primary send/stop actions stay outside. */
+  children?: ReactNode;
   terminalHref?: string;
   onCommands: () => void;
   commandsExpanded: boolean;
@@ -23,6 +26,7 @@ interface Props {
 }
 
 export function ComposerTools({
+  children,
   onCommands,
   commandsExpanded,
   commandsDisabled,
@@ -48,52 +52,82 @@ export function ComposerTools({
   const visible = inline || present;
   const toolsId = useId();
   const toolsRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => {
     const anchor = toolsRef.current;
     if (!anchor) return;
     // The container query owns the breakpoint; CSS also reports its layout mode.
     const update = () => {
-      setInline(
-        getComputedStyle(anchor).getPropertyValue('--composer-tools-layout').trim() !== 'popover',
+      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      anchor.style.setProperty(
+        '--composer-tools-space',
+        `${Math.max(0, anchor.getBoundingClientRect().top - viewportTop - 8)}px`,
       );
+      const next =
+        getComputedStyle(anchor).getPropertyValue('--composer-tools-layout').trim() !== 'popover';
+      // A resize must not leave keyboard focus in newly hidden overflow content.
+      if (!next && !toolsExpanded && motionRef.current?.contains(document.activeElement))
+        triggerRef.current?.focus({ preventScroll: true });
+      setInline(next);
     };
     update();
     const container = anchor.closest('.chat-input--compact') ?? anchor;
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
     observer?.observe(container);
     window.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('scroll', update);
     return () => {
       observer?.disconnect();
       window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('scroll', update);
     };
-  }, []);
+  }, [toolsExpanded, motionRef]);
+  useLayoutEffect(() => {
+    if (inline && document.activeElement === triggerRef.current)
+      motionRef.current
+        ?.querySelector<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled)')
+        ?.focus({ preventScroll: true });
+  }, [inline, motionRef]);
   useEffect(() => {
     if (!toolsExpanded && !workspaceExpanded) return;
     const close = () => {
       setToolsExpanded(false);
       setWorkspaceExpanded(false);
     };
-    const onPointerDown = (event: PointerEvent) => {
+    const dismissOutside = (event: Event) => {
+      // HomeDialog portals remain mounted outside this DOM subtree. Keep the
+      // originating control reachable when the dialog restores focus.
+      if (event.target instanceof Element && event.target.closest('dialog[open]')) return;
       if (!toolsRef.current?.contains(event.target as Node)) close();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         close();
-        onDismiss();
+        event.preventDefault();
+        if (inline) onDismiss();
+        else triggerRef.current?.focus({ preventScroll: true });
       }
     };
-    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('focusin', dismissOutside);
     document.addEventListener('keydown', onKeyDown);
     return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('pointerdown', dismissOutside);
+      document.removeEventListener('focusin', dismissOutside);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [toolsExpanded, workspaceExpanded, onDismiss]);
+  }, [toolsExpanded, workspaceExpanded, inline, onDismiss]);
   return (
-    <div className="composer-tools-anchor" ref={toolsRef}>
+    <div
+      className={`composer-tools-anchor${children ? ' composer-tools-anchor--secondary' : ''}`}
+      ref={toolsRef}
+    >
       <button
         type="button"
         className="chat-input-btn composer-tools-toggle"
+        ref={triggerRef}
         aria-label="More composer actions"
         aria-expanded={toolsExpanded}
         aria-controls={toolsId}
@@ -248,6 +282,7 @@ export function ComposerTools({
             )}
           </dl>
         </MotionPresence>
+        {children}
       </div>
     </div>
   );

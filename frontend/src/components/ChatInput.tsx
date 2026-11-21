@@ -1732,17 +1732,10 @@ function ChatInputContent({
           rows={1}
         />
         {settings}
-        <div className="composer-toolbar">
-          <div
-            className="chat-input-command-strip"
-            onPointerDown={(e) => {
-              if ((e.target as HTMLElement).closest('button, a, select')) {
-                e.preventDefault();
-              }
-            }}
-          >
+        <div className="composer-toolbar" data-source-stop={sourceStop ? '' : undefined}>
+          <div className="chat-input-command-strip">
             {responders && (
-              <div ref={responderTrigger}>
+              <div ref={responderTrigger} className="composer-recipient-slot">
                 <ComposerResponders
                   selection={responders}
                   text={displayedText}
@@ -1784,64 +1777,96 @@ function ChatInputContent({
               branch={branch}
               isWorktree={isWorktree}
               wtId={wtId}
-            />
-            {timerScope && timerScope.sessionId === sessionId && (
-              <SessionTimersDialog
-                sessionId={timerScope.sessionId}
-                initialPrompt={timerScope.prompt}
-                initiallyCreating
-                onClose={() => setTimerScope(null)}
+            >
+              {timerScope && timerScope.sessionId === sessionId && (
+                <SessionTimersDialog
+                  sessionId={timerScope.sessionId}
+                  initialPrompt={timerScope.prompt}
+                  initiallyCreating
+                  onClose={() => setTimerScope(null)}
+                />
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf"
+                multiple
+                onChange={handleFileChange}
+                className="sr-only"
               />
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf"
-              multiple
-              onChange={handleFileChange}
-              className="sr-only"
-            />
-            {(!useExternal || onExternalContextBlockToggle) && (
-              <SessionResourcesDialog
-                sourceSnapshots={savedChatDraft?.settings.sourceSnapshots}
-                sessionId={sessionId}
-                compactions={compactions}
-                compactionError={compactionError}
-                compactionTruncated={compactionTruncated}
-                placement="toolbar"
-                contextRemovalOnly={boundedFirstCommand || guardedConversation}
-                messages={messages}
-                current={current}
-                bootContext={bootContext}
-                sessionContext={sessionContext}
-                selectedContextBlocks={activeContextBlocks}
-                draftImages={displayedImages}
-                onToggleContextBlock={
-                  onExternalContextBlockToggle ??
-                  ((name) =>
-                    setContextBlocks((prev) =>
-                      prev.includes(name)
-                        ? prev.filter((value) => value !== name)
-                        : [...prev, name],
-                    ))
-                }
-                onAddImages={() => fileInputRef.current?.click()}
-                onRemoveImage={(index) => removeImage(images.indexOf(displayedImages[index]))}
-                onPreviewImage={previewImage}
-                getDraftImageKey={imageKey}
-              />
-            )}
-            {collaboration ?? (
-              <button
-                type="button"
-                className="chat-input-btn"
-                aria-label="Symposium collaboration"
-                title="Start a supported chat to use Symposium collaboration"
-                disabled
-              >
-                <UiIcon name="agents" />
-              </button>
-            )}
+              {(!useExternal || onExternalContextBlockToggle) && (
+                <div className="composer-secondary-control">
+                  <SessionResourcesDialog
+                    sourceSnapshots={savedChatDraft?.settings.sourceSnapshots}
+                    sessionId={sessionId}
+                    compactions={compactions}
+                    compactionError={compactionError}
+                    compactionTruncated={compactionTruncated}
+                    placement="toolbar"
+                    contextRemovalOnly={boundedFirstCommand || guardedConversation}
+                    messages={messages}
+                    current={current}
+                    bootContext={bootContext}
+                    sessionContext={sessionContext}
+                    selectedContextBlocks={activeContextBlocks}
+                    draftImages={displayedImages}
+                    onToggleContextBlock={
+                      onExternalContextBlockToggle ??
+                      ((name) =>
+                        setContextBlocks((prev) =>
+                          prev.includes(name)
+                            ? prev.filter((value) => value !== name)
+                            : [...prev, name],
+                        ))
+                    }
+                    onAddImages={() => fileInputRef.current?.click()}
+                    onRemoveImage={(index) => removeImage(images.indexOf(displayedImages[index]))}
+                    onPreviewImage={previewImage}
+                    getDraftImageKey={imageKey}
+                  />
+                  <span className="composer-tools-label">Resources</span>
+                </div>
+              )}
+              <div className="composer-secondary-control">
+                {collaboration ?? (
+                  <button
+                    type="button"
+                    className="chat-input-btn"
+                    aria-label="Symposium collaboration"
+                    title="Start a supported chat to use Symposium collaboration"
+                    disabled
+                  >
+                    <UiIcon name="agents" />
+                  </button>
+                )}
+                <span className="composer-tools-label">Agents</span>
+              </div>
+              {(tokenState || (tokenParticipants && tokenParticipants.length > 1)) && (
+                <div className="composer-secondary-control">
+                  {tokenParticipants && tokenParticipants.length > 1 ? (
+                    <ConversationContextUsage participants={tokenParticipants} />
+                  ) : (
+                    tokenState && (
+                      <TokenBar
+                        tokenState={tokenState}
+                        ownerName={tokenOwnerName}
+                        alwaysVisible
+                        userTurns={messages.filter((message) => message.role === 'user').length}
+                      />
+                    )
+                  )}
+                  <span className="composer-tools-label">Context usage</span>
+                </div>
+              )}
+              {micProps?.available && (
+                <div className="composer-secondary-control">
+                  <MicButton {...micProps} />
+                  <span className="composer-tools-label">
+                    {micProps.recording ? 'Stop recording' : 'Voice message'}
+                  </span>
+                </div>
+              )}
+            </ComposerTools>
           </div>
           <div className="composer-actions">
             {sourceStop && (
@@ -1855,19 +1880,6 @@ function ChatInputContent({
                 <UiIcon name="stop" />
               </button>
             )}
-            {tokenParticipants && tokenParticipants.length > 1 ? (
-              <ConversationContextUsage participants={tokenParticipants} />
-            ) : (
-              tokenState && (
-                <TokenBar
-                  tokenState={tokenState}
-                  ownerName={tokenOwnerName}
-                  alwaysVisible
-                  userTurns={messages.filter((message) => message.role === 'user').length}
-                />
-              )
-            )}
-            {micProps && <MicButton {...micProps} />}
             {running ? (
               <>
                 {(canSend || !!sharedControl) &&

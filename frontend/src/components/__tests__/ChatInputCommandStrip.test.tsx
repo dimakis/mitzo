@@ -210,9 +210,8 @@ describe('ChatInput command strip', () => {
       />,
     );
     const usage = screen.getByRole('button', { name: 'Token usage' });
-    expect(usage.closest('.composer-actions')).toBeTruthy();
-    expect(usage.closest('.composer-actions')?.firstElementChild?.contains(usage)).toBe(true);
-    expect(usage.closest('.composer-actions')?.lastElementChild).toBe(
+    expect(usage.closest('.composer-tools')).toBeTruthy();
+    expect(container.querySelector('.composer-actions')?.lastElementChild).toBe(
       screen.getByRole('button', { name: 'Send message' }),
     );
     expect(container.querySelector('.composer-info')).toBeNull();
@@ -258,15 +257,15 @@ describe('ChatInput command strip', () => {
     expect(commands.getAttribute('aria-expanded')).toBe('true');
   });
 
-  it('renders mic button in input row, not command strip', () => {
+  it('keeps the microphone in secondary controls and primary send outside overflow', () => {
     const voice = makeVoice();
     const { container } = render(
       <ChatInput onSend={noop} onStop={noopVoid} running={false} voice={voice} />,
     );
-    const strip = container.querySelector('.chat-input-command-strip');
-    expect(strip?.querySelector('.mic-btn')).toBeNull();
-    const row = container.querySelector('.chat-input-row');
-    expect(row?.querySelector('.mic-btn')).toBeTruthy();
+    expect(container.querySelector('.composer-tools .mic-btn')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Send message' }).closest('.composer-tools'),
+    ).toBeNull();
   });
 
   it('keeps single mic button regardless of text input', () => {
