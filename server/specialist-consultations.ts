@@ -195,7 +195,7 @@ export class SpecialistConsultations {
       },
       harness,
       targetId: route.targetId,
-      mode: 'ask',
+      mode: route.permissionMode ?? 'ask',
     });
     if (resolved.status !== 'compatible') throw Error('Specialist runtime is unavailable');
     const agent = await resolveOrdinaryCodexAgentProfile({
@@ -293,7 +293,10 @@ export class SpecialistConsultations {
     };
     const display = {
       ...selection,
-      specialistPermissionMode: 'ask',
+      specialistPermissionModes: routes.map((route) => ({
+        role: route.role,
+        mode: route.permissionMode ?? 'ask',
+      })),
       scope:
         'Only this lead may request bounded specialist turns, share selected public messages and artifact versions, and read attributed replies. No tool, repository credential, merge or deployment authority is inherited. Limits count requested turns; no dollar or total-token cap is certified.',
     };
@@ -492,6 +495,7 @@ export class SpecialistConsultations {
       record = this.receipts.update(a.leadSessionId, record.requestId, record.revision, patch);
     };
     try {
+      record = this.receipts.claimAllowance(a.leadSessionId, a.auth.id, record.requestId);
       assertCurrent();
       const resolved = await this.resolveRoute(record.route);
       assertCurrent();
@@ -555,7 +559,7 @@ export class SpecialistConsultations {
               reasoningEffort: record.route.reasoningEffort,
               agent: record.route.agent,
               repositoryWorkspaceId: record.workspaceId,
-              permissionMode: 'ask',
+              permissionMode: record.route.permissionMode ?? 'ask',
             },
           },
           signal,
@@ -616,6 +620,7 @@ export class SpecialistConsultations {
       }
       stage = 'delivery';
       assertCurrent();
+      update({ allowanceState: 'charged' });
       await this.owners.messaging.send(
         a.auth,
         policy.collaborationId,
@@ -641,6 +646,7 @@ export class SpecialistConsultations {
       if (current.state !== 'stopped' && current.revision === record.revision)
         this.receipts.update(a.leadSessionId, record.requestId, current.revision, {
           state: 'uncertain',
+          allowanceState: current.allowanceState === 'charged' ? 'charged' : 'released',
           diagnostic: {
             code: diagnostic.code,
             stage,
@@ -668,7 +674,10 @@ export class SpecialistConsultations {
     const stopped =
       record.state === 'stopped'
         ? record
-        : this.receipts.update(a.leadSessionId, requestId, record.revision, { state: 'stopped' });
+        : this.receipts.update(a.leadSessionId, requestId, record.revision, {
+            state: 'stopped',
+            allowanceState: record.allowanceState === 'charged' ? 'charged' : 'released',
+          });
     const pending = this.pending.get(a.leadSessionId);
     if (pending?.requestId === requestId) pending.cancel.abort();
     const accepted =

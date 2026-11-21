@@ -152,14 +152,14 @@ export class SpecialistConsultationStore {
             'SELECT COUNT(*) AS count FROM specialist_consultations WHERE lead_id=? AND policy_id=?',
           )
           .get(lead, policyId) as { count: number };
-        if (count.count >= policy.maxConsultations)
-          throw Error('Consultation call budget exhausted');
+        this.assertAllowance(lead, policy);
         const record = ConsultationRecordSchema.parse({
           requestId: input.requestId,
           policyId,
           leadSessionId: lead,
           revision: 0,
           attemptOrdinal: count.count,
+          allowanceState: 'held',
           input,
           route: selectedRoute ?? policy.routes.find((route) => route.role === input.role),
           boundary,
@@ -179,6 +179,27 @@ export class SpecialistConsultationStore {
       })
       .immediate();
   }
+  private assertAllowance(lead: string, policy: SpecialistPolicy) {
+    const used = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count FROM specialist_consultations
+      WHERE lead_id=? AND policy_id=? AND COALESCE(json_extract(body, '$.allowanceState'), 'charged') != 'released'`,
+      )
+      .get(lead, policy.policyId) as { count: number };
+    if (policy.maxConsultations !== null && used.count >= policy.maxConsultations)
+      throw Error('Consultation call budget exhausted');
+  }
+  claimAllowance(lead: string, login: string, requestId: string) {
+    return this.db
+      .transaction(() => {
+        const record = this.read(lead, requestId);
+        const policy = this.assertPolicy(lead, login, record.policyId);
+        if (record.allowanceState !== 'released') return record;
+        this.assertAllowance(lead, policy);
+        return this.update(lead, requestId, record.revision, { allowanceState: 'held' });
+      })
+      .immediate();
+  }
   update(
     lead: string,
     requestId: string,
@@ -186,7 +207,14 @@ export class SpecialistConsultationStore {
     patch: Partial<
       Pick<
         ConsultationRecord,
-        'state' | 'sessionId' | 'joinId' | 'review' | 'messageInput' | 'diagnostic' | 'routingAudit'
+        | 'state'
+        | 'sessionId'
+        | 'joinId'
+        | 'review'
+        | 'messageInput'
+        | 'diagnostic'
+        | 'routingAudit'
+        | 'allowanceState'
       >
     >,
   ) {

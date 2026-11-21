@@ -1,6 +1,10 @@
 import { afterEach, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { SpecialistConsultationStore } from '../specialist-consultation-store.js';
+import {
+  SpecialistAuthorizationInputSchema,
+  SpecialistRouteInputSchema,
+} from '../specialist-consultation-contract.js';
 
 const stores: SpecialistConsultationStore[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
@@ -37,6 +41,56 @@ const intent = () => ({
   assignment: 'Plan the change',
   messageIds: [],
   artifacts: [],
+});
+
+it('preserves selected agent permission modes and accepts removable call allowances', () => {
+  const { policy } = fixture();
+  for (const permissionMode of ['ask', 'agent', 'auto']) {
+    const { agent, accountId, model, reasoningEffort, runOn, targetId, role } = policy.routes[0];
+    const route = {
+      agent,
+      accountId,
+      model,
+      reasoningEffort,
+      runOn,
+      targetId,
+      role,
+      permissionMode,
+    };
+    expect(SpecialistRouteInputSchema.parse(route).permissionMode).toBe(permissionMode);
+    for (const maxConsultations of [null, 25]) {
+      expect(
+        SpecialistAuthorizationInputSchema.parse({
+          requestId: randomUUID(),
+          repository: policy.repository,
+          connectionId: policy.connectionId,
+          routes: [route],
+          maxConsultations,
+        }).maxConsultations,
+      ).toBe(maxConsultations);
+    }
+  }
+});
+
+it('releases proven pre-dispatch refusals but retains uncertain dispatched allowance', () => {
+  const { store, policy } = fixture();
+  const boundary = { sequence: 10, messageId: null };
+  const first = store.reserve('lead', 'login', policy.policyId, intent(), boundary);
+  store.update('lead', first.requestId, first.revision, {
+    state: 'uncertain',
+    allowanceState: 'released',
+  });
+  const second = store.reserve('lead', 'login', policy.policyId, intent(), boundary);
+  store.update('lead', second.requestId, second.revision, {
+    state: 'uncertain',
+    allowanceState: 'charged',
+  });
+  const third = store.reserve('lead', 'login', policy.policyId, intent(), boundary);
+  expect(third.attemptOrdinal).toBe(2);
+  expect(() => store.reserve('lead', 'login', policy.policyId, intent(), boundary)).toThrow(
+    /budget/,
+  );
+  expect(() => store.claimAllowance('lead', 'login', first.requestId)).toThrow(/budget/);
 });
 
 it('atomically retains original operation identities, bounds recruitment and rejects changed retries', () => {

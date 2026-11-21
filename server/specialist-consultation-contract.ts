@@ -2,6 +2,12 @@ import { z } from 'zod';
 import { AgentProfileSelectionSchema, CollaborationSnapshotSelectionSchema } from '@mitzo/protocol';
 
 const id = z.string().trim().min(1).max(200);
+export const ConsultationAllowanceSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(Number.MAX_SAFE_INTEGER)
+  .nullable();
 export const SpecialistRouteInputSchema = z.strictObject({
   role: id,
   agent: AgentProfileSelectionSchema.optional(),
@@ -11,6 +17,7 @@ export const SpecialistRouteInputSchema = z.strictObject({
   reasoningEffort: id.nullable(),
   runOn: z.enum(['local', 'openshell']).default('local'),
   targetId: id,
+  permissionMode: z.enum(['ask', 'agent', 'auto']).optional(),
 });
 export const SpecialistRouteSchema = SpecialistRouteInputSchema.extend({
   agent: AgentProfileSelectionSchema,
@@ -36,7 +43,7 @@ export const SpecialistAuthorizationInputSchema = z
     connectionId: id,
     routes: z.array(SpecialistRouteInputSchema).min(1).max(8),
     durationMinutes: z.number().int().min(1).max(120).default(30),
-    maxConsultations: z.number().int().min(1).max(8).default(4),
+    maxConsultations: ConsultationAllowanceSchema.default(4),
     maxContextBytes: z.number().int().min(1).max(128000).default(32000),
   })
   .transform((input) => ({
@@ -50,7 +57,7 @@ export const SpecialistAuthorizationInputSchema = z
 export const SpecialistPolicyInputSchema = z.strictObject({
   requestId: z.uuid(),
   expiresAt: z.number().int().positive(),
-  maxConsultations: z.number().int().min(1).max(8),
+  maxConsultations: ConsultationAllowanceSchema,
   maxContextBytes: z.number().int().min(1).max(128000),
   repository: id,
   connectionId: id,
@@ -70,7 +77,9 @@ export const ConsultationRecordSchema = z.strictObject({
   policyId: z.uuid(),
   leadSessionId: id,
   revision: z.number().int().nonnegative(),
-  attemptOrdinal: z.number().int().nonnegative().max(7),
+  attemptOrdinal: z.number().int().nonnegative(),
+  // Old receipts remain charged: missing evidence never refunds dispatched work.
+  allowanceState: z.enum(['held', 'charged', 'released']).default('charged'),
   input: ConsultationInputSchema,
   route: SpecialistRouteSchema,
   boundary: CollaborationSnapshotSelectionSchema.shape.boundary,
@@ -109,7 +118,7 @@ export const specialistToolSchema = z.strictObject({
   repository: id.optional(),
   connectionId: id.optional(),
   durationMinutes: z.number().int().min(1).max(120).optional(),
-  maxConsultations: z.number().int().min(1).max(8).optional(),
+  maxConsultations: ConsultationAllowanceSchema.optional(),
   maxContextBytes: z.number().int().min(1).max(128000).optional(),
 });
 /** Validation precedes service entry and all approvals, allocation and dispatch.
