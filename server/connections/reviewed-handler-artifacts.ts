@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1270-claude-turn-attribution';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1271-specialist-context-preflight';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../specialist-context-envelope.ts':
+    'e1d33196e9cea8a1813c47495c7e9d3c1028c25fb00951624eb0c6351b8c3a59',
+  '../__tests__/specialist-context-review-application.test.ts':
+    '5ea9256263ba66be467160a865f469c91993970b50e05eff23aa4259f1b9067a',
+  '../__tests__/specialist-context-envelope.test.ts':
+    'eddd947c088528ad639c924685496a34604ccdf1fea24752497b6a11c2155fe1',
+  '../__tests__/fixtures/specialist-authorization.ts':
+    '046ec0cca80054201b44396a7e6f019899c1f3c65ef8e7c8fe4a6326e3ec09b0',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -2793,7 +2802,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/symposium-claude-application.ts':
     '450725d3ff4f39a68982ea1a7b322871acd9da90a611c254886f42fc871e571b',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
-    '562b8801ea6befdd046cde6de5d36a275e8651dd6c366991dee86abee55d268e',
+    'e54cd59b135be244b829fa1bf06df4a84e995bb9f7a30b434eb8c7f3fecd10e1',
   '../__tests__/fixtures/symposium-source-output.ts':
     'e792fe98f7d2ffc8a0edbca77a49cfb28795926253856c22c853018d3e7c790f',
   '../__tests__/fixtures/synchronous-stage-profiler.ts':
@@ -3478,7 +3487,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-search-async.test.ts':
     'e4f69a8ce6389e7fa7f6c1b6e59c13ccb5f369fab0d89696bda3890759a3acc0',
   '../__tests__/session-specialist-tools.test.ts':
-    '58a46dc1d8f5a3ba7c6d16c161b723af43e3f14858fcf866a823d80e27fd5954',
+    'd104a4b75532147f29cf201110c77a32135b3c1e3df894211912fa9263ec364f',
   '../__tests__/session-transcript-reader.test.ts':
     'a23868af8f9317a6a5c2a3faacd27e8784b2f678f6b9ada7521018ef13c3400a',
   '../__tests__/shared-authority-proof.test.ts':
@@ -3492,9 +3501,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/specialist-authorization-replay.test.ts':
     'bad0660f3527c33d6a21ad50dffed5c8a3129d904858868a0fbb0fda1ebbad43',
   '../__tests__/specialist-consultation-application.test.ts':
-    '47102c628f6361bfdc3463d9731e0e90741dca6e527c287b44dae86c436f39ae',
+    '7385ed5838b464cb2f0fb957abba494d5e28c39c64f3587ef073777e33732339',
   '../__tests__/specialist-consultation-store.test.ts':
-    '1ff060424f64bc16d012db977d51dce62739707d4b816a15b4066da7acea3a5c',
+    '6be4c7aa90ab569fe6df3c892abb588a9cf5ff8e3a7b2ca52c4bbaf26a341ee9',
   '../__tests__/specialist-review-routing.test.ts':
     'e45c277d88915ef60c905a92aaa98b415b17f77c514a3907a9a090b3ac45c700',
   '../__tests__/sqlite-file-owner.test.ts':
@@ -4583,7 +4592,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'f0ae3f23b02c89b2b6014b01389992ee77ac79f1c8ca38210289be4bfcc453c9',
   '../session-runtime-error.ts': '35e1f05bfca7eb99562a84e63076961cfe3300503279db0673e2b612733e405c',
   '../session-specialist-tools.ts':
-    '744f1413bae6c070e60b44094ff6c6ec9e6db1adc0b3b22a3ae4375c2e35e656',
+    '1f2b6b06c946252b6a4227c970310c0aa81e2e535c73223ee81803ee223f5c7f',
   '../session-transcript-reader.ts':
     'ead3dcc1c868fd6b731ca06ec65238f90b882842a3a1b51dbd7ba200d1432ee4',
   '../shared-authority-proof.ts':
@@ -4598,15 +4607,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../source-snapshot-context.ts':
     '32ed964e4a9e7d51c2a467d048e9a78ea91154cecd488c69b7f90539612613e7',
   '../specialist-consultation-contract.ts':
-    'fcc05e0c3d561cf997a87b8185aafb785b88ab95ddab7876684b0b355170e2e5',
+    '993ef67274147c0b90745e6a459f158778a4c3e4e762dcc0aa5fb8456d6c9eb9',
   '../specialist-consultation-diagnostics.ts':
     '96fe2860cd2feadaba84e33d2299d2c602bab3704feee8935862dcc6670815fd',
   '../specialist-consultation-runtime.ts':
     'a3548f7815907ecbe6eaafea1d795673bf0abc1be14dd06e96dd5d209d5278a1',
   '../specialist-consultation-store.ts':
-    '8f07001f2f6f0cf59d8c1b58cc0d61aa7fa5681e99cb369d9743dd3b4e248f69',
+    '1b32ed7664a0e3ceb63881ee2d0dc75793be449d4d63f8e16ab83d87673e1c26',
   '../specialist-consultations.ts':
-    '4b1bbcd92d1df26cf2b7257157bd8415a93678ce42da6d93be3f8ab66510624d',
+    'cab6f8835e1b57b9aa7eab7d81ab30352374e032b2ed0d5caa4abd831c7011af',
   '../specialist-review-routing.ts':
     '9bf82a3d6f65a9dff33105d1ff2e00985990ccf79994bd16bdcc450d9433523a',
   '../specialist-role-execution.ts':
