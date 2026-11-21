@@ -122,6 +122,38 @@ it('coalesces only the same scoped subscription, closes canonical reads and gene
   await f.observe();
   expect(f.view().events).toEqual([]);
 });
+it('a newer workflow with no jobs yet suppresses failures from its earlier run', async () => {
+  const f = fixture();
+  await f.observe();
+  f.read.mockImplementation(async (r) => ({
+    status: 200,
+    data:
+      r.resource === 'pr'
+        ? pr
+        : {
+            items:
+              r.resource === 'ci'
+                ? [
+                    { ...job, workflowId: 'workflow:1' },
+                    {
+                      ...job,
+                      workflowId: 'workflow:1',
+                      slot: 'workflow:1',
+                      id: 'run:2',
+                      runId: '2',
+                      runNumber: 2,
+                      status: 'pending',
+                      completedAt: null,
+                    },
+                  ]
+                : [],
+            hasNext: false,
+          },
+  }));
+  await f.observe();
+  expect(f.view().snapshot?.ci).toBe('pending');
+  expect(f.view().outbox).toBeNull();
+});
 it('baselines initial failures but creates one combined event set for a new head already failed on first observation', async () => {
   const f = fixture();
   let selected = head;

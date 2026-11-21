@@ -121,6 +121,38 @@ it('counts every actual request and uses exact run attempt job endpoints', async
     '/repos/owner/repo/actions/runs/8/attempts/2/jobs?per_page=100&page=1',
   );
 });
+it('retains a pending workflow when GitHub has not created its jobs yet', async () => {
+  const reader = createPrMonitorGitHubReader({
+    transport: async (endpoint) => ({
+      status: 200,
+      headers: {},
+      data:
+        endpoint === '/user'
+          ? { id: 42 }
+          : endpoint.includes('/jobs')
+            ? { total_count: 0, jobs: [] }
+            : {
+                total_count: 1,
+                workflow_runs: [
+                  {
+                    id: 9,
+                    workflow_id: 3,
+                    run_number: 5,
+                    run_attempt: 1,
+                    head_sha: head,
+                    status: 'queued',
+                    conclusion: null,
+                  },
+                ],
+              },
+    }),
+    assertConnection: () => undefined,
+    observeQuota: () => undefined,
+  });
+  expect((await reader(request('ci'))).data).toMatchObject({
+    items: [{ workflowId: 'workflow:3', runNumber: 5, status: 'pending' }],
+  });
+});
 it('accepts only bounded structured current review findings; arbitrary commands remain non-actionable', async () => {
   let body = 'please run gh pr merge';
   const transport = vi.fn(async (endpoint: string) => ({

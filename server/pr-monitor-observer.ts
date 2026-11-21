@@ -22,6 +22,7 @@ const ciSchema = z.object({
   id: ref,
   headSha: sha,
   slot: ref,
+  workflowId: ref.optional(),
   runId: ref,
   runNumber: z.number().int().positive(),
   attempt: z.number().int().positive(),
@@ -214,9 +215,32 @@ export class PrMonitorObserver {
       if (!isDeepStrictEqual(openingIdentity, closingIdentity))
         throw new ObservationFailure('head_changed', 60000);
       const latest = new Map<string, z.infer<typeof ciSchema>>();
+      const workflowRuns = new Map<string, z.infer<typeof ciSchema>>();
+      for (const candidate of ci) {
+        if (!candidate.workflowId) continue;
+        const previous = workflowRuns.get(candidate.workflowId);
+        if (
+          previous &&
+          previous.runNumber === candidate.runNumber &&
+          previous.runId !== candidate.runId
+        )
+          throw new ObservationFailure('incomplete', 60000);
+        if (
+          !previous ||
+          candidate.runNumber > previous.runNumber ||
+          (candidate.runNumber === previous.runNumber && candidate.attempt > previous.attempt)
+        )
+          workflowRuns.set(candidate.workflowId, candidate);
+      }
       for (const candidate of ci) {
         if (candidate.headSha !== opening.headSha)
           throw new ObservationFailure('incomplete', 60000);
+        const newest = candidate.workflowId ? workflowRuns.get(candidate.workflowId) : undefined;
+        if (
+          newest &&
+          (candidate.runNumber !== newest.runNumber || candidate.attempt !== newest.attempt)
+        )
+          continue;
         const prior = latest.get(candidate.slot);
         if (prior && prior.runNumber === candidate.runNumber && prior.runId !== candidate.runId)
           throw new ObservationFailure('incomplete', 60000);

@@ -22,6 +22,10 @@ const run = z.object({
   run_number: number,
   run_attempt: number,
   head_sha: sha,
+  status: z
+    .enum(['queued', 'waiting', 'pending', 'requested', 'in_progress', 'completed'])
+    .optional(),
+  conclusion: z.string().nullable().optional(),
 });
 const job = z.object({
   id: number,
@@ -130,6 +134,22 @@ export function createPrMonitorGitHubReader(options: {
           .object({ total_count: z.number().int().nonnegative(), jobs: z.array(job).max(100) })
           .parse(result.data);
         if (jobs.total_count !== jobs.jobs.length) throw Error('incomplete');
+        if (jobs.jobs.length === 0) {
+          // A newer queued run must suppress old failures even before jobs exist.
+          // Completed empty runs cannot provide exact failure job references.
+          if (!r.status || r.status === 'completed') throw Error('incomplete');
+          items.push({
+            id: `run:${r.id}`,
+            headSha: r.head_sha,
+            workflowId: `workflow:${r.workflow_id}`,
+            slot: `workflow:${r.workflow_id}`,
+            runId: String(r.id),
+            runNumber: r.run_number,
+            attempt: r.run_attempt,
+            status: 'pending',
+            completedAt: null,
+          });
+        }
         for (const j of jobs.jobs) {
           if (
             j.head_sha !== request.headSha ||
@@ -158,6 +178,7 @@ export function createPrMonitorGitHubReader(options: {
           items.push({
             id: String(j.id),
             headSha: j.head_sha,
+            workflowId: `workflow:${r.workflow_id}`,
             slot: `workflow:${r.workflow_id}/job:${j.name}`,
             runId: String(r.id),
             runNumber: r.run_number,
