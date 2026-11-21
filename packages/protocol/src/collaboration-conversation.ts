@@ -22,6 +22,12 @@ const ids = z
   .refine((values) => new Set(values).size === values.length, 'Duplicate ID');
 const request = { requestId: z.uuid(), expectedMembershipRevision: sequence };
 const author = z.union([z.literal('operator'), z.strictObject({ sessionId: id })]);
+/** Trusted application origin, separate from operator authorization and verified reply sources.
+ * This is deliberately absent from the public send input. */
+export const CollaborationMessageOriginSchema = z.strictObject({
+  sessionId: id,
+  requestId: z.uuid(),
+});
 export const CollaborationMessageSourceSchema = z.strictObject({
   conversationId: id,
   commandId: id,
@@ -247,6 +253,7 @@ export const CollaborationMessageSchema = z
     projectionId: z.uuid(),
     sequence,
     author,
+    origin: CollaborationMessageOriginSchema.optional(),
     text: z.string().max(100_000),
     images: ChatImagesSchema.optional(),
     /** Time recorded by the shared store; absent on older retained records. */
@@ -267,6 +274,14 @@ export const CollaborationMessageSchema = z
     deliveries: z.array(CollaborationDeliverySchema).max(16),
   })
   .superRefine((message, context) => {
+    if (
+      message.origin &&
+      (message.author !== 'operator' ||
+        message.source !== null ||
+        message.replyToDeliveryId !== null ||
+        message.forward)
+    )
+      context.addIssue({ code: 'custom', message: 'Invalid automated prompt origin' });
     if (
       message.forward
         ? message.author !== 'operator' ||
@@ -595,6 +610,8 @@ export const CollaborationViewSchema = z.strictObject({
   collaborationId: SessionCollaborationIdSchema,
   membershipRevision: sequence,
   participantSessionIds: ids,
+  /** First membership appearance, including removed seats; presentation only. */
+  seatOrder: z.array(id).optional(),
   unavailableParticipantSessionIds: ids,
   cursor: sequence,
   policySequence: sequence,

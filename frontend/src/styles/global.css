@@ -8627,6 +8627,14 @@ option {
   color: var(--color-text);
 }
 
+.agent-activity-header > .symposium-seat-label {
+  min-width: 0;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-activity-preview {
   flex: 1;
   min-width: 0;

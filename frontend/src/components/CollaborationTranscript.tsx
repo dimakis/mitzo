@@ -5,9 +5,10 @@ import type {
   StreamingMessage,
 } from '@mitzo/protocol';
 import type { CollaborationProjection } from '@mitzo/client';
-import { conversationMessages } from '../lib/conversation-presentation';
+import { conversationAuthor, conversationMessages } from '../lib/conversation-presentation';
 import { ChatArea, type ChatAreaProps } from './ChatArea';
 import { SeatLabel } from './SeatLabel';
+import { SeatColorProvider } from './SeatColorProvider';
 import './ConversationAgents.css';
 import './CollaborationTranscript.css';
 
@@ -61,7 +62,15 @@ function receiptLabel(delivery: CollaborationDelivery) {
 /** Actual collaboration schema -> ordinary transcript. This owns no reads, mutations or delivery.
  * Successful bodies remain visible independently of other recipients' receipts or refresh failures.
  */
-export function CollaborationTranscript({
+export function CollaborationTranscript(props: Props) {
+  return (
+    <SeatColorProvider roster={props.projection?.view.seatOrder}>
+      <CollaborationTranscriptContent {...props} />
+    </SeatColorProvider>
+  );
+}
+
+function CollaborationTranscriptContent({
   projection,
   ordinary,
   names = {},
@@ -92,18 +101,29 @@ export function CollaborationTranscript({
       ...projection.view,
       messages: [...(projection.earlierMessages ?? []), ...projection.view.messages],
     };
-    const ordinaryMessages = source?.messages ?? [];
+    // Native start sequence is comparable only within this ordinary source.
+    // Completion and reload can deliver the same rows in different array order.
+    const sequenced = (source.messages ?? [])
+      .filter((row) => row.startedSeq !== undefined)
+      .sort((a, b) => a.startedSeq! - b.startedSeq!);
+    let nextSequenced = 0;
+    const ordinaryMessages = (source.messages ?? []).map((row) =>
+      row.startedSeq === undefined ? row : sequenced[nextSequenced++],
+    );
     const displayedIds = new Map<string, string>();
     const claimed = new Set<string>();
     // A native user row is the encoded delivery packet, potentially containing
     // several retained operator messages. Its command identifies an echo to hide;
     // it must never replace those messages' bodies or projection identities.
     const commandAnchors = new Map<string, number>();
+    const ambiguousCommands = new Set<string>();
     view.messages.forEach((message, index) => {
       if (message.author !== 'operator') return;
       for (const delivery of message.deliveries)
-        if (delivery.sessionId === source?.sessionId && delivery.commandId)
+        if (delivery.sessionId === source?.sessionId && delivery.commandId) {
+          if (commandAnchors.has(delivery.commandId)) ambiguousCommands.add(delivery.commandId);
           commandAnchors.set(delivery.commandId, index);
+        }
     });
     const sourceMatches = (
       sourceIdentity: { conversationId: string; messageId: string; commandId?: string },
@@ -123,7 +143,14 @@ export function CollaborationTranscript({
       const id = rich?.messageId ?? projected.messageId;
       displayedIds.set(message.projectionId, id);
       if (rich) claimed.add(rich.messageId);
-      return rich ?? projected;
+      return rich
+        ? {
+            ...rich,
+            ...(projected.inReplyTo
+              ? { inReplyTo: projected.inReplyTo, replyToMessageId: projected.replyToMessageId }
+              : {}),
+          }
+        : projected;
     });
     // Source finalization and shared reconciliation arrive independently. Place
     // unreconciled source rows after their exact shared command (and preceding
@@ -159,7 +186,14 @@ export function CollaborationTranscript({
     const streams: Record<string, StreamingMessage> = { ...source?.currentByMessage };
     if (source.current) streams[source.current.messageId] = source.current;
     for (const [id, stream] of Object.entries(streams)) {
-      if (view.messages.some((message) => message.source && sourceMatches(message.source, stream)))
+      if (
+        ordinaryMessages.some(
+          (message) =>
+            message.messageId === stream.messageId &&
+            message.replyToMessageId === stream.replyToMessageId,
+        ) ||
+        view.messages.some((message) => message.source && sourceMatches(message.source, stream))
+      )
         delete streams[id];
     }
     const liveSource = (reply: CollaborationProgress['replies'][number]) => ({
@@ -195,13 +229,57 @@ export function CollaborationTranscript({
         continue;
       }
       const blockId = `${reply.projectionId}:text`;
+      const origin = view.messages.find((message) =>
+        message.deliveries.some((delivery) => delivery.deliveryId === reply.deliveryId),
+      );
       streams[reply.projectionId] = {
         messageId: reply.projectionId,
+        ...(origin ? { replyToMessageId: origin.projectionId } : {}),
         blocks: new Map([
           [blockId, { blockId, blockType: 'text', content: reply.text, done: false }],
         ]),
         blockOrder: [blockId],
       };
+    }
+    // Interleave native live rows with their own native start sequence. Shared
+    // projection sequences are a different domain and never enter that comparison.
+    const messageOrder = integratedMessages.map((message) => message.messageId);
+    const nativeRows = [
+      ...ordinaryMessages,
+      ...Object.values(source.currentByMessage ?? {}),
+      ...(source.current ? [source.current] : []),
+    ]
+      .filter((row) => row.startedSeq !== undefined)
+      .sort((a, b) => a.startedSeq! - b.startedSeq!);
+    for (const stream of Object.values(streams)) {
+      const native = nativeRows.findIndex((row) => row.messageId === stream.messageId);
+      const following =
+        native >= 0
+          ? nativeRows.slice(native + 1).find((row) => messageOrder.includes(row.messageId))
+          : undefined;
+      if (following)
+        messageOrder.splice(messageOrder.indexOf(following.messageId), 0, stream.messageId);
+      else {
+        const previous =
+          native >= 0
+            ? nativeRows
+                .slice(0, native)
+                .reverse()
+                .find((row) => messageOrder.includes(row.messageId))
+            : undefined;
+        const commandAnchor = commandAnchors.get(stream.replyToMessageId ?? '');
+        const anchorId =
+          previous?.messageId ??
+          (commandAnchor !== undefined ? shared[commandAnchor].messageId : stream.replyToMessageId);
+        const anchorPosition = anchorId
+          ? messageOrder.indexOf(displayedIds.get(anchorId) ?? anchorId)
+          : -1;
+        messageOrder.splice(
+          anchorPosition < 0 ? messageOrder.length : anchorPosition + 1,
+          0,
+          stream.messageId,
+        );
+      }
     }
     return {
       view,
@@ -212,8 +290,18 @@ export function CollaborationTranscript({
       live,
       streams,
       liveReplies,
+      messageOrder,
       aliases: Object.fromEntries([
+        ...[...commandAnchors]
+          .filter(([command]) => !ambiguousCommands.has(command))
+          .map(([command, index]) => [command, shared[index].messageId] as const),
         ...displayedIds,
+        ...view.messages
+          .filter((message) => message.source && message.source.conversationId === sourceSessionId)
+          .map(
+            (message) =>
+              [message.source!.messageId, displayedIds.get(message.projectionId)!] as const,
+          ),
         ...view.messages.map((m) => [m.messageId, displayedIds.get(m.projectionId)!] as const),
       ]),
     };
@@ -253,6 +341,7 @@ export function CollaborationTranscript({
       discoverTelosOrigins={ordinary ? undefined : false}
       sessionId={ordinary?.sessionId ?? view.collaborationId}
       preserveMessageOrder
+      messageOrder={composed.messageOrder}
       messageSessionId={(id) => messages.get(id)?.source?.conversationId ?? ordinary?.sessionId}
       messages={integratedMessages}
       messageAliases={composed.aliases}
@@ -279,8 +368,8 @@ export function CollaborationTranscript({
         const source = ordinaryMessages.find((m) => m.messageId === id);
         const sessionId =
           liveReply?.sessionId ??
-          (message && message.author !== 'operator'
-            ? message.author.sessionId
+          (message && conversationAuthor(message)
+            ? conversationAuthor(message)
             : source?.role === 'assistant' || streams[id]
               ? ordinary?.sessionId
               : undefined);
@@ -293,7 +382,7 @@ export function CollaborationTranscript({
         );
         const original =
           ordinaryMessages.some((message) => message.messageId === id) || !!streams[id];
-        if (!streaming && (!message || message.author === 'operator'))
+        if (!streaming && (!message || !conversationAuthor(message)))
           return original &&
             ordinary?.sessionId &&
             ordinaryMessages.find((m) => m.messageId === id)?.role !== 'user' ? (
@@ -301,8 +390,7 @@ export function CollaborationTranscript({
               <SeatLabel seatId={ordinary.sessionId} name={name(ordinary.sessionId)} />
             </strong>
           ) : null;
-        const sessionId =
-          streaming?.sessionId ?? (message!.author as { sessionId: string }).sessionId;
+        const sessionId = streaming?.sessionId ?? conversationAuthor(message!)!;
         const origin = view.messages.find((prompt) =>
           prompt.deliveries.some(
             (delivery) =>
@@ -324,6 +412,11 @@ export function CollaborationTranscript({
             </summary>
             <div className="conversation-message-provenance-details">
               <span>Session {sessionId}</span>
+              {message?.origin && (
+                <span>
+                  Agent-authored · Authorized by operator · Request {message.origin.requestId}
+                </span>
+              )}
               <span>
                 {settings
                   ? `${settings.binding.account.accountId} · ${settings.selection.model}`

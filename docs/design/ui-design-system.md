@@ -1793,6 +1793,18 @@ scrolling transcript and one mounted composer. Rich ordinary blocks, live replie
 permissions and recovery controls retain their original owners. Source echoes use
 conversation/message/command identity; independent equal text remains visible.
 Transcript order follows retained sequence, without comparing independent clocks.
+Within one ordinary source, start sequence orders finished and live rows together,
+even when completion or reload supplies them out of order. Exact command and source
+aliases connect these rows to shared history; an ambiguous multi-prompt packet does
+not supply an invented reply target. Completed replies retain the canonical quoted
+prompt so the link survives reconciliation and reload.
+Automated assignments display their retained agent origin separately from operator
+authorization in Message details. Historical records without that origin are not
+retroactively attributed. Shared seat accents use first membership order, retaining
+removed seats' slots across reload. Additional slots derive from the shared palette
+and semantic text token. The same assignment feeds bubbles, recipient marks and
+seat labels. Activity headers identify their actual speaker and use readable tool
+summaries; technical arguments remain in the existing expandable tool detail.
 Native delivery packets are suppressed by exact command identity; each projected
 operator body keeps its own identity. Source rows awaiting reconciliation follow
 their command rather than moving into the pre-sharing history.

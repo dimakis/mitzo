@@ -48,3 +48,19 @@ it('retains recorded shared timestamps and image previews without inventing hist
   expect(projected[0].images).toEqual(['data:image/png;base64,aGVsbG8=']);
   expect(projected[1]).not.toHaveProperty('timestamp');
 });
+
+it('presents an automated assignment as its agent origin and keeps canonical reply linkage', () => {
+  const view = sharedConversationView();
+  view.messages[0] = {
+    ...view.messages[0],
+    origin: { sessionId: 'reader', requestId: view.messages[0].messageId },
+  };
+  const projected = conversationMessages(view);
+  expect(projected[0].role).toBe('assistant');
+  expect(projected[1].replyToMessageId).toBe(view.messages[0].projectionId);
+  expect(projected[1].inReplyTo).toMatchObject({
+    messageId: view.messages[0].projectionId,
+    text: view.messages[0].text,
+    role: 'assistant',
+  });
+});

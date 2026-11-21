@@ -36,7 +36,7 @@ type DiscussionMessage = Pick<
   CollaborationMessage,
   'sequence' | 'author' | 'text' | 'source' | 'inReplyTo'
 > &
-  Partial<Pick<CollaborationMessage, 'snapshot' | 'forward' | 'images'>>;
+  Partial<Pick<CollaborationMessage, 'snapshot' | 'forward' | 'images' | 'origin'>>;
 type MessageContextReference =
   | {
       kind: 'snapshot';
@@ -97,6 +97,7 @@ function discussionMaterial(
   return {
     sequence: message.sequence,
     author: message.author,
+    ...(message.origin ? { origin: message.origin } : {}),
     text: message.text,
     ...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
     ...(message.images?.length
@@ -438,11 +439,16 @@ export class ApplicationCollaborationMessaging {
     raw: unknown,
     signal: AbortSignal,
     originatingAuthority?: () => void,
+    origin: CollaborationMessage['origin'] | null = null,
   ) {
     this.current(auth, signal);
     originatingAuthority?.();
     const input = CollaborationMessageInputSchema.parse(raw);
-    const retained = this.store.collaborationConversation.getMessageForRequest(group, input);
+    const retained = this.store.collaborationConversation.getMessageForRequest(
+      group,
+      input,
+      origin,
+    );
     if (retained) {
       this.reconcile(auth, group);
       return this.store.collaborationConversation.getMessage(group, retained.messageId)!;
@@ -522,6 +528,7 @@ export class ApplicationCollaborationMessaging {
     const acceptedWhilePreparing = this.store.collaborationConversation.getMessageForRequest(
       group,
       input,
+      origin,
     );
     if (acceptedWhilePreparing) {
       this.reconcile(auth, group);
@@ -547,6 +554,7 @@ export class ApplicationCollaborationMessaging {
         {
           sequence: pending.cursor + 1,
           author: 'operator',
+          ...(origin ? { origin } : {}),
           text: input.text,
           images: input.images,
           source: null,
@@ -579,7 +587,7 @@ export class ApplicationCollaborationMessaging {
         snapshots,
       );
     }
-    const message = this.store.collaborationConversation.acceptMessage(group, input);
+    const message = this.store.collaborationConversation.acceptMessage(group, input, origin);
     for (const delivery of message.deliveries.filter((d) => d.purpose === 'reply')) {
       // Claim synchronously before the first await. Concurrent request replay can
       // observe this receipt but cannot dispatch another command. A crash in this

@@ -622,6 +622,7 @@ export class SpecialistConsultations {
         messageInput,
         signal,
         assertCurrent,
+        { sessionId: a.leadSessionId, requestId: record.requestId },
       );
       assertCurrent();
       update({ state: 'dispatched' });

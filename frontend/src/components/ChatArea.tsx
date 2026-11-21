@@ -71,6 +71,8 @@ export interface ChatAreaProps {
   currentByMessage?: Record<string, StreamingMessage>;
   /** Caller has composed independent durable sources; their cursors are incomparable. */
   preserveMessageOrder?: boolean;
+  /** Explicit merged order for finished and live rows from independent sources. */
+  messageOrder?: readonly string[];
   contextItems?: SymposiumContextItem[];
   /** Presentation-only metadata keyed by the displayed message identity. */
   renderMessageAttribution?(messageId: string): ReactNode;
@@ -216,6 +218,7 @@ export function ChatArea({
   current,
   currentByMessage = {},
   preserveMessageOrder = false,
+  messageOrder,
   contextItems = [],
   beforeMessages,
   hideEmptyState = false,
@@ -321,8 +324,14 @@ export function ChatArea({
     steered: 'Correction sent to current turn',
     uncertain: 'Message delivery not confirmed',
   };
-  function quote(reply: MessageReplyContext, author = reply.role === 'user' ? 'You' : 'Mitzo') {
-    return <ReplyQuote reply={reply} author={author} onNavigate={navigateReply} />;
+  function quote(reply: MessageReplyContext, author?: string) {
+    const original = replySources.get(reply.messageId);
+    const name =
+      author ??
+      original?.agentMessage?.senderName ??
+      messageSpeaker?.(original?.messageId ?? reply.messageId)?.name ??
+      (reply.role === 'user' ? 'You' : 'Mitzo');
+    return <ReplyQuote reply={reply} author={name} onNavigate={navigateReply} />;
   }
   function withActions(
     message: Pick<FinishedMessage, 'messageId' | 'role' | 'timestamp' | 'symposiumProvenance'> & {
@@ -375,6 +384,11 @@ export function ChatArea({
   function replyLabel(message: FinishedMessage | StreamingMessage) {
     if (message.symposiumProvenance || !message.replyToMessageId) return null;
     const original = replySources.get(message.replyToMessageId);
+    if ('inReplyTo' in message && message.inReplyTo)
+      return quote(
+        message.inReplyTo,
+        original ? messageSpeaker?.(original.messageId)?.name : undefined,
+      );
     const text =
       original?.agentMessage?.message.text ??
       original?.blocks
@@ -579,6 +593,18 @@ export function ChatArea({
         index: messages.length + Object.keys(currentByMessage).length + (current ? 1 : 0) + index,
       })),
     ];
+    if (messageOrder) {
+      const positions = new Map(messageOrder.map((id, index) => [id, index]));
+      return turns.sort(
+        (a, b) =>
+          (a.kind === 'context'
+            ? Number.MAX_SAFE_INTEGER
+            : (positions.get(a.value.messageId) ?? Number.MAX_SAFE_INTEGER)) -
+            (b.kind === 'context'
+              ? Number.MAX_SAFE_INTEGER
+              : (positions.get(b.value.messageId) ?? Number.MAX_SAFE_INTEGER)) || a.index - b.index,
+      );
+    }
     if (preserveMessageOrder) return turns;
     // Keep unsequenced optimistic rows in place while sorting durable turns.
     const sequenced = turns
@@ -586,7 +612,7 @@ export function ChatArea({
       .sort((a, b) => a.startedSeq! - b.startedSeq! || a.index - b.index);
     let nextSequenced = 0;
     return turns.map((turn) => (turn.startedSeq === undefined ? turn : sequenced[nextSequenced++]));
-  }, [messages, current, currentByMessage, contextItems, preserveMessageOrder]);
+  }, [messages, current, currentByMessage, contextItems, preserveMessageOrder, messageOrder]);
 
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -845,7 +871,8 @@ export function ChatArea({
           return {
             key: `${ownerKey}:${bid}`,
             scope,
-            attribution: speaker ? undefined : attribution,
+            attribution,
+            speaker,
             requestStatus: msg.replyToMessageId
               ? commandLabels[requests.get(msg.replyToMessageId)?.commandState ?? '']
               : undefined,

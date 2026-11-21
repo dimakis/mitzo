@@ -32,6 +32,7 @@ import {
   collaborationCapacityOperationKey,
   CollaborationNativeCapacityWitnessSchema,
   CollaborationMessageInputSchema,
+  CollaborationMessageOriginSchema,
   CollaborationReplyInputSchema,
   CollaborationMessageSchema,
   CollaborationDeliverySchema,
@@ -511,7 +512,11 @@ export class CollaborationConversationStore {
     );
   }
   /** Observe an exact committed request before considering any new dispatch. */
-  getMessageForRequest(group: string, raw: unknown) {
+  getMessageForRequest(
+    group: string,
+    raw: unknown,
+    expectedOrigin?: CollaborationMessage['origin'] | null,
+  ) {
     this.group(group);
     const input = CollaborationMessageInputSchema.parse(raw);
     if (input.responders.kind === 'selected') input.responders.sessionIds.sort();
@@ -521,12 +526,15 @@ export class CollaborationConversationStore {
       )
       .get(group, input.requestId) as { fingerprint: string; result: string } | undefined;
     if (!row) return null;
-    if (row.fingerprint !== sha({ kind: 'message', input }))
+    const retained = CollaborationMessageSchema.parse(JSON.parse(row.result));
+    if (expectedOrigin !== undefined && !isDeepStrictEqual(retained.origin ?? null, expectedOrigin))
       throw new ContractError('request_conflict');
-    return this.getMessage(
-      group,
-      CollaborationMessageSchema.parse(JSON.parse(row.result)).messageId,
-    );
+    if (
+      row.fingerprint !==
+      sha({ kind: 'message', input, ...(retained.origin ? { origin: retained.origin } : {}) })
+    )
+      throw new ContractError('request_conflict');
+    return this.getMessage(group, retained.messageId);
   }
   /** Resolve the same canonical quote for capacity preflight and durable acceptance. */
   resolveMessageReply(
@@ -540,23 +548,29 @@ export class CollaborationConversationStore {
       replyToMessageId: original.messageId,
       inReplyTo: {
         messageId: original.projectionId,
-        role: original.author === 'operator' ? 'user' : 'assistant',
+        role: original.author === 'operator' && !original.origin ? 'user' : 'assistant',
         text: original.text,
         ...(original.recordedAt !== undefined ? { timestamp: original.recordedAt } : {}),
       },
     };
   }
 
-  acceptMessage(group: string, raw: unknown) {
+  acceptMessage(
+    group: string,
+    raw: unknown,
+    trustedOrigin?: CollaborationMessage['origin'] | null,
+  ) {
     const input = CollaborationMessageInputSchema.parse(raw);
+    const origin = trustedOrigin ? CollaborationMessageOriginSchema.parse(trustedOrigin) : null;
     if (input.responders.kind === 'selected') input.responders.sessionIds.sort();
     return this.mutation(
       group,
       input.requestId,
-      { kind: 'message', input },
+      { kind: 'message', input, ...(origin ? { origin } : {}) },
       CollaborationMessageSchema,
       () => {
         const current = this.membership(group, input.expectedMembershipRevision);
+        if (origin) this.requireRecipients(current, [origin.sessionId]);
         if (this.policySequence(group) !== input.expectedPolicySequence)
           throw new ContractError('conflict');
         const policies = this.policies(current);
@@ -612,6 +626,7 @@ export class CollaborationConversationStore {
           projectionId: randomUUID(),
           sequence: this.cursor(group) + 1,
           author: 'operator',
+          ...(origin ? { origin } : {}),
           source: null,
           replyToDeliveryId: null,
           text: input.text,
@@ -1160,6 +1175,7 @@ export class CollaborationConversationStore {
           recordedAt: Date.now(),
           source: input.source,
           replyToDeliveryId: delivery.deliveryId,
+          ...this.resolveMessageReply(group, message.messageId),
           membershipRevision: message.membershipRevision,
           policySequence: message.policySequence,
           policyRevisions: message.policyRevisions,
@@ -1816,6 +1832,16 @@ export class CollaborationConversationStore {
         collaborationId: group,
         membershipRevision: membership.revision,
         participantSessionIds: membership.participantSessionIds,
+        seatOrder: (
+          this.db
+            .prepare(
+              `SELECT seats.value AS sessionId
+          FROM session_collaboration_revisions AS revisions, json_each(revisions.participant_session_ids) AS seats
+          WHERE revisions.collaboration_id=?
+          GROUP BY seats.value ORDER BY MIN(revisions.revision), seats.value`,
+            )
+            .all(group) as { sessionId: string }[]
+        ).map((row) => row.sessionId),
         unavailableParticipantSessionIds: membership.participantSessionIds.filter(
           (id) => !this.owners.available(id),
         ),

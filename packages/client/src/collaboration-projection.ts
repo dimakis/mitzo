@@ -152,6 +152,10 @@ export function applyCollaborationEvents(
         )
           return refuse();
         view.membershipRevision = change.membership.revision;
+        if (view.seatOrder)
+          view.seatOrder = [
+            ...new Set([...view.seatOrder, ...change.membership.participantSessionIds]),
+          ];
         view.participantSessionIds = change.membership.participantSessionIds;
         if (view.joinedParticipants)
           view.joinedParticipants = view.joinedParticipants.filter((p) =>

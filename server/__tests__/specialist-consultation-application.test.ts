@@ -224,6 +224,11 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
     });
     expect(JSON.stringify(planned)).not.toContain('DO_NOT_LEAK');
     const discussion = h.events.collaborationConversation.view(policy.collaborationId);
+    expect(discussion.messages.find((message) => message.text === input.assignment)).toMatchObject({
+      author: 'operator',
+      source: null,
+      origin: { sessionId: authority.leadSessionId, requestId: input.requestId },
+    });
     for (let index = 0; index < 51; index++)
       h.events.collaborationConversation.acceptMessage(policy.collaborationId, {
         requestId: crypto.randomUUID(),

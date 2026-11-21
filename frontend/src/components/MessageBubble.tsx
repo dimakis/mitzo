@@ -31,7 +31,7 @@ import {
 import { ContextInjectionDisclosure } from './ContextInjectionDisclosure';
 import { AgentMessageCard } from './AgentMessageCard';
 import { MessageActionsContext } from '../lib/message-actions-context';
-import { seatAccentColor } from '../lib/seat-color';
+import { useSeatAccentColor } from '../lib/seat-color-context';
 import './MessageSpeaker.css';
 
 const COLLAPSE_HEIGHT = 300;
@@ -142,6 +142,7 @@ export function TextBubble({
   readAloud,
   artifactSessionId,
 }: TextBubbleProps) {
+  const seatAccentColor = useSeatAccentColor();
   const actions = useContext(MessageActionsContext);
   const navigate = useNavigate();
   const location = useLocation();
