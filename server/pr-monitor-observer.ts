@@ -344,6 +344,7 @@ export class PrMonitorObserver {
           'conversation_unavailable',
           'connection_unavailable',
           'quota_delayed',
+          'retention_limit',
         ].includes(error.message)
           ? (error.message as PrMonitorDiagnostic['code'])
           : undefined;

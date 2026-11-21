@@ -147,12 +147,14 @@ export type PrMonitorDiagnostic = {
     | 'conversation_unavailable'
     | 'head_changed'
     | 'incomplete'
+    | 'retention_limit'
     | 'quota_delayed';
   stage: 'read' | 'publish' | 'reconcile';
   nextRefreshAt: number | null;
 };
 /** Observation outbox only. Delivery owns command allocation and native receipts. */
 export type PrMonitorObservation = {
+  compactedEvents: number;
   baselinePending: boolean;
   failureCount: number;
   subscription: PrMonitorSubscription;

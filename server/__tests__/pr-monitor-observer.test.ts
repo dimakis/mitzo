@@ -330,6 +330,23 @@ it('bounds pagination and preserves explicit partial state', async () => {
   expect(f.read.mock.calls.length).toBeLessThanOrEqual(16);
   expect(f.view().diagnostic?.code).toBe('incomplete');
 });
+it('pauses retained collection explicitly when current-head retention is full', async () => {
+  const f = fixture();
+  await f.observe();
+  const previous = f.view().snapshot;
+  vi.spyOn(f.store.prMonitor, 'publish').mockImplementationOnce(() => {
+    throw Error('retention_limit');
+  });
+  await f.observe();
+  expect(f.view()).toMatchObject({
+    snapshot: previous,
+    refreshState: 'blocked',
+    outbox: null,
+    subscription: { lifecycle: 'paused', nextRefreshAt: null },
+    diagnostic: { code: 'retention_limit', nextRefreshAt: null },
+  });
+  expect(f.store.prMonitor.due(999999999)).toEqual([]);
+});
 it('retains the exact issue comment reference for the latest eligible Centaur report', async () => {
   const f = fixture();
   await f.observe();

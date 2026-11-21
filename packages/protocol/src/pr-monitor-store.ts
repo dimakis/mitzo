@@ -90,6 +90,7 @@ export class PrMonitorStore {
       };
       if (count.total >= 100 || count.conversation >= 20) throw Error('subscription_limit');
       const result: PrMonitorObservation = {
+        compactedEvents: 0,
         baselinePending: true,
         failureCount: 0,
         subscription: { ...subscription, eligibilityDigest: prMonitorDigest([]) },
@@ -126,6 +127,7 @@ export class PrMonitorStore {
     );
     if (!saved) throw Error('subscription_unavailable');
     const view = JSON.parse(saved.data) as PrMonitorObservation;
+    view.compactedEvents ??= 0;
     PrMonitorSubscriptionSchema.parse(view.subscription);
     return view;
   }
@@ -388,7 +390,7 @@ export class PrMonitorStore {
           if (prior.evidenceDigest !== evidenceDigest) throw Error('event_conflict');
           if (input.baseline) prior.disposition = 'status_only';
           else if (prior.disposition === 'recovered') prior.disposition = 'actionable';
-        } else
+        } else {
           view.events.push({
             ...finding,
             sourceIds,
@@ -401,6 +403,8 @@ export class PrMonitorStore {
             observedAt: snapshot.observedAt,
             disposition: input.baseline ? 'status_only' : 'actionable',
           });
+          view.counters.distinctEvents++;
+        }
       }
       for (const event of view.events) {
         if (event.generation !== generation) event.disposition = 'superseded';
@@ -410,6 +414,23 @@ export class PrMonitorStore {
         )
           event.disposition = 'recovered';
       }
+      // Current-generation identities must never be forgotten: a recovered
+      // finding can recur. Superseded generations cannot become eligible again,
+      // even when a force-push returns to the same SHA (generation increases).
+      const currentEvents = view.events.filter((e) => e.generation === generation);
+      if (currentEvents.length > 1000 || Buffer.byteLength(JSON.stringify(currentEvents)) > 1048576)
+        throw Error('retention_limit');
+      const history: PrMonitorEvent[] = [];
+      let historyBytes = 2;
+      for (const event of [...view.events].reverse()) {
+        if (event.generation === generation) continue;
+        const bytes = Buffer.byteLength(JSON.stringify(event)) + 1;
+        if (history.length >= 100 || historyBytes + bytes > 131072) continue;
+        history.push(event);
+        historyBytes += bytes;
+      }
+      view.compactedEvents += view.events.length - currentEvents.length - history.length;
+      view.events = [...history.reverse(), ...currentEvents];
       const eligible = view.events
         .filter((e) => e.disposition === 'actionable')
         .map((e) => e.id)
@@ -448,7 +469,6 @@ export class PrMonitorStore {
       view.baselinePending = false;
       view.failureCount = 0;
       view.counters.observations++;
-      view.counters.distinctEvents = view.events.length;
       input.assertCurrent();
       this.save(view);
       return view;
@@ -474,13 +494,15 @@ export class PrMonitorStore {
       view.subscription.eligibilityDigest = emptyDigest;
       view.outbox = null;
       view.refreshState =
-        diagnostic.code === 'rate_limited'
-          ? 'backoff'
-          : diagnostic.code === 'quota_delayed'
-            ? 'quota_delayed'
-            : diagnostic.code.endsWith('unavailable')
-              ? 'blocked'
-              : 'partial';
+        diagnostic.code === 'retention_limit'
+          ? 'blocked'
+          : diagnostic.code === 'rate_limited'
+            ? 'backoff'
+            : diagnostic.code === 'quota_delayed'
+              ? 'quota_delayed'
+              : diagnostic.code.endsWith('unavailable')
+                ? 'blocked'
+                : 'partial';
       view.subscription.lastAttemptAt = now;
       view.failureCount++;
       view.subscription.nextRefreshAt =
@@ -492,6 +514,11 @@ export class PrMonitorStore {
             );
       view.diagnostic.nextRefreshAt = view.subscription.nextRefreshAt;
       if (diagnostic.code.endsWith('unavailable')) view.subscription.lifecycle = 'unavailable';
+      if (diagnostic.code === 'retention_limit') {
+        view.subscription.lifecycle = 'paused';
+        view.subscription.nextRefreshAt = null;
+        view.diagnostic.nextRefreshAt = null;
+      }
       this.save(view);
       return view;
     })();

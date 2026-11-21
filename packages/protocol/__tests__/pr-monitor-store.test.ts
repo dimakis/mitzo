@@ -79,6 +79,57 @@ afterEach(() => {
 });
 
 describe('PR monitor event-store owner', () => {
+  it('compacts superseded generations while retaining current-head deduplication and lifetime event counters', () => {
+    const s = open();
+    s.prMonitor.create('request', input());
+    const publish = (headSha: string, source: string) =>
+      s.prMonitor.publish({
+        operatorId: 'ordinary:user',
+        conversationId: 'chat',
+        subscriptionId: id,
+        expectedRevision: 1,
+        expectedSnapshotRevision: s.prMonitor.read('ordinary:user', 'chat', id).subscription
+          .snapshotRevision,
+        snapshot: { ...snapshot, headSha },
+        findings: [{ ...failure, sourceIds: [source] }],
+        baseline: false,
+        assertCurrent: () => undefined,
+      });
+    for (let i = 0; i < 120; i++) publish(i.toString(16).padStart(40, '0'), `job-${i}`);
+    const last = s.prMonitor.read('ordinary:user', 'chat', id);
+    expect(last.events).toHaveLength(101);
+    expect(last.counters.distinctEvents).toBe(120);
+    expect(last.compactedEvents).toBe(19);
+    const same = publish((119).toString(16).padStart(40, '0'), 'job-119');
+    expect(same.outbox?.eventIds).toEqual(last.outbox?.eventIds);
+    expect(same.counters.distinctEvents).toBe(120);
+    // Returning to an old SHA is a new generation, never a replay of pruned eligibility.
+    const returned = publish('0'.repeat(40), 'job-0');
+    expect(returned.counters.distinctEvents).toBe(121);
+    expect(returned.outbox?.generation).toBe(121);
+  });
+  it('refuses current-head history overflow transactionally without forgetting event identities', () => {
+    const s = open();
+    s.prMonitor.create('request', input());
+    const publish = (findings: (typeof failure)[]) =>
+      s.prMonitor.publish({
+        operatorId: 'ordinary:user',
+        conversationId: 'chat',
+        subscriptionId: id,
+        expectedRevision: 1,
+        expectedSnapshotRevision: s.prMonitor.read('ordinary:user', 'chat', id).subscription
+          .snapshotRevision,
+        snapshot,
+        findings,
+        baseline: false,
+        assertCurrent: () => undefined,
+      });
+    const retained = publish(
+      Array.from({ length: 1000 }, (_, i) => ({ ...failure, sourceIds: [`job-${i}`] })),
+    );
+    expect(() => publish([{ ...failure, sourceIds: ['overflow'] }])).toThrow('retention_limit');
+    expect(s.prMonitor.read('ordinary:user', 'chat', id)).toEqual(retained);
+  });
   it('withdraws delivery eligibility on incomplete evidence and baselines recovered evidence on renewal', () => {
     const s = open();
     s.prMonitor.create('request', input());
