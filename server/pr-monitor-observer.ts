@@ -78,6 +78,8 @@ class ObservationFailure extends Error {
 /** Deterministic observation only. No provider, command, publication or delivery
  * port exists here. The existing scheduler calls reconcile; there is no timer. */
 export class PrMonitorObserver {
+  private closed = false;
+  private readonly controllers = new Set<{ conversationId: string; controller: AbortController }>();
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly now: () => number;
   constructor(private readonly options: Options) {
@@ -89,6 +91,7 @@ export class PrMonitorObserver {
     this.now = options.now ?? Date.now;
   }
   observe(operatorId: string, conversationId: string, id: string): Promise<void> {
+    if (this.closed) return Promise.resolve();
     const view = this.options.store.read(operatorId, conversationId, id);
     const key = JSON.stringify([
       operatorId,
@@ -105,12 +108,24 @@ export class PrMonitorObserver {
     return operation;
   }
   async reconcileDue(): Promise<void> {
+    if (this.closed) return;
     for (const s of this.options.store.due(this.now()))
       await this.observe(s.operatorId, s.conversationId, s.id);
   }
+  cancelConversation(conversationId: string) {
+    for (const entry of this.controllers)
+      if (entry.conversationId === conversationId) entry.controller.abort();
+  }
+  async close() {
+    this.closed = true;
+    for (const entry of this.controllers) entry.controller.abort();
+    await Promise.allSettled(this.inFlight.values());
+  }
   private async collect(s: PrMonitorSubscription) {
     const initial = this.options.store.read(s.operatorId, s.conversationId, s.id);
-    const signal = AbortSignal.timeout(20000);
+    const entry = { conversationId: s.conversationId, controller: new AbortController() };
+    this.controllers.add(entry);
+    const signal = AbortSignal.any([AbortSignal.timeout(20000), entry.controller.signal]);
     let requests = 0;
     try {
       const authority = this.options.capture(s.conversationId, s.id);
@@ -145,9 +160,15 @@ export class PrMonitorObserver {
         const release = this.options.reserve(request);
         assertCurrent();
         let response: Awaited<ReturnType<PrMonitorReadPort>>;
+        let rejectAborted: () => void = () => undefined;
         try {
-          response = await this.options.read(request);
+          const aborted = new Promise<never>((_resolve, reject) => {
+            rejectAborted = () => reject(Error('read_failed'));
+            signal.addEventListener('abort', rejectAborted, { once: true });
+          });
+          response = await Promise.race([this.options.read(request), aborted]);
         } finally {
+          signal.removeEventListener('abort', rejectAborted);
           release?.();
         }
         assertCurrent();
@@ -334,6 +355,8 @@ export class PrMonitorObserver {
         },
         this.now(),
       );
+    } finally {
+      this.controllers.delete(entry);
     }
   }
 }
