@@ -34,6 +34,13 @@ TypeScript check of new adapters/control/tests also passed using the new protoco
 module directly as its `@mitzo/protocol` path. Full server/build checks are left to
 CI under the repository's local resource limit. `git diff --check` passed.
 
+Initial CI on `99f0c179` passed server/test-mock and frontend TypeScript checks,
+but the compile/source-artifact steps refused stale registered fingerprints for
+the protocol export and SDK wrapper probe. The follow-up intentionally advances
+the runtime contract revision and refreshes those fingerprints, also registering
+the new measurement modules/probes. The source artifact check passes locally;
+this is source identity maintenance, not a Centaur review approval.
+
 Not qualified: real SDK CLI control execution, summary/full latency or cost,
 model-specific context limits, ordinary OpenShell event transport, ordinary
 Claude/OpenShell runtime, endpoint delivery, source drilldown authorization or
