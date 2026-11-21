@@ -65,3 +65,30 @@ layout or stylesheet changes. No model calls, production or staging use.
 Draft publication is not acceptance. Exact-head CI, applicable Centaur review, combined
 integration checks with S6/S7, mobile/browser verification and any separately authorized
 live gates remain before merge. No merge or deployment is authorized.
+
+## Centaur follow-up from b59ae227
+
+Review `CEN-5F2E296DC9CE` found that recovery cleanup could mutate the request list
+while a new Send was flushing its retained identity. The new Send then failed the
+whole-list durability check before dispatch, leaving an unacknowledged journal.
+The delayed-disk regression reproduced this failure before the fix.
+
+Send journal writes now serialize per draft through their flush and verification,
+including writes from different composer owners. Readiness and receipt observation
+remain concurrent. Freshness is checked after waiting for the preceding write and
+again after persistence; failure still releases the queue and reaches the existing
+structured diagnostic. Existing disk conflict detection is preserved.
+
+The regression exercises both orderings (new retention first and old cleanup first),
+exactly one dispatch, no persistence warning, retained acknowledgement, unchanged
+draft text and the original request identity after cold storage reopen. The focused
+hook/durability and mounted shared-composer checks pass (62 tests). No composer props, layout, server admission
+or public schema changed in this follow-up. S6 owns combined validation with #1440
+and #1442; it must recompute combined source pins.
+
+CI inspection at baseline `b59ae22774fa167bbf53135369405679dc451f74` found failures
+in unit shards 1/4 and 4/4 and offline layouts desktop Chromium 2/3, mobile Chromium
+3/3 and mobile WebKit 4/4. Authenticated job-log reads returned transport failures;
+annotations contain only exit code 1, so their causes remain unverified. No unchanged
+CI rerun or browser launch was requested. Centaur's baseline remains available for
+delta verification; exact-head CI and final review remain landing gates.

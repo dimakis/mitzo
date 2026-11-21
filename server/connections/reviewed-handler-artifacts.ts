@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1271-shared-send-queue';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1272-shared-send-journal';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatInputSharedQueue.test.tsx':
     '9e89f849cb672f130104ced688c385e09c9a0f3680142d1f104037b2cab4c139',
   '../../frontend/src/hooks/__tests__/useConversationSending.admission.test.tsx':
-    '6ff4fffae3061e29b154eb42bd96ea4b10ace799d8c1aee96729f09770fdc344',
+    '5d2216307a822efe9e2ec2a7e04df9e8bfd92bb2d67ce33694e590592966da67',
   '../__tests__/collaboration-shared-queue.test.ts':
     '61de0bc823f76c48af35751474178d9151e30c811a79f54f5b8d832051e1742c',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
@@ -1041,7 +1041,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/conversation-joining-review.ts':
     '91b857e6e0f5be379cb871543c9181c4c49a3e75c85972bdd00b28ff5ab54890',
   '../../frontend/src/lib/conversation-journal.ts':
-    'ba24ad365b5df0b0b81b5cdad9930c27989358a8c7f73ff5a67feb3e2772663d',
+    '3a6464848fc151e8fc1e8baf3d94db649a4112b84775ae5628b3f0647052ab0b',
   '../../frontend/src/lib/conversation-presentation.ts':
     'd912975ad4871cefb5d6583a0f4c75644964919151d62daadd862d0dc5c26352',
   '../../frontend/src/lib/conversation-repository-label.ts':

@@ -3,14 +3,104 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CollaborationApiClient } from '@mitzo/client';
 import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
-import { sharedConversationView } from '../../../../tests/fixtures/symposium-shared-conversation-data';
+import { chatStorage } from '../../lib/large-chat-storage';
+import { conversationSendRequests } from '../../lib/conversation-journal';
+import {
+  sharedConversationView,
+  uuid,
+} from '../../../../tests/fixtures/symposium-shared-conversation-data';
 import { useConversationSending } from '../useConversationSending';
+import { durableChatStorage } from './durable-chat-storage';
 
 afterEach(() => {
   cleanup();
   localStorage.clear();
   sessionStorage.clear();
+  vi.restoreAllMocks();
 });
+
+it.each(['retention', 'cleanup'] as const)(
+  'dispatches exactly once when recovery cleanup overlaps delayed %s storage',
+  async (first) => {
+    const storage = await durableChatStorage();
+    const warning = vi.spyOn(console, 'warn');
+    const f = fixture();
+    const original = {
+      collaborationId: f.options.view.collaborationId,
+      authScope: 'login',
+      acknowledged: true,
+      recipientSessionIds: ['architect'],
+      input: {
+        requestId: uuid(97),
+        text: 'Older acknowledged prompt',
+        expectedMembershipRevision: f.options.view.membershipRevision,
+        expectedPolicySequence: f.options.view.policySequence,
+        responders: f.options.responders,
+        snapshot: null,
+      },
+    };
+    saveChatDraft({ ...getChatDraft(f.draft.id)!, collaborationSend: original });
+    await chatStorage.flush();
+    let finishObservation!: () => void;
+    const observation = new Promise<void>((resolve) => {
+      finishObservation = resolve;
+    });
+    vi.mocked(f.options.api.observeSend).mockImplementation(async () => {
+      await observation;
+      return {
+        terminal: true,
+        message: { ...f.options.view.messages[0], text: original.input.text, snapshot: null },
+      };
+    });
+    let releaseStorage!: () => void;
+    const disk = new Promise<void>((resolve) => {
+      releaseStorage = resolve;
+    });
+    let blocked = false;
+    storage.gate(async () => {
+      if (!blocked) {
+        blocked = true;
+        await disk;
+      }
+    });
+    const h = renderHook(() => useConversationSending(f.options));
+    f.release(true);
+    let sent!: Promise<boolean>;
+    try {
+      if (first === 'cleanup') {
+        finishObservation();
+        await waitFor(() => expect(blocked).toBe(true));
+      }
+      act(() => {
+        sent = h.result.current.send('One deliberate press');
+      });
+      if (first === 'retention') {
+        await waitFor(() => expect(blocked).toBe(true));
+        finishObservation();
+      }
+      await act(async () => {});
+      expect(f.send).not.toHaveBeenCalled();
+      await act(async () => {
+        releaseStorage();
+        expect(await sent).toBe(true);
+      });
+      expect(f.send).toHaveBeenCalledOnce();
+      const requestId = f.send.mock.calls[0][1].requestId;
+      expect(conversationSendRequests(getChatDraft(f.draft.id))).toMatchObject([
+        { acknowledged: true, input: { requestId, text: 'One deliberate press' } },
+      ]);
+      expect(h.result.current.error).toBeUndefined();
+      expect(warning).not.toHaveBeenCalled();
+      h.unmount();
+      await storage.reopen();
+      expect(getChatDraft(f.draft.id)?.collaborationSend?.input.requestId).toBe(requestId);
+      expect(getChatDraft(f.draft.id)?.text).toBe('One deliberate press');
+    } finally {
+      finishObservation();
+      releaseStorage();
+    }
+  },
+);
 
 function fixture() {
   const view = sharedConversationView();
