@@ -167,3 +167,9 @@ export type PrMonitorObservation = {
   diagnostic: PrMonitorDiagnostic | null;
   counters: { observations: number; distinctEvents: number; modelTurns: 0 };
 };
+/** Bounded shared view; event history stays with the persistence owner. Consumers
+ * must check refreshState, eligibility revision and authority before delivery. */
+export type PrMonitorProjection = PrMonitorObservation & {
+  version: 1;
+  hiddenEvents: number;
+};

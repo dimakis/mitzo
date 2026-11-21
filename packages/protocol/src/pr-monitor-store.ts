@@ -11,11 +11,28 @@ import {
   type PrMonitorSnapshot,
   type PrMonitorFinding,
   type PrMonitorDiagnostic,
+  type PrMonitorEvent,
+  type PrMonitorProjection,
 } from './pr-monitor.js';
 
 export const prMonitorDigest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const row = (value: unknown) => value as { data: string } | undefined;
+function boundedEvents(events: PrMonitorEvent[]): PrMonitorEvent[] {
+  const selected: PrMonitorEvent[] = [];
+  let references = 0;
+  for (const event of events) {
+    if (
+      selected.length >= 20 ||
+      references + event.references.length > 20 ||
+      Buffer.byteLength(JSON.stringify([...selected, event])) > 16384
+    )
+      continue;
+    selected.push(event);
+    references += event.references.length;
+  }
+  return selected;
+}
 /** Borrows EventStore's existing SQLite owner/transaction lifetime. No second DB,
  * provider client, timer or execution ledger. Callers own authorization fences. */
 export class PrMonitorStore {
@@ -119,6 +136,14 @@ export class PrMonitorStore {
         )
         .all(operatorId, conversationId) as { id: string }[]
     ).map((r) => this.read(operatorId, conversationId, r.id));
+  }
+  projection(operatorId: string, conversationId: string, id: string): PrMonitorProjection {
+    const view = this.read(operatorId, conversationId, id);
+    const byId = new Map(view.events.map((event) => [event.id, event]));
+    const events = boundedEvents(
+      view.outbox ? view.outbox.eventIds.map((id) => byId.get(id)!) : [...view.events].reverse(),
+    );
+    return { ...view, version: 1, events, hiddenEvents: view.events.length - events.length };
   }
   /** Bounded oldest-attempt rotation; caller invokes from the existing scheduler. */
   due(now: number): PrMonitorSubscription[] {
@@ -314,19 +339,8 @@ export class PrMonitorStore {
       s.eligibilityDigest = eligibilityDigest;
       const now = snapshot.observedAt;
       const old = view.outbox;
-      const bounded = [] as PrMonitorObservation['events'];
-      let references = 0;
-      for (const id of eligible) {
-        const event = view.events.find((e) => e.id === id)!;
-        if (
-          bounded.length >= 20 ||
-          references + event.references.length > 20 ||
-          Buffer.byteLength(JSON.stringify([...bounded, event])) > 16384
-        )
-          continue;
-        bounded.push(event);
-        references += event.references.length;
-      }
+      const byId = new Map(view.events.map((event) => [event.id, event]));
+      const bounded = boundedEvents(eligible.map((id) => byId.get(id)!));
       const firstObservedAt = old?.headSha === snapshot.headSha ? old.firstObservedAt : now;
       view.outbox = bounded.length
         ? {

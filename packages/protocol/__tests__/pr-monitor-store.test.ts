@@ -145,6 +145,11 @@ describe('PR monitor event-store owner', () => {
     expect(batch.reduce((n, e) => n + e.references.length, 0)).toBeLessThanOrEqual(20);
     expect(Buffer.byteLength(JSON.stringify(batch))).toBeLessThanOrEqual(16384);
     expect(view.outbox?.overflow).toBeGreaterThan(0);
+    const projection = s.prMonitor.projection('ordinary:user', 'chat', id);
+    expect(projection.version).toBe(1);
+    expect(projection.events.map((e) => e.id)).toEqual(view.outbox?.eventIds);
+    expect(projection.hiddenEvents).toBe(25 - projection.events.length);
+    expect(Buffer.byteLength(JSON.stringify(projection.events))).toBeLessThanOrEqual(16384);
     s.prMonitor.stopConversation('chat', 'stopped');
     const stopped = s.prMonitor.read('ordinary:user', 'chat', id);
     expect(stopped.subscription.lifecycle).toBe('paused');
