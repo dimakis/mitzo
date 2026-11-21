@@ -67,116 +67,123 @@ function Inspector({ sessionId, disabled }: { sessionId: string; disabled: boole
         disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen(true)}
+        onClick={(event) => {
+          // Safari pointer activation need not focus a button. HomeDialog owns
+          // restoration, so establish its real opener before mounting it.
+          event.currentTarget.focus();
+          setOpen(true);
+        }}
       >
         Inspect context
       </button>
-      <HomeDialog
-        title="Context snapshot"
-        open={open && !disabled}
-        onClose={dismiss}
-        className="context-snapshot-dialog"
-      >
-        <p>Recorded native context evidence. Opening this view only reads the saved snapshot.</p>
-        {state.pending && <p role="status">Loading context snapshot…</p>}
-        {state.error && <p role="alert">{state.error}</p>}
-        {response && (
-          <>
-            <p role={response.status === 'failed' ? 'alert' : 'status'}>
-              Snapshot {response.status}
-            </p>
-            {response.reason && (
-              <>
-                <p>{reasons[response.reason]}</p>
-                <small className="context-snapshot-note">Reason: {response.reason}</small>
-              </>
-            )}
-            {response.snapshot ? (
-              <ContextSnapshotFacts
-                key={`${response.revision}:${response.snapshot.observedAt}`}
-                snapshot={response.snapshot}
-              />
-            ) : (
-              <p>Occupancy unknown. Capacity unknown.</p>
-            )}
-          </>
-        )}
-        <div className="context-snapshot-actions">
-          <button
-            type="button"
-            className="home-secondary"
-            disabled={blocked}
-            onClick={() => {
-              setFull(false);
-              setConsent(false);
-              void state.request();
-            }}
-          >
-            Read saved snapshot
-          </button>
-          <button
-            type="button"
-            className="home-secondary"
-            disabled={blocked}
-            onClick={() => {
-              setFull(false);
-              setConsent(false);
-              void state.request('summary');
-            }}
-          >
-            Refresh summary
-          </button>
-          {fullSupported && (
+      {open && !disabled && (
+        <HomeDialog
+          title="Context snapshot"
+          open={open && !disabled}
+          onClose={dismiss}
+          className="context-snapshot-dialog"
+        >
+          <p>Recorded native context evidence. Opening this view only reads the saved snapshot.</p>
+          {state.pending && <p role="status">Loading context snapshot…</p>}
+          {state.error && <p role="alert">{state.error}</p>}
+          {response && (
+            <>
+              <p role={response.status === 'failed' ? 'alert' : 'status'}>
+                Snapshot {response.status}
+              </p>
+              {response.reason && (
+                <>
+                  <p>{reasons[response.reason]}</p>
+                  <small className="context-snapshot-note">Reason: {response.reason}</small>
+                </>
+              )}
+              {response.snapshot ? (
+                <ContextSnapshotFacts
+                  key={`${response.revision}:${response.snapshot.observedAt}`}
+                  snapshot={response.snapshot}
+                />
+              ) : (
+                <p>Occupancy unknown. Capacity unknown.</p>
+              )}
+            </>
+          )}
+          <div className="context-snapshot-actions">
             <button
               type="button"
               className="home-secondary"
               disabled={blocked}
-              aria-expanded={full}
-              aria-controls={consentId}
               onClick={() => {
-                setFull((value) => !value);
+                setFull(false);
                 setConsent(false);
+                void state.request();
               }}
             >
-              Full detail…
+              Read saved snapshot
             </button>
-          )}
-        </div>
-        <p className="context-snapshot-note">
-          Summary explicitly asks the attached runtime for current evidence. There is no automatic
-          refresh or polling.
-        </p>
-        <MotionPresence open={full && !blocked} kind="disclosure">
-          <section id={consentId} aria-label="Full inspection consent">
-            <p>
-              Full detail can make token-count API calls, with network overhead and possible
-              charges. It does not start a model turn. Cancellation may not stop work already
-              dispatched.
-            </p>
-            <label className="context-snapshot-consent">
-              <input
-                type="checkbox"
-                checked={consent}
-                onChange={(event) => setConsent(event.target.checked)}
-              />
-              Allow token-count API calls and their network overhead for this one inspection.
-            </label>
             <button
               type="button"
               className="home-secondary"
-              disabled={!consent || blocked}
+              disabled={blocked}
               onClick={() => {
-                if (!consent) return;
                 setFull(false);
                 setConsent(false);
-                void state.request('full');
+                void state.request('summary');
               }}
             >
-              Refresh full detail
+              Refresh summary
             </button>
-          </section>
-        </MotionPresence>
-      </HomeDialog>
+            {fullSupported && (
+              <button
+                type="button"
+                className="home-secondary"
+                disabled={blocked}
+                aria-expanded={full}
+                aria-controls={consentId}
+                onClick={() => {
+                  setFull((value) => !value);
+                  setConsent(false);
+                }}
+              >
+                Full detail…
+              </button>
+            )}
+          </div>
+          <p className="context-snapshot-note">
+            Summary explicitly asks the attached runtime for current evidence. There is no automatic
+            refresh or polling.
+          </p>
+          <MotionPresence open={full && !blocked} kind="disclosure">
+            <section id={consentId} aria-label="Full inspection consent">
+              <p>
+                Full detail can make token-count API calls, with network overhead and possible
+                charges. It does not start a model turn. Cancellation may not stop work already
+                dispatched.
+              </p>
+              <label className="context-snapshot-consent">
+                <input
+                  type="checkbox"
+                  checked={consent}
+                  onChange={(event) => setConsent(event.target.checked)}
+                />
+                Allow token-count API calls and their network overhead for this one inspection.
+              </label>
+              <button
+                type="button"
+                className="home-secondary"
+                disabled={!consent || blocked}
+                onClick={() => {
+                  if (!consent) return;
+                  setFull(false);
+                  setConsent(false);
+                  void state.request('full');
+                }}
+              >
+                Refresh full detail
+              </button>
+            </section>
+          </MotionPresence>
+        </HomeDialog>
+      )}
     </>
   );
 }

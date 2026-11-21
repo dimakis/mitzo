@@ -56,7 +56,7 @@ port and does not qualify any of the four engine/placement routes.
 ## Verification — 21 November 2026
 
 - Test-first red: the new consumer suite failed on the missing inspector module.
-- 83 focused rendered tests pass: 36 new inspector cases, plus TokenBar (25),
+- 84 focused rendered tests pass: 37 new inspector cases, plus TokenBar (25),
   ChatInputHost (8), MicButton (11), ConversationContextUsage (1) and
   SessionContextUsage (2). Real schema and api-fetch are used, with intercepted
   fetch and the repository's native-dialog jsdom stub. Coverage includes every
@@ -64,6 +64,11 @@ port and does not qualify any of the four engine/placement routes.
   parent scope, binding changes, revocation, late A→B and body replies, expiry,
   deadlines, exact refresh intent/consent, unknowns, signed accounting and
   per-agent/legacy separation.
+- A final test-first focus check reproduced restoration to an earlier control.
+  The inspector now mounts HomeDialog when opened and explicitly focuses its
+  trigger first, allowing the shared dialog to restore the exact opener on close.
+  The rendered regression passes; real browser focus acceptance is still blocked
+  as described below.
 - `npm run test:design -- --maxWorkers=1`: 109 pass, one existing skip. Approved
   ledger references/checks and shared token/motion guards remain unchanged.
 - Focused ESLint and TypeScript checks pass for the inspector, hook, TokenBar,

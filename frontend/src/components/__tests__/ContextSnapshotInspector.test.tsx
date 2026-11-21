@@ -85,6 +85,23 @@ function open() {
   fireEvent.click(screen.getByRole('button', { name: 'Inspect context' }));
   return screen.getByRole('dialog', { name: 'Context snapshot' });
 }
+it('restores focus to Inspect context rather than an earlier composer control', async () => {
+  respond();
+  render(
+    <>
+      <button type="button">Earlier control</button>
+      <ContextSnapshotInspector sessionId="one" />
+    </>,
+  );
+  screen.getByRole('button', { name: 'Earlier control' }).focus();
+  const trigger = screen.getByRole('button', { name: 'Inspect context' });
+  trigger.focus();
+  open();
+  await screen.findByText('Snapshot partial');
+  screen.getByRole('button', { name: 'Close' }).focus();
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  expect(document.activeElement).toBe(trigger);
+});
 it('opens with only a passive GET and exposes exact numbers, estimates and non-additive semantics', async () => {
   const fetch = respond();
   render(<ContextSnapshotInspector sessionId="one" />);
