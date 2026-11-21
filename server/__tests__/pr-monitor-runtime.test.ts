@@ -6,7 +6,7 @@ const id = '9c6bb0d4-081f-4f55-86f8-60c703452053',
   base = 'b'.repeat(40);
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
-it.each([0, 3, 5])(
+it.each([0, 3, 5, 7, 8])(
   'composes durable Watch and %i workflows through actual bounded quota admission without a model port',
   async (workflows) => {
     const store = new EventStore(':memory:');
@@ -125,6 +125,15 @@ it.each([0, 3, 5])(
     );
     await runtime.reconcileDue();
     const view = store.prMonitor.read('ordinary:user', 'chat', id);
+    if (workflows === 8) {
+      expect(view.refreshState).toBe('partial');
+      expect(view.diagnostic?.code).toBe('incomplete');
+      expect(view.outbox).toBeNull();
+      expect(transport).toHaveBeenCalledTimes(16);
+      expect(store.githubReadQuota.inspect('github:42').charged).toBe(16);
+      await runtime.close();
+      return;
+    }
     expect(view.refreshState).toBe('current');
     expect(view.snapshot?.headSha).toBe(head);
     expect(view.counters.modelTurns).toBe(0);

@@ -135,14 +135,12 @@ export class SessionPromptService {
     if (this.port.maintenanceHeld?.()) return;
     await Promise.all([
       this.runPrompts(),
-      this.passive
-        ?.reconcileDue()
-        .catch(() =>
-          log.warn('Passive observation reconciliation unavailable', {
-            stage: 'reconcile',
-            code: 'pr_observation_unavailable',
-          }),
-        ),
+      this.passive?.reconcileDue().catch(() =>
+        log.warn('Passive observation reconciliation unavailable', {
+          stage: 'reconcile',
+          code: 'pr_observation_unavailable',
+        }),
+      ),
     ]);
   }
   private async runPrompts() {
