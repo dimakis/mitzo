@@ -546,6 +546,7 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
             historySessionId: agent.id !== props.scope ? agent.id : undefined,
             state: agent.state,
             membership: agent.membership,
+            membershipLabel: agent.membershipLabel,
             policy: agent.policy,
           };
         })

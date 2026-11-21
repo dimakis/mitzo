@@ -82,7 +82,8 @@ export function projectConversationAgents({
         settings || retained?.configurationNote
           ? 'Last recorded configuration; current runtime readiness is checked separately.'
           : undefined,
-      membership: unavailable ? 'Member · unavailable' : 'Member',
+      membership: 'joined',
+      membershipLabel: unavailable ? 'Member · unavailable' : 'Member',
       state: !connected
         ? 'Not observed'
         : activity

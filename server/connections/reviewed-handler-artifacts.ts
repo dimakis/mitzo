@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1271-stable-agents-roster';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1272-stable-agents-membership-label';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/conversation-agent-roster.ts':
-    'a620974fcb3b09e5e0ab58e3bb32572514a82767260aab94b1eeab018e81848d',
+    '85470d951160a1d802084784e2aa759d74bc9ec959f0f0747efc3d509d762a77',
   '../../frontend/src/lib/conversation-agents-panel.ts':
     'f30f20b58d6cfe20cc519d027a5a3f7770c38c70e04cfc63475f43c4ae6b78df',
   '../../frontend/src/hooks/useConversationAgentRoster.ts':
@@ -83,7 +84,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/telos-workspaces/s6-codex-peer-communication.md':
     'be26559bbb82e40dde63cc0669f88a174cf59d0c929e399d826e6489ed43e822',
   '../../docs/design/ui-design-system.md':
-    '368c024508fc497c3be17eb1f401e2cb32ef7f2d9373fd912968de04010741b9',
+    'f9399fba8998aea6b6afb72e31c4d3627b79c86c891f6b6ee5ee02c2143a0d9a',
   '../../docs/evidence/symposium-forwarding-ui-2026-11-11.md':
     '160b7f429e0a507f6dd29acb5600541b098b1705d0aed781372c939f56977945',
   '../../docs/evidence/symposium-integration-acceptance.md':
@@ -365,7 +366,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.css':
     'ccb3b1848981bb4ba68511785cfed20ef96331ddacf209bbef07a0eaa89635e2',
   '../../frontend/src/components/ConversationAgents.tsx':
-    '928c5c5cf6b01942010e615fc5df889be30999546ca25126eadbaa1ec6102f29',
+    'c8eb5f1095716b210090f4446597f25844ac9654e78e57267d90086bfddd3989',
   '../../frontend/src/components/ConversationContextUsage.css':
     'c45bb1a0794d533257b86aac345b6c09b66e3d64404220fdb7871e0fbde138ed',
   '../../frontend/src/components/ConversationContextUsage.tsx':
@@ -511,7 +512,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ShareButton.tsx':
     '3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411',
   '../../frontend/src/components/SharedConversation.tsx':
-    'db49182870253be1021232478fdbf6c4b2a954cacdace40925dead09f87cfdef',
+    '987a29db9306ab4365be9ad12d158405a57e32421de4c64c885de80b21e71265',
   '../../frontend/src/components/SlashPicker.tsx':
     '419685fc94e6236f49bf54029bac52a52a479d26cd2e3a6a22f4ec9b28df169b',
   '../../frontend/src/components/SymposiumConversation.tsx':

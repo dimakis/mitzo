@@ -45,6 +45,10 @@ known profile, account, model and mode when observations disappear. Mark retaine
 configuration honestly and offer Refresh for unavailable observations. Per-seat
 lifecycle actions/results remain slots for the removal/Stop owner. An inspected
 seat removed from membership retains read-only Details, without live controls.
+Keep typed `membership` (`joined` / `removed`) separate from `membershipLabel`
+presentation. Unavailable observations do not remove a joined seat; retained removed
+rows keep Details/history and the original recovery result slot without policy or
+live preview/profile controls. Display labels never determine control availability.
 With multiple participants, the rainbow context wheel opens the shared dialog with
 one ordinary recorded-usage row per agent, preserving unavailable/error states and
 Refresh. Its number is agent count; percentages belong to individual measured usage.

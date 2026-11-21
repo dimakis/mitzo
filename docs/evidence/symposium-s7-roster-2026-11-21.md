@@ -26,8 +26,9 @@ and its local panel state remain intact.
 
 Additive interfaces:
 
-- `ConversationAgent`: profile, accountId, mode, membership, configurationNote,
-  diagnostic and activityState display fields.
+- `ConversationAgent`: typed `membership?: 'joined' | 'removed'` lifecycle data;
+  separate membershipLabel, profile, accountId, mode, configurationNote, diagnostic
+  and activityState display fields.
 - `ConversationAgents`: `renderAgentActions(agent)` / `renderAgentResult(agent)`
   reserve seat-keyed lifecycle slots; `onRefresh` / `rosterError` expose recovery.
   S4 retains removal, revision-checked membership writes and original Stop receipts.
@@ -109,3 +110,41 @@ remain required. Saved specialist consultation preparation failed and was stoppe
 with no contribution; no independent review is claimed. Exact-head CI, Centaur's
 final LGTM/merge recommendation and any separately authorized live checks remain
 before merge. This draft has no merge or deployment authority.
+
+## S4 compatibility follow-up
+
+Incremental delta from published S7 head
+`b8506e2d2aaa7f8fe85f0f2a565908881887de22`, without a rebase or peer imports.
+S4 commit `67b5944d03d453ab63546bf0de97fff3336abe8b` was inspected read-only from
+its own checkout: ConversationAgents, SharedConversation and
+ConversationSeatLifecycle interfaces. Its lifecycle implementation remains owned
+by S4. No publication retry or restart was performed for that checkout.
+
+The agreed interface keeps `membership` as `joined | removed` and moves S7's text
+to `membershipLabel`. Projection maps unavailable participants to `joined` with
+the unavailable label and no confirmed policy. Typed removed rows override stale
+display labels, retain their stable identity, Details/history and both lifecycle
+slots, and hide policy/preview/profile controls. The result slot still receives
+the same seat for S4's original Stop recovery; S7 adds no removal or Stop operation.
+
+Test-first follow-up exposed the old display-as-state mapping and policy controls
+on retained removed seats. Mapping and render regressions cover unavailable joined
+members, deliberately misleading removed-seat labels/stale policy, original
+recovery callback delivery, retained configuration, row identity and Details/Back
+focus. Final local validation: 72 focused UI/state tests, 109 design tests (one
+existing skip), two artifact regressions, changed-file lint, targeted frontend
+types, full source-pin verification and offline browser fixture discovery passed.
+The runtime revision is `v1.0.1272-stable-agents-membership-label`. The original
+browser and full-build limitations still apply; no new rendered verification is
+claimed.
+
+At follow-up inspection, #1448 had no submitted reviews or issue comments. Keep
+`b8506e2d` as the published candidate baseline; subsequent review should assess this
+bounded delta without restarting an unrelated whole-candidate review.
+
+Future integration seam: finding18 [#1450](https://github.com/dimakis/mitzo/pull/1450),
+head `cca2d7a83a9a8e7b790182c5fb91e3033d92e9f9`, adds
+ConversationContextSelection and an optional joining catalog loader/display
+metadata. Preserve its narrow ConversationAgents consumer and host loader exposure
+only after `association.begun`; do not introduce implicit begin/sharing or change
+selection/refreeze behavior. It is not imported or a prerequisite of this delta.

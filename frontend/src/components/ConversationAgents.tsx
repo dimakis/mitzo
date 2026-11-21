@@ -36,7 +36,9 @@ export interface ConversationAgent {
   thinking?: string;
   profile?: string;
   mode?: string;
-  membership?: string;
+  /** Lifecycle data supplied by the membership owner, never inferred from labels. */
+  membership?: 'joined' | 'removed';
+  membershipLabel?: string;
   configurationNote?: string;
   diagnostic?: string;
   location?: string;
@@ -45,6 +47,11 @@ export interface ConversationAgent {
   /** Ordinary history destination only; never a runtime/control binding. */
   historySessionId?: string;
   policy?: { reads: boolean; replies: boolean };
+}
+function agentMembershipLabel(agent: ConversationAgent) {
+  return agent.membership === 'removed'
+    ? 'Removed from roster'
+    : (agent.membershipLabel ?? (agent.membership === 'joined' ? 'Member' : undefined));
 }
 const defaultAgent = {
   kind: 'builtin' as const,
@@ -164,6 +171,7 @@ function ConversationAgentsBody({
     setInspectedAgent(undefined);
   }, [registerPanel]);
   const currentPreviewAgent = agents.find((agent) => agent.id === previewId);
+  const previewRemoved = !currentPreviewAgent || currentPreviewAgent.membership === 'removed';
   const previewAgent =
     currentPreviewAgent ??
     (view === 'details' && inspectedAgent?.id === previewId ? inspectedAgent : undefined);
@@ -358,7 +366,7 @@ function ConversationAgentsBody({
                             'Settings unavailable'}
                         </small>
                       </div>
-                      {(onPreview || renderPreview) && (
+                      {a.membership !== 'removed' && (onPreview || renderPreview) && (
                         <button
                           type="button"
                           aria-label={`Preview ${a.name} conversation`}
@@ -388,12 +396,12 @@ function ConversationAgentsBody({
                     </div>
                     <p
                       className="conversation-agent-state"
-                      title={[a.membership, a.location, a.state, a.diagnostic]
+                      title={[agentMembershipLabel(a), a.location, a.state, a.diagnostic]
                         .filter(Boolean)
                         .join(' · ')}
                     >
                       {[
-                        a.membership,
+                        agentMembershipLabel(a),
                         a.location,
                         a.state,
                         a.diagnostic ? 'Needs attention · open Details' : undefined,
@@ -407,31 +415,52 @@ function ConversationAgentsBody({
                     {renderAgentResult && (
                       <div className="conversation-agent-result">{renderAgentResult(a)}</div>
                     )}
-                    <fieldset className="conversation-agent-policy">
-                      <legend className="sr-only">Sharing for {a.name}</legend>
-                      {addressedReadingOnly ? (
-                        <>
-                          <p>
-                            {a.policy?.reads
-                              ? 'Automatic discussion sharing is enabled.'
-                              : a.policy
-                                ? 'Reads when addressed'
-                                : 'Reading policy has not been checked.'}
-                          </p>
-                          {a.policy?.reads && (
-                            <button
-                              type="button"
-                              className="home-secondary"
-                              disabled={!onPolicyChange}
-                              onClick={() =>
-                                onPolicyChange?.(a.id, { reads: false, replies: a.policy!.replies })
+                    {a.membership !== 'removed' && (
+                      <fieldset className="conversation-agent-policy">
+                        <legend className="sr-only">Sharing for {a.name}</legend>
+                        {addressedReadingOnly ? (
+                          <>
+                            <p>
+                              {a.policy?.reads
+                                ? 'Automatic discussion sharing is enabled.'
+                                : a.policy
+                                  ? 'Reads when addressed'
+                                  : 'Reading policy has not been checked.'}
+                            </p>
+                            {a.policy?.reads && (
+                              <button
+                                type="button"
+                                className="home-secondary"
+                                disabled={!onPolicyChange}
+                                onClick={() =>
+                                  onPolicyChange?.(a.id, {
+                                    reads: false,
+                                    replies: a.policy!.replies,
+                                  })
+                                }
+                              >
+                                Read only when addressed
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <label>
+                            <input
+                              type="checkbox"
+                              ref={(input) => {
+                                if (input) input.indeterminate = !a.policy;
+                              }}
+                              aria-checked={!a.policy ? 'mixed' : undefined}
+                              checked={a.policy?.reads ?? false}
+                              disabled={!a.policy || !onPolicyChange}
+                              onChange={(e) =>
+                                a.policy &&
+                                onPolicyChange?.(a.id, { ...a.policy, reads: e.target.checked })
                               }
-                            >
-                              Read only when addressed
-                            </button>
-                          )}
-                        </>
-                      ) : (
+                            />
+                            <span>Reads future discussion</span>
+                          </label>
+                        )}
                         <label>
                           <input
                             type="checkbox"
@@ -439,35 +468,21 @@ function ConversationAgentsBody({
                               if (input) input.indeterminate = !a.policy;
                             }}
                             aria-checked={!a.policy ? 'mixed' : undefined}
-                            checked={a.policy?.reads ?? false}
+                            checked={a.policy?.replies ?? false}
                             disabled={!a.policy || !onPolicyChange}
                             onChange={(e) =>
                               a.policy &&
-                              onPolicyChange?.(a.id, { ...a.policy, reads: e.target.checked })
+                              onPolicyChange?.(a.id, { ...a.policy, replies: e.target.checked })
                             }
                           />
-                          <span>Reads future discussion</span>
+                          <span>Replies by default</span>
                         </label>
-                      )}
-                      <label>
-                        <input
-                          type="checkbox"
-                          ref={(input) => {
-                            if (input) input.indeterminate = !a.policy;
-                          }}
-                          aria-checked={!a.policy ? 'mixed' : undefined}
-                          checked={a.policy?.replies ?? false}
-                          disabled={!a.policy || !onPolicyChange}
-                          onChange={(e) =>
-                            a.policy &&
-                            onPolicyChange?.(a.id, { ...a.policy, replies: e.target.checked })
-                          }
-                        />
-                        <span>Replies by default</span>
-                      </label>
-                    </fieldset>
-                    {!a.policy && <p role="status">Sharing settings have not been checked.</p>}
-                    {(!a.policy || !onPolicyChange) && (
+                      </fieldset>
+                    )}
+                    {a.membership !== 'removed' && !a.policy && (
+                      <p role="status">Sharing settings have not been checked.</p>
+                    )}
+                    {a.membership !== 'removed' && (!a.policy || !onPolicyChange) && (
                       <small>
                         {policyUnavailableReason ??
                           'Discussion sharing settings are not available for this agent yet.'}
@@ -516,7 +531,7 @@ function ConversationAgentsBody({
             {view === 'details' &&
               (previewAgent ? (
                 <>
-                  {!currentPreviewAgent && (
+                  {previewRemoved && (
                     <p role="status">
                       No longer in this roster. Last inspected details are retained; no live
                       controls are available.
@@ -537,12 +552,12 @@ function ConversationAgentsBody({
                     <dd>{previewAgent.mode || 'Not reported'}</dd>
                     <dt>Membership</dt>
                     <dd>
-                      {currentPreviewAgent
-                        ? previewAgent.membership || 'Not reported'
+                      {!previewRemoved
+                        ? agentMembershipLabel(previewAgent) || 'Not reported'
                         : 'Removed from roster'}
                     </dd>
                     <dt>Runtime activity</dt>
-                    <dd>{currentPreviewAgent ? previewAgent.state : 'Not observed'}</dd>
+                    <dd>{!previewRemoved ? previewAgent.state : 'Not observed'}</dd>
                   </dl>
                   {previewAgent.configurationNote && (
                     <p className="conversation-agents-explanation">
@@ -550,12 +565,12 @@ function ConversationAgentsBody({
                     </p>
                   )}
                   {previewAgent.diagnostic && <p role="status">{previewAgent.diagnostic}</p>}
-                  {currentPreviewAgent && onRefresh && (
+                  {!previewRemoved && onRefresh && (
                     <button type="button" className="home-secondary" onClick={onRefresh}>
                       Refresh agent status
                     </button>
                   )}
-                  {currentPreviewAgent && onDraftProfile && (
+                  {!previewRemoved && onDraftProfile && (
                     <button
                       type="button"
                       className="conversation-agents-row"
@@ -573,7 +588,7 @@ function ConversationAgentsBody({
               ))}
             {view === 'settings' && settings}
             {view === 'preview' &&
-              (previewAgent ? (
+              (previewAgent && !previewRemoved ? (
                 renderPreview?.(previewAgent)
               ) : (
                 <p role="status">This agent is no longer available.</p>

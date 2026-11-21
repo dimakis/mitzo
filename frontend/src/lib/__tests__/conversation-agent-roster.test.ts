@@ -14,7 +14,8 @@ it('keeps known configuration and roster order independent of activity and membe
     model: 'offline-fixture',
     profile: 'default · revision 1',
     mode: 'agent',
-    membership: 'Member',
+    membership: 'joined',
+    membershipLabel: 'Member',
     state: 'Not observed',
   });
   view.participantSessionIds.reverse();
@@ -27,7 +28,8 @@ it('keeps known configuration and roster order independent of activity and membe
     model: 'offline-fixture',
     profile: 'default · revision 1',
     mode: 'agent',
-    membership: 'Member · unavailable',
+    membership: 'joined',
+    membershipLabel: 'Member · unavailable',
     state: 'Not observed',
   });
   expect(next[1].diagnostic).toMatch(/Refresh/);
