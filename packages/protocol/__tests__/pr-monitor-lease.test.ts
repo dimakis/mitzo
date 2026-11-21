@@ -3,17 +3,15 @@ import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { Worker } from 'node:worker_threads';
 import { EventStore } from '../src/event-store.js';
 import { PR_MONITOR_CLAIM_TTL_MS } from '../src/pr-monitor-lease.js';
 import { subscription, snapshot, finding, watch } from './fixtures/pr-monitor.js';
 
-const cleanup: (() => void)[] = [];
-afterEach(() =>
-  cleanup
-    .splice(0)
-    .reverse()
-    .forEach((f) => f()),
-);
+const cleanup: (() => void | Promise<unknown>)[] = [];
+afterEach(async () => {
+  for (const close of cleanup.splice(0).reverse()) await close();
+});
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pr-lease-'));
   cleanup.push(() => rmSync(dir, { force: true, recursive: true }));
@@ -61,8 +59,61 @@ function fixture() {
       claim,
       now: () => now,
     });
-  return { a, b, sql, s, view, acquire, publish, fail, open };
+  return { a, b, sql, s, view, acquire, publish, fail, open, path };
 }
+it('admits exactly one simultaneous acquisition from two independent EventStore workers', async () => {
+  const f = fixture();
+  const barrier = new SharedArrayBuffer(4);
+  const contenders: Promise<{ claim?: unknown; error?: Error }>[] = [];
+  // Initialize EventStore's startup migrations sequentially. The barrier then
+  // releases both independent handles for simultaneous claim acquisition.
+  for (let i = 0; i < 2; i++) {
+    const worker = new Worker(
+      `
+      const { parentPort, workerData } = require('node:worker_threads');
+      (async () => {
+        const { register } = await import('tsx/esm/api');
+        register();
+        const { EventStore } = await import(workerData.url);
+        const store = new EventStore(workerData.path);
+        parentPort.postMessage('ready');
+        Atomics.wait(new Int32Array(workerData.barrier), 0, 0);
+        const claim = store.prMonitor.leases.acquire(workerData.subscription, 1000);
+        store.close();
+        parentPort.postMessage({ claim });
+      })();`,
+      {
+        eval: true,
+        workerData: {
+          path: f.path,
+          subscription: f.s,
+          barrier,
+          url: new URL('../src/event-store.ts', import.meta.url).href,
+        },
+      },
+    );
+    cleanup.push(() => worker.terminate());
+    const ready = new Promise<void>((resolve, reject) => {
+      worker.once('error', reject);
+      worker.on('message', (value) => {
+        if (value === 'ready') resolve();
+      });
+    });
+    const result = new Promise<{ claim?: unknown; error?: Error }>((resolve) => {
+      worker.once('error', (error) => resolve({ error }));
+      worker.on('message', (value) => {
+        if (value !== 'ready') resolve(value);
+      });
+    });
+    contenders.push(result);
+    await ready;
+  }
+  Atomics.store(new Int32Array(barrier), 0, 1);
+  Atomics.notify(new Int32Array(barrier), 0);
+  const results = await Promise.all(contenders);
+  for (const result of results) if (result.error) throw result.error;
+  expect(results.filter((result) => result.claim)).toHaveLength(1);
+});
 it('serializes two independent owners and permits independent subscription claims', async () => {
   const f = fixture();
   const claims = await Promise.all([f.a, f.b].map(async (store) => f.acquire(store)));
@@ -239,4 +290,37 @@ it('keeps one bounded row and monotonic generations across many acquisitions and
     expect(f.a.prMonitor.leases.release(claim)).toBe(false);
   }
   expect(f.sql.prepare('SELECT count(*) n FROM pr_monitor_leases').get()).toEqual({ n: 1 });
+});
+it('grants no claim under SQLITE_BUSY and rolls back both failure and revocation writes', () => {
+  const f = fixture();
+  f.sql.exec('BEGIN IMMEDIATE');
+  try {
+    expect(() => f.acquire(f.b)).toThrow(/locked|busy/i);
+  } finally {
+    f.sql.exec('ROLLBACK');
+  }
+  expect(f.sql.prepare('SELECT count(*) n FROM pr_monitor_leases').get()).toEqual({ n: 0 });
+  watch(f.a.prMonitor, f.s);
+  const claim = f.acquire();
+  const published = f.publish(claim);
+  f.sql.exec(
+    "CREATE TRIGGER reject_change BEFORE UPDATE ON pr_monitor_subscriptions BEGIN SELECT RAISE(ABORT, 'injected_rollback'); END",
+  );
+  expect(() => f.fail(claim, 1000, 1)).toThrow('injected_rollback');
+  const s = f.view().subscription;
+  expect(() =>
+    f.b.prMonitor.beginWatchRevocation({
+      requestId: 'revoke',
+      fingerprint: 'revoke',
+      operatorId: s.operatorId,
+      conversationId: s.conversationId,
+      subscriptionId: s.id,
+      expectedRevision: s.revision,
+      expectedAuthorityRevision: s.watch!.revision,
+      assertCurrent: () => undefined,
+    }),
+  ).toThrow('injected_rollback');
+  expect(f.view()).toEqual(published);
+  expect(f.a.prMonitor.pendingWatchRevocation(s.id)).toBeNull();
+  expect(() => f.b.prMonitor.leases.assert(claim, 1000)).not.toThrow();
 });

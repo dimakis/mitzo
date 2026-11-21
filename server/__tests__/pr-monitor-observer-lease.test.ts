@@ -8,10 +8,15 @@ import { subscription, watch } from '../../packages/protocol/__tests__/fixtures/
 import { PR_MONITOR_CLAIM_TTL_MS } from '../../packages/protocol/src/pr-monitor-lease.js';
 import { PrMonitorObserver, type PrMonitorReadPort } from '../pr-monitor-observer.js';
 import { PrMonitorConsent } from '../pr-monitor-consent.js';
+import { createPrMonitorObservationRuntime } from '../pr-monitor-runtime.js';
+const logs = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn() }));
+vi.mock('../logger.js', () => ({ createLogger: () => logs }));
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'observer-lease-'));
@@ -224,4 +229,109 @@ it('acquisition storage failure performs no reads and cannot clear a retained ou
   await expect(f.observe(f.second)).rejects.toThrow('injected_claim_failure');
   expect(f.read).toHaveBeenCalledTimes(calls);
   expect(f.view()).toEqual(retained);
+  expect(logs.error).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.objectContaining({ stage: 'claim', code: 'SQLITE_CONSTRAINT_TRIGGER' }),
+  );
+});
+it('retains sanitized publish failure stage and SQLite cause through the consumer', async () => {
+  const f = fixture();
+  await f.observe();
+  const before = f.view();
+  f.sql.exec(`CREATE TRIGGER reject_publish BEFORE UPDATE ON pr_monitor_subscriptions
+    WHEN json_extract(NEW.data,'$.subscription.snapshotRevision') > json_extract(OLD.data,'$.subscription.snapshotRevision')
+    BEGIN SELECT RAISE(ABORT, 'private injection details'); END`);
+  await f.observe();
+  expect(f.view().snapshot).toEqual(before.snapshot);
+  expect(f.view().diagnostic).toMatchObject({ code: 'incomplete', stage: 'publish' });
+  expect(logs.warn).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.objectContaining({ stage: 'publish', causeCode: 'SQLITE_CONSTRAINT_TRIGGER' }),
+  );
+  expect(JSON.stringify(logs.warn.mock.calls)).not.toContain('private injection');
+});
+it('fences late authenticated HTTP through the runtime and retains every charged reservation', async () => {
+  const f = fixture();
+  vi.spyOn(Date, 'now').mockImplementation(f.now);
+  const scope = f.a.prMonitor.authority(f.s.id, 'pr-watch')!.scope;
+  const resetAt = f.now() + 3600000;
+  let headSha = 'a'.repeat(40);
+  const transport = vi.fn<Parameters<typeof createPrMonitorObservationRuntime>[0]['transport']>(
+    async (endpoint) => ({
+      status: 200,
+      headers: {
+        'x-ratelimit-resource': 'core',
+        'x-ratelimit-limit': '5000',
+        'x-ratelimit-remaining': '4999',
+        'x-ratelimit-reset': String(Math.floor(resetAt / 1000)),
+      },
+      data:
+        endpoint === '/user'
+          ? { id: 123 }
+          : endpoint.includes('/reviews') || endpoint.includes('/comments')
+            ? []
+            : endpoint.includes('/actions')
+              ? { total_count: 0, workflow_runs: [] }
+              : {
+                  node_id: f.s.github.prNodeId,
+                  number: 1,
+                  title: 'PR',
+                  state: 'open',
+                  merged: false,
+                  head: { sha: headSha },
+                  base: {
+                    sha: 'b'.repeat(40),
+                    repo: { node_id: 'repo', name: 'repo', owner: { login: 'owner' } },
+                  },
+                },
+    }),
+  );
+  const make = (store: EventStore) => {
+    const runtime = createPrMonitorObservationRuntime({
+      eventStore: store,
+      transport,
+      eligibleAuthors: ['owner'],
+      consent: {
+        hasPersistentRevocationAuthority: () => true,
+        isInteractive: () => true,
+        isLoginCurrent: () => true,
+        assertConversation: () => undefined,
+        connection: () => scope,
+      },
+    });
+    cleanup.push(() => runtime.close());
+    return runtime;
+  };
+  const first = make(f.a),
+    second = make(f.b);
+  const observe = (runtime = first) =>
+    runtime.observer.observe(f.s.operatorId, f.s.conversationId, f.s.id);
+  await observe();
+  expect(f.view().refreshState).toBe('current');
+  let finish!: (value: Awaited<ReturnType<typeof transport>>) => void;
+  transport.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const old = observe();
+  const charged = f.a.githubReadQuota.inspect('github:123').charged;
+  await observe(second);
+  expect(f.a.githubReadQuota.inspect('github:123').charged).toBe(charged);
+  f.advance();
+  headSha = 'c'.repeat(40);
+  await observe(second);
+  const successor = f.view();
+  expect(successor.snapshot?.headSha).toBe(headSha);
+  const calls = transport.mock.calls.length;
+  expect(calls).toBe(19);
+  finish({ status: 500, headers: {}, data: {} });
+  await old;
+  expect(transport).toHaveBeenCalledTimes(calls);
+  expect(f.view()).toEqual(successor);
+  expect(f.b.githubReadQuota.inspect('github:123').charged).toBe(calls);
+  expect(f.sql.prepare('SELECT count(*) n FROM github_read_reservations').get()).toEqual({
+    n: calls,
+  });
 });

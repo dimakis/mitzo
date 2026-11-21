@@ -153,6 +153,7 @@ export class PrMonitorObserver {
     let requests = 0;
     let operationError: unknown;
     let cleanupError: unknown;
+    let stage: 'read' | 'publish' = 'read';
     try {
       const authority = this.options.capture(s.conversationId, s.id);
       const assertCurrent = () => {
@@ -336,6 +337,7 @@ export class PrMonitorObserver {
                 ],
                 truncated: false,
               });
+      stage = 'publish';
       this.options.store.publish({
         claim,
         now: this.now,
@@ -399,13 +401,14 @@ export class PrMonitorObserver {
           now: this.now,
           diagnostic: {
             code: failure.code,
-            stage: 'read',
+            stage,
             nextRefreshAt: failure.delay === null ? null : this.now() + failure.delay,
           },
         });
         log.warn('PR observation could not publish complete evidence', {
-          stage: 'read',
+          stage,
           code: failure.code,
+          causeCode: storageCode(error),
           subscriptionId: s.id,
           conversationId: s.conversationId,
         });
