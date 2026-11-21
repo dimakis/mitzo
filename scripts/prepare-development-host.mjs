@@ -56,6 +56,7 @@ export async function seedDependencyStore({
   }
   let build;
   let primary;
+  let result;
   try {
     const builds = await ownedDirectory(store, join(store, '.builds'));
     build = await mkdtemp(join(builds, 'setup-'));
@@ -76,10 +77,9 @@ export async function seedDependencyStore({
       store,
       usageRoots: usageRoots ?? (await managedDependencyConsumers()),
     });
-    return { ...published, removed };
+    result = { ...published, removed };
   } catch (cause) {
     primary = cause;
-    throw cause;
   } finally {
     // Only this invocation's mkdtemp and lock are eligible; preserve all other
     // builds/workspaces and never replace the primary error with cleanup noise.
@@ -91,8 +91,9 @@ export async function seedDependencyStore({
         else primary = cause;
       }
     }
-    if (primary) throw primary;
   }
+  if (primary) throw primary;
+  return result;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

@@ -32,3 +32,4 @@ it(
     );
   },
 );
+import process from 'node:process';

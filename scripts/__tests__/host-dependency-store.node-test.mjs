@@ -74,3 +74,4 @@ it('does not publish a failed install or remove another retained build', async (
   assert.deepEqual(await readdir(join(f.store, '.builds')), ['other-owner']);
   await assert.rejects(readdir(join(f.store, 'entries')), { code: 'ENOENT' });
 });
+import process from 'node:process';

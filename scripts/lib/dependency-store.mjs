@@ -176,6 +176,18 @@ async function removeOwned(path) {
   await rm(path, { recursive: true });
 }
 
+// Cleanup can fail a successful operation, but never replace its original
+// failure. Callers returning a fallback also expose the secondary failure.
+async function cleanupAfter(work, primary) {
+  try {
+    await work();
+  } catch (cause) {
+    if (!primary) throw cause;
+    primary.cleanupCode = cause.code ?? 'cleanup_failed';
+    return primary.cleanupCode;
+  }
+}
+
 async function withWriter(store, work) {
   await ownedDirectory(store);
   const lock = join(store, '.writer');
@@ -192,12 +204,7 @@ async function withWriter(store, work) {
     primary = cause;
     throw cause;
   } finally {
-    try {
-      await rm(lock, { recursive: true });
-    } catch (cause) {
-      if (primary) primary.cleanupCode = cause.code;
-      else throw cause;
-    }
+    await cleanupAfter(() => rm(lock, { recursive: true }), primary);
   }
 }
 
@@ -252,12 +259,7 @@ export async function publishDependencySet({
       primary = cause;
       throw cause;
     } finally {
-      try {
-        await removeOwned(pending);
-      } catch (cause) {
-        if (primary) primary.cleanupCode = cause.code;
-        else throw cause;
-      }
+      await cleanupAfter(() => removeOwned(pending), primary);
     }
   });
 }
@@ -350,14 +352,8 @@ export async function restoreDependencySet({ store = dependencyStoreRoot(), cwd 
       throw cause;
     } finally {
       if (temporary) {
-        try {
-          await removeOwned(temporary);
-        } catch (cause) {
-          if (primary) {
-            primary.cleanupCode = cause.code;
-            if (fallback) fallback.cleanupReason = 'cleanup_failed';
-          } else throw cause;
-        }
+        const cleanupCode = await cleanupAfter(() => removeOwned(temporary), primary);
+        if (fallback && cleanupCode) fallback.cleanupReason = 'cleanup_failed';
       }
     }
   }

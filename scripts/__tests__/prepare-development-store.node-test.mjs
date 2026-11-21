@@ -196,3 +196,5 @@ it('reports a rejected cache destination as potentially changed and retains its 
     return true;
   });
 });
+import process from 'node:process';
+import { performance } from 'node:perf_hooks';

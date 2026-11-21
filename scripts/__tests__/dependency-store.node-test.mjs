@@ -206,3 +206,5 @@ it('retains the recently read entry and expires old entries without touching oth
   await pruneDependencyStore({ store: f.store, now: Date.now() + 31 * 86400_000 });
   assert.deepEqual(await readdir(join(f.store, 'entries')), []);
 });
+import process from 'node:process';
+import { performance } from 'node:perf_hooks';

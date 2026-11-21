@@ -19,6 +19,7 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import process from 'node:process';
 import console from 'node:console';
+import { URL } from 'node:url';
 import {
   dependencyIdentity,
   dependencyStoreRoot,
@@ -27,7 +28,7 @@ import {
 
 const execute = promisify(execFile);
 
-// Do not retain raw subprocess output: package/Git diagnostics can contain credentials.
+// Public diagnostics exclude raw subprocess output, which can contain credentials.
 export class DevelopmentSetupError extends Error {
   constructor(phase, reason, message, effectStatus = 'not_started') {
     super(message);
@@ -560,9 +561,7 @@ export async function prepareDevelopment({
     throw pendingError;
   } finally {
     if (temporary) {
-      try {
-        await rm(temporary, { recursive: true, force: true });
-      } catch (cause) {
+      await rm(temporary, { recursive: true, force: true }).catch((cause) => {
         const cleanup = failure(
           'cleanup',
           cause,
@@ -571,7 +570,7 @@ export async function prepareDevelopment({
         );
         if (pendingError) pendingError.cleanupReason = cleanup.reason;
         else throw cleanup;
-      }
+      });
     }
   }
 }
