@@ -214,6 +214,44 @@ it('newer pending attempts suppress old failures without clearing an independent
   expect(f.view().outbox?.eventIds).toHaveLength(1);
   expect(f.view().events[0].sourceIds.join()).toContain('separate');
 });
+it('a general comment does not clear an unresolved blocking review and cancelled CI is not a pass', async () => {
+  const f = fixture();
+  await f.observe();
+  f.advance();
+  f.read.mockImplementation(async (r) => ({
+    status: 200,
+    data:
+      r.resource === 'pr'
+        ? pr
+        : {
+            items:
+              r.resource === 'ci'
+                ? [{ ...job, status: 'cancelled' }]
+                : [
+                    {
+                      id: 'blocking',
+                      headSha: head,
+                      author: 'trusted',
+                      revision: '2026-11-21T12:00:00Z',
+                      state: 'changes_requested',
+                      findings: [{ id: 'f', revision: '1', blocking: true, resolved: false }],
+                    },
+                    {
+                      id: 'comment',
+                      headSha: head,
+                      author: 'trusted',
+                      revision: '2026-11-21T13:00:00Z',
+                      state: 'commented',
+                      findings: [],
+                    },
+                  ],
+            hasNext: false,
+          },
+  }));
+  await f.observe();
+  expect(f.view().outbox?.eventIds).toHaveLength(1);
+  expect(f.view().snapshot?.ci).not.toBe('passed');
+});
 it.each([401, 403, 404, 429, 503])(
   'retains last success with sanitized diagnostics on HTTP %s',
   async (status) => {

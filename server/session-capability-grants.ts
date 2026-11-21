@@ -121,6 +121,13 @@ export class SessionCapabilityGrants {
     if (!this.prMonitor) throw Error('authority_unavailable');
     return this.prMonitor.issue(auth, input);
   }
+  get prWatchAvailable() {
+    return this.prMonitor !== undefined;
+  }
+  revokePrWatch(auth: AuthSession, input: Parameters<PrMonitorConsent['revoke']>[1]) {
+    if (!this.prMonitor) throw Error('authority_unavailable');
+    return this.prMonitor.revoke(auth, input);
+  }
   private scopeMatches(grant: Grant, s: ManagedSession) {
     return (
       isDeepStrictEqual(grant.account, s.accountBinding) &&

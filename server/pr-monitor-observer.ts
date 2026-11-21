@@ -233,6 +233,7 @@ export class PrMonitorObserver {
         }
       const currentReviews = new Map<string, z.infer<typeof reviewSchema>>();
       for (const review of reviews) {
+        if (review.state === 'commented') continue;
         if (
           review.headSha !== opening.headSha ||
           !this.options.eligibleAuthors.includes(review.author)
@@ -281,7 +282,9 @@ export class PrMonitorObserver {
             : [...latest.values()].some((j) => j.status === 'pending')
               ? 'pending'
               : latest.size
-                ? 'passed'
+                ? [...latest.values()].every((j) => j.status === 'passed')
+                  ? 'passed'
+                  : 'partial'
                 : 'none',
           review: findings.some((f) => f.kind === 'review_actionable') ? 'actionable' : 'none',
         },
