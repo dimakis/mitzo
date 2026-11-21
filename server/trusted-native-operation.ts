@@ -1,5 +1,11 @@
 import { retainCallbackOutcome } from './turn-callbacks.js';
-import { parseGitHubReadResponse } from './github-read-response.js';
+import {
+  parseGitHubReadResponse,
+  parseGitHubReadEnvelope,
+  type GitHubReadResponse,
+} from './github-read-response.js';
+import { GitHubReadAdmission } from './github-read-admission.js';
+import type { EventStore } from './event-store.js';
 import { githubReadProjection, githubReadSummary } from './github-read-summary.js';
 import {
   GITHUB_LOG_SOURCE_LIMIT,
@@ -163,21 +169,33 @@ export async function executeTrustedGitHubRead(
   view: 'summary' | 'full' = 'summary',
   assertCurrent?: () => void,
   logOptions?: GithubLogRead,
+  observeResponse?: (response: GitHubReadResponse) => void,
 ): Promise<string> {
   const log = logOptions === undefined ? undefined : validateGithubLogRead(endpoint, logOptions);
   const home = process.env.HOME;
   if (!home) throw new Error('Trusted GitHub credentials are unavailable');
   const request = trustedGitHubReadRequest(endpoint, view);
-  const body = await run(request.file, request.args, {
+  const sourceLimit = log ? GITHUB_LOG_SOURCE_LIMIT : maxOutputBytes;
+  let body = await run(request.file, [...request.args, ...(observeResponse ? ['--include'] : [])], {
     signal,
     timeoutMs,
-    maxOutputBytes: log ? GITHUB_LOG_SOURCE_LIMIT : maxOutputBytes,
+    maxOutputBytes: sourceLimit + (observeResponse ? 16384 : 0),
     env: { HOME: home, GH_HOST: 'github.com' },
     readOnly: true,
     boundedReadDiagnostics: log !== undefined,
-    preserveWhitespace: log !== undefined,
+    preserveWhitespace: log !== undefined || observeResponse !== undefined,
+    acceptHttpErrorResponse: observeResponse !== undefined,
     assertRuntimeCurrent: assertCurrent,
   });
+  if (observeResponse) {
+    const { body: payload, ...response } = parseGitHubReadEnvelope(body, sourceLimit + 16384);
+    if (Buffer.byteLength(payload) > sourceLimit) throw Error('github_response_invalid');
+    observeResponse({ ...response, data: null });
+    body = log ? payload : payload.trim();
+    // The admitted owner receives HTTP failures with quota headers, before it
+    // decides whether any body may be delivered to a caller.
+    if (response.status >= 400) return body;
+  }
   signal.throwIfAborted();
   assertCurrent?.();
   if (log) {
@@ -191,6 +209,56 @@ export async function executeTrustedGitHubRead(
     return page;
   }
   return view === 'full' ? body : githubReadSummary(body, `https://api.github.com${endpoint}`);
+}
+
+let trustedGitHubAdmission: GitHubReadAdmission | undefined;
+/** Application composition supplies the existing EventStore lifetime once.
+ * Missing composition fails closed; there is no fallback quota database. */
+export function installTrustedGitHubReadQuota(quota: EventStore['githubReadQuota']) {
+  trustedGitHubAdmission = new GitHubReadAdmission(quota);
+}
+
+/** All ordinary authenticated GitHubRead/TaskExecution reads enter here after
+ * their existing consent fence. Public reads retain their separate transport. */
+export async function executeAdmittedGitHubRead(
+  endpoint: string,
+  signal: AbortSignal,
+  timeoutMs = 30000,
+  maxOutputBytes = 64 * 1024,
+  view: 'summary' | 'full' = 'summary',
+  assertCurrent: () => void = () => undefined,
+  logOptions?: GithubLogRead,
+) {
+  if (logOptions) validateGithubLogRead(endpoint, logOptions);
+  if (!isTrustedGitHubEndpoint(endpoint)) throw Error('Invalid trusted GitHub endpoint');
+  const admission = trustedGitHubAdmission;
+  if (!admission) throw Error('quota_unavailable');
+  const scope = { connectionId: 'trusted-native-github', background: false, signal, assertCurrent };
+  const identity = await admission.read('/user', scope, () =>
+    executeTrustedGitHubReadResponse('/user', signal, assertCurrent),
+  );
+  if (identity.status !== 200) throw Error('connection_unavailable');
+  const principalId = `github:${(identity.data as { id: number }).id}`;
+  if (endpoint === '/user') {
+    const body = JSON.stringify(identity.data);
+    if (Buffer.byteLength(body) > maxOutputBytes)
+      throw Error('GitHub response exceeds the source byte limit; request a narrower read');
+    return body;
+  }
+  const response = await admission.read(endpoint, { ...scope, principalId }, async () => {
+    const received: { response?: GitHubReadResponse } = {};
+    const body = await executeTrustedGitHubRead(
+      endpoint, signal, timeoutMs, maxOutputBytes, view, assertCurrent, logOptions,
+      (r) => { received.response = r; },
+    );
+    const metadata = received.response;
+    if (!metadata) throw Error('github_response_invalid');
+    return { ...metadata, data: body };
+  });
+  signal.throwIfAborted();
+  assertCurrent();
+  if (response.status !== 200) throw Error(`github_read_failed:${response.status}`);
+  return response.data;
 }
 
 /** Same fixed authenticated read owner, retaining only bounded response metadata.

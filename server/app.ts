@@ -28,7 +28,10 @@ import {
   isAuthenticatedOperatorSessionId,
 } from './auth.js';
 import { createApplicationPrMonitor } from './pr-monitor-application.js';
-import { executeTrustedGitHubReadResponse } from './trusted-native-operation.js';
+import {
+  executeTrustedGitHubReadResponse,
+  installTrustedGitHubReadQuota,
+} from './trusted-native-operation.js';
 import { createOrdinaryWorkspacePreparationRouter } from './ordinary-workspace-router.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import {
@@ -828,6 +831,7 @@ const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
 installContextPackRuntime(getKnowledgeLibraryRuntime);
 installKnowledgeDraftRuntime(getKnowledgeLibraryRuntime);
 installSessionLearningRuntime(eventStore);
+installTrustedGitHubReadQuota(eventStore.githubReadQuota);
 mountObservedRouter(
   app,
   '/api/knowledge',

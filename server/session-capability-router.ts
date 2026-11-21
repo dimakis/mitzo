@@ -102,16 +102,18 @@ export function createSessionCapabilityRouter(options: {
         return res
           .status(201)
           .json(await options.monitor.register(auth, req.params.id as string, input));
-      } catch {
+      } catch (error) {
+        const quotaBlocked = error instanceof Error && ['quota_delayed', 'quota_retention_limit'].includes(error.message);
         log.warn('PR registration could not retain verified scope', {
           stage: 'register',
-          code: 'pr_registration_unavailable',
+          code: quotaBlocked ? error.message : 'pr_registration_unavailable',
           conversationId: req.params.id,
         });
         return res.status(409).json({
           code: 'pr_registration_unavailable',
-          error:
-            'Registration was not confirmed. Refresh account/repository access and retry the same request.',
+          error: quotaBlocked
+            ? 'GitHub reads are temporarily blocked by shared quota or retained reservation capacity. Wait for backoff, then retry the same registration request.'
+            : 'Registration was not confirmed. Refresh account/repository access and retry the same request.',
         });
       }
     },

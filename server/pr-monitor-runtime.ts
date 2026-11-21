@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { GitHubReadAdmission } from './github-read-admission.js';
 import type { EventStore } from './event-store.js';
 import { PrMonitorConsent } from './pr-monitor-consent.js';
 import { PrMonitorObserver } from './pr-monitor-observer.js';
@@ -15,9 +15,20 @@ export function createPrMonitorObservationRuntime(options: {
   eligibleAuthors: PrMonitorAuthorPolicy;
 }) {
   const consent = new PrMonitorConsent({ ...options.consent, store: options.eventStore.prMonitor });
-  const quota = options.eventStore.githubReadQuota;
+  const admission = new GitHubReadAdmission(options.eventStore.githubReadQuota);
   const read = createPrMonitorGitHubReader({
-    transport: options.transport,
+    transport: (endpoint, signal, current, request) =>
+      admission.read(
+        endpoint,
+        {
+          signal,
+          assertCurrent: current,
+          principalId: request.principalId,
+          connectionId: request.subscription.github.connectionId,
+          background: true,
+        },
+        () => options.transport(endpoint, signal, current, request),
+      ),
     eligibleAuthors: options.eligibleAuthors,
     assertConnection: (request) => {
       const current = options.consent.connection(request.subscription);
@@ -28,49 +39,14 @@ export function createPrMonitorObservationRuntime(options: {
       )
         throw Error('connection_unavailable');
     },
-    observeQuota: (request, response) => {
-      const h = response.headers,
-        now = Date.now();
-      if (h['x-ratelimit-resource'] !== 'core') throw Error('quota_delayed');
-      const limit = Number(h['x-ratelimit-limit']),
-        remaining = Number(h['x-ratelimit-remaining']),
-        resetAt = Number(h['x-ratelimit-reset']) * 1000;
-      try {
-        quota.observe(
-          request.principalId,
-          {
-            limit,
-            remaining,
-            resetAt,
-            ...(response.retryAfterMs ? { retryAt: now + response.retryAfterMs } : {}),
-          },
-          now,
-        );
-      } catch {
-        throw Error('quota_delayed');
-      }
-    },
+    observeQuota: () => undefined, // The shared transport owner observes before delivery fences.
   });
   const observer = new PrMonitorObserver({
     store: options.eventStore.prMonitor,
     capture: (conversationId, id) => consent.capture(conversationId, id),
     read,
     eligibleAuthors: options.eligibleAuthors,
-    reserve: (request) => {
-      const now = Date.now(),
-        state = quota.inspect(request.principalId),
-        requestId = randomUUID();
-      quota.reserve({
-        requestId,
-        principalId: request.principalId,
-        connectionId: request.subscription.github.connectionId,
-        background: true,
-        cost: 1,
-        now,
-        probe: state.resetAt <= now || state.observedAt < now - 60000,
-      });
-      return () => quota.finish(requestId);
-    },
+    reserve: () => undefined, // Observer retains its 16-call/20-second refresh bound.
   });
   return {
     consent,

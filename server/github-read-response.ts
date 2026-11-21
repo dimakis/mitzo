@@ -5,8 +5,8 @@ export interface GitHubReadResponse {
   retryAfterMs?: number;
 }
 /** Bounded gh --include envelope; only quota/pagination metadata escapes. */
-export function parseGitHubReadResponse(raw: string): GitHubReadResponse {
-  if (Buffer.byteLength(raw) > 1048576) throw Error('github_response_invalid');
+export function parseGitHubReadEnvelope(raw: string, maxBytes = 1048576, now = Date.now()) {
+  if (Buffer.byteLength(raw) > maxBytes) throw Error('github_response_invalid');
   const split = /\r?\n\r?\n/.exec(raw);
   if (!split || split.index > 16384) throw Error('github_response_invalid');
   const lines = raw.slice(0, split.index).split(/\r?\n/),
@@ -34,12 +34,22 @@ export function parseGitHubReadResponse(raw: string): GitHubReadResponse {
   }
   const body = raw.slice(split.index + split[0].length);
   const retry = headers['retry-after'];
+  const retryAfterMs =
+    retry === undefined
+      ? undefined
+      : /^\d+$/.test(retry)
+        ? Math.min(Number(retry) * 1000, 86400000)
+        : Number.isFinite(Date.parse(retry))
+          ? Math.max(0, Math.min(Date.parse(retry) - now, 86400000))
+          : undefined;
   return {
     status: Number(status[1]),
     headers,
-    data: body ? JSON.parse(body) : null,
-    ...(retry && /^\d+$/.test(retry)
-      ? { retryAfterMs: Math.min(Number(retry) * 1000, 86400000) }
-      : {}),
+    body,
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   };
+}
+export function parseGitHubReadResponse(raw: string): GitHubReadResponse {
+  const { body, ...response } = parseGitHubReadEnvelope(raw);
+  return { ...response, data: body ? JSON.parse(body) : null };
 }

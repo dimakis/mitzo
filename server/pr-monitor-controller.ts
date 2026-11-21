@@ -9,6 +9,7 @@ import type { GitHubReadResponse } from './github-read-response.js';
 import { githubMonitorPullSchema } from './pr-monitor-github.js';
 import { createPrMonitorObservationRuntime } from './pr-monitor-runtime.js';
 import type { PrMonitorAuthorPolicy } from './pr-monitor-author-policy.js';
+import { GitHubReadAdmission } from './github-read-admission.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const PrMonitorRegisterSchema = z.strictObject({
@@ -51,8 +52,12 @@ type Options = {
 /** Application-owned registration/observation only. No browser attachment, model
  * process or command is created to reconcile a retained explicit Watch. */
 export function createPrMonitorController(options: Options) {
+  const admission = new GitHubReadAdmission(options.eventStore.githubReadQuota);
   let closed = false;
-  const pending = new Map<string, Promise<ReturnType<typeof registered>>>();
+  const pending = new Map<
+    string,
+    { fingerprint: string; promise: Promise<ReturnType<typeof registered>> }
+  >();
   const registrations = new Set<AbortController>();
   const authorize = (auth: AuthSession) => {
     if (
@@ -114,6 +119,7 @@ export function createPrMonitorController(options: Options) {
     signal: AbortSignal,
     current: () => void,
     identity: string,
+    quotaScope?: { connectionId: string; principalId?: string },
   ) {
     signal.throwIfAborted();
     current();
@@ -125,20 +131,32 @@ export function createPrMonitorController(options: Options) {
       signal.addEventListener('abort', abort, { once: true });
     });
     let response: GitHubReadResponse;
+    const validateResponse = (result: GitHubReadResponse) => {
+      if (endpoint !== '/user' || result.status !== 200) return;
+      const actual = z
+        .object({ id: z.number().int().positive(), login: z.string() })
+        .parse(result.data);
+      if (actual.login.toLowerCase() !== identity.toLowerCase())
+        throw Error('connection_unavailable');
+    };
     try {
-      response = await Promise.race([options.read(endpoint, signal, current), cancelled]);
+      const transport = () => options.read(endpoint, signal, current);
+      response = await Promise.race([
+        quotaScope
+          ? admission.read(
+              endpoint,
+              { ...quotaScope, signal, assertCurrent: current, background: false, validateResponse },
+              transport,
+            )
+          : transport(),
+        cancelled,
+      ]);
     } finally {
       signal.removeEventListener('abort', abort);
     }
     signal.throwIfAborted();
     current();
-    if (endpoint === '/user' && response.status === 200) {
-      const actual = z
-        .object({ id: z.number().int().positive(), login: z.string() })
-        .parse(response.data);
-      if (actual.login.toLowerCase() !== identity.toLowerCase())
-        throw Error('connection_unavailable');
-    }
+    validateResponse(response);
     return response;
   }
   const runtime = createPrMonitorObservationRuntime({
@@ -193,8 +211,13 @@ export function createPrMonitorController(options: Options) {
         throw Error('request_conflict');
       return registered(auth, conversationId, id);
     }
-    const key = digest([auth.id, conversationId, input]);
-    if (pending.has(key)) return pending.get(key)!;
+    const key = digest([auth.id, conversationId, input.requestId]);
+    const fingerprint = digest(input);
+    const active = pending.get(key);
+    if (active) {
+      if (active.fingerprint !== fingerprint) throw Error('request_conflict');
+      return active.promise;
+    }
     const controller = new AbortController();
     registrations.add(controller);
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]);
@@ -219,15 +242,18 @@ export function createPrMonitorController(options: Options) {
     const operation = (async () => {
       // This first identity probe is part of the explicit interactive registration,
       // never a background read or promotion of an ephemeral GitHub tool grant.
-      const identity = await read('/user', signal, current, original.identity!);
+      const identity = await read('/user', signal, current, original.identity!, {
+        connectionId: input.connectionId,
+      });
       if (identity.status !== 200) throw Error('connection_unavailable');
       const principal = z.object({ id: z.number().int().positive() }).parse(identity.data);
       const principalId = `github:${principal.id}`;
       const endpoint = `/repos/${input.owner}/${input.name}/pulls/${input.pr}`;
-      const first = await read(endpoint, signal, current, original.identity!);
+      const quotaScope = { connectionId: input.connectionId, principalId };
+      const first = await read(endpoint, signal, current, original.identity!, quotaScope);
       if (first.status !== 200) throw Error('pr_unavailable');
       const p = githubMonitorPullSchema.parse(first.data);
-      const final = await read(endpoint, signal, current, original.identity!);
+      const final = await read(endpoint, signal, current, original.identity!, quotaScope);
       if (final.status !== 200 || !isDeepStrictEqual(p, githubMonitorPullSchema.parse(final.data)))
         throw Error('pr_changed');
       if (
@@ -272,7 +298,7 @@ export function createPrMonitorController(options: Options) {
       pending.delete(key);
       registrations.delete(controller);
     });
-    pending.set(key, operation);
+    pending.set(key, { fingerprint, promise: operation });
     return operation;
   }
   return {
@@ -292,7 +318,10 @@ export function createPrMonitorController(options: Options) {
     close: async () => {
       closed = true;
       for (const controller of registrations) controller.abort();
-      await Promise.allSettled([...pending.values(), runtime.close()]);
+      await Promise.allSettled([
+        ...[...pending.values()].map((entry) => entry.promise),
+        runtime.close(),
+      ]);
     },
   };
 }

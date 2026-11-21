@@ -39,6 +39,13 @@ it('keeps bounded status/quota metadata and drops sensitive response headers', (
     'github_response_invalid',
   );
 });
+it('retains HTTP-date Retry-After and refuses ambiguous duplicate metadata', () => {
+  const future = new Date(Date.now()+120000).toUTCString();
+  const parsed = parseGitHubReadResponse(`HTTP/2.0 429 Limited\r\nRetry-After: ${future}\r\n\r\n{}`);
+  expect(parsed.retryAfterMs).toBeGreaterThan(118000);
+  expect(parsed.retryAfterMs).toBeLessThanOrEqual(120000);
+  expect(()=>parseGitHubReadResponse('HTTP/2.0 200 OK\r\nX-RateLimit-Remaining: 2\r\nx-ratelimit-remaining: 3\r\n\r\n{}')).toThrow('github_response_invalid');
+});
 it('verifies authenticated principal and canonical opening PR without trusting review text', async () => {
   const transport = vi.fn(async (endpoint: string) => ({
     status: 200,

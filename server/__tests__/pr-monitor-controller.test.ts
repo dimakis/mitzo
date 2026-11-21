@@ -209,6 +209,7 @@ it('registers a canonical paused PR only after interactive scope review and star
   ).rejects.toThrow();
   expect(f.read).not.toHaveBeenCalled();
   const registered = await f.controller.register(f.login, 'chat', f.input);
+  expect(f.store.githubReadQuota.inspect('github:42').charged).toBe(3);
   expect(registered.projection.subscription).toMatchObject({
     lifecycle: 'paused',
     github: { repositoryId: 'repo-node', prNodeId: 'pr-node', principalId: 'github:42' },
@@ -232,6 +233,29 @@ it('registers a canonical paused PR only after interactive scope review and star
   const view = f.controller.list(f.login, 'chat')[0];
   expect(view.refreshState).toBe('current');
   expect(view.counters.modelTurns).toBe(0);
+  await f.controller.close();
+});
+it('coalesces identical concurrent registrations and charges only the three real foreground reads', async () => {
+  const f = await fixture();
+  const results = await Promise.all(Array.from({length:8},()=>f.controller.register(f.login,'chat',f.input)));
+  expect(results.every(r=>r.projection.subscription.id===results[0].projection.subscription.id)).toBe(true);
+  expect(f.read).toHaveBeenCalledTimes(3);
+  expect(f.store.githubReadQuota.inspect('github:42').charged).toBe(3);
+  expect(results[0].projection.subscription.watch).toBeNull();
+  await f.controller.close();
+});
+it('rejects a conflicting concurrent registration retry before another authenticated read', async () => {
+  const f = await fixture();
+  const original = f.read.getMockImplementation()!;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  f.read.mockImplementationOnce(async (...args) => { await gate; return original(...args); });
+  const first = f.controller.register(f.login, 'chat', f.input);
+  await expect(f.controller.register(f.login, 'chat', {...f.input, pr:8})).rejects.toThrow('request_conflict');
+  expect(f.read).toHaveBeenCalledTimes(1);
+  release();
+  await first;
+  expect(f.store.githubReadQuota.inspect('github:42').charged).toBe(3);
   await f.controller.close();
 });
 it('fences mutable connection/execution state and durable logout before background reads', async () => {

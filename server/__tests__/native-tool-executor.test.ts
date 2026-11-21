@@ -21,7 +21,7 @@ import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { executeSandboxedCommand } from '../sandboxed-command.js';
 import * as nativeFiles from '../native-file-operation.js';
-import { executeTrustedGitCommit, executeTrustedGitHubRead } from '../trusted-native-operation.js';
+import { executeTrustedGitCommit, executeAdmittedGitHubRead as executeTrustedGitHubRead } from '../trusted-native-operation.js';
 import { executePublicGitHubRead } from '../public-github-read.js';
 import { captureLocalRepository } from '../local-repository-worktree.js';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
@@ -43,7 +43,7 @@ vi.mock('../public-github-read.js', () => ({
 }));
 vi.mock('../trusted-native-operation.js', async (importOriginal) => ({
   ...(await importOriginal()),
-  executeTrustedGitHubRead: vi.fn().mockResolvedValue('{"login":"test"}'),
+  executeAdmittedGitHubRead: vi.fn().mockResolvedValue('{"login":"test"}'),
   executeTrustedGitCommit: vi.fn().mockResolvedValue('[branch abc] approved'),
 }));
 import { createNativeToolExecutor } from '../native-tool-executor.js';

@@ -337,16 +337,19 @@ export class PrMonitorObserver {
       });
     } catch (error) {
       // Raw transport/review/log diagnostics never enter retained projection.
+      const message = error instanceof Error
+        ? error.message === 'quota_retention_limit' ? 'retention_limit' : error.message
+        : undefined;
       const known =
-        error instanceof Error &&
+        message &&
         [
           'authority_unavailable',
           'conversation_unavailable',
           'connection_unavailable',
           'quota_delayed',
           'retention_limit',
-        ].includes(error.message)
-          ? (error.message as PrMonitorDiagnostic['code'])
+        ].includes(message)
+          ? (message as PrMonitorDiagnostic['code'])
           : undefined;
       const failure =
         error instanceof ObservationFailure

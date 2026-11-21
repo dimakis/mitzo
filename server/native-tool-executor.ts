@@ -13,7 +13,7 @@ import { nestedRepositoryRefusal } from './nested-repository.js';
 import { currentSdkSecondaryRepositoryTask } from './sdk-secondary-repository.js';
 import {
   executeTrustedGitCommit,
-  executeTrustedGitHubRead,
+  executeAdmittedGitHubRead,
   isTrustedGitHubEndpoint,
 } from './trusted-native-operation.js';
 import { lstat, realpath } from 'node:fs/promises';
@@ -321,7 +321,7 @@ export function createNativeToolExecutor(
         });
         options.registerResponseFence?.(assertReadCurrent);
         const executeRead =
-          input.access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
+          input.access === 'public' ? executePublicGitHubRead : executeAdmittedGitHubRead;
         executionStarted = true;
         readOnlyExecution = true;
         const content = await executeRead(
