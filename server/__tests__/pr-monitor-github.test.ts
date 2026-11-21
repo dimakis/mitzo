@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { parseGitHubReadResponse } from '../github-read-response.js';
 import { createPrMonitorGitHubReader } from '../pr-monitor-github.js';
 import type { PrMonitorReadRequest } from '../pr-monitor-observer.js';
+import { emptyExternalCi } from './fixtures/pr-monitor-external-ci.js';
 const head = 'a'.repeat(40),
   base = 'b'.repeat(40);
 const subscription = {
@@ -80,7 +81,8 @@ it('counts every actual request and uses exact run attempt job endpoints', async
     status: 200,
     headers: {},
     data:
-      endpoint === '/user'
+      emptyExternalCi(endpoint) ??
+      (endpoint === '/user'
         ? { id: 42 }
         : endpoint.includes('/jobs')
           ? {
@@ -103,7 +105,7 @@ it('counts every actual request and uses exact run attempt job endpoints', async
               workflow_runs: [
                 { id: 8, workflow_id: 3, run_number: 4, run_attempt: 2, head_sha: head },
               ],
-            },
+            }),
   }));
   const reader = createPrMonitorGitHubReader({
     transport,
@@ -116,7 +118,7 @@ it('counts every actual request and uses exact run attempt job endpoints', async
     items: [{ id: '10', attempt: 2, status: 'failed', slot: 'workflow:3/job:test (linux)' }],
     hasNext: false,
   });
-  expect(reserve).toHaveBeenCalledTimes(2);
+  expect(reserve).toHaveBeenCalledTimes(5);
   expect(transport.mock.calls[2][0]).toBe(
     '/repos/owner/repo/actions/runs/8/attempts/2/jobs?per_page=100&page=1',
   );
@@ -127,7 +129,8 @@ it('retains a pending workflow when GitHub has not created its jobs yet', async 
       status: 200,
       headers: {},
       data:
-        endpoint === '/user'
+        emptyExternalCi(endpoint) ??
+        (endpoint === '/user'
           ? { id: 42 }
           : endpoint.includes('/jobs')
             ? { total_count: 0, jobs: [] }
@@ -144,7 +147,7 @@ it('retains a pending workflow when GitHub has not created its jobs yet', async 
                     conclusion: null,
                   },
                 ],
-              },
+              }),
     }),
     assertConnection: () => undefined,
     observeQuota: () => undefined,

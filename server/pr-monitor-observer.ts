@@ -4,6 +4,11 @@ import type { PrMonitorDiagnostic, PrMonitorFinding, PrMonitorSubscription } fro
 import type { EventStore } from './event-store.js';
 import { createLogger } from './logger.js';
 import { prMonitorAuthors, type PrMonitorAuthorPolicy } from './pr-monitor-author-policy.js';
+import {
+  externalCiSchema,
+  externalCiFindings,
+  latestExternalCi,
+} from './pr-monitor-external-ci.js';
 const log = createLogger('pr-monitor');
 
 const ref = z.string().min(1).max(200);
@@ -20,7 +25,12 @@ const pullSchema = z.object({
   state: z.enum(['open', 'closed', 'merged']),
 });
 const ciSchema = z.object({
+  source: z.literal('actions').default('actions'),
   id: ref,
+  checkRunId: z
+    .string()
+    .regex(/^[1-9][0-9]*$/)
+    .optional(),
   headSha: sha,
   slot: ref,
   workflowId: ref.optional(),
@@ -203,7 +213,10 @@ export class PrMonitorObserver {
           if (!parsed.hasNext) return items;
         }
       };
-      const ci = opening.state === 'open' ? (await pages('ci')).map((c) => ciSchema.parse(c)) : [];
+      const ci =
+        opening.state === 'open'
+          ? (await pages('ci')).map((c) => z.union([ciSchema, externalCiSchema]).parse(c))
+          : [];
       const reviews =
         opening.state === 'open' ? (await pages('reviews')).map((r) => reviewSchema.parse(r)) : [];
       const closing = pullSchema.parse(await read('pr'));
@@ -213,7 +226,13 @@ export class PrMonitorObserver {
         throw new ObservationFailure('head_changed', 60000);
       const latest = new Map<string, z.infer<typeof ciSchema>>();
       const workflowRuns = new Map<string, z.infer<typeof ciSchema>>();
-      for (const candidate of ci) {
+      const actions = ci.filter((c) => c.source === 'actions');
+      const external = latestExternalCi(
+        ci.filter((c) => c.source !== 'actions'),
+        opening.headSha,
+        actions,
+      );
+      for (const candidate of actions) {
         if (!candidate.workflowId) continue;
         const previous = workflowRuns.get(candidate.workflowId);
         if (
@@ -229,7 +248,7 @@ export class PrMonitorObserver {
         )
           workflowRuns.set(candidate.workflowId, candidate);
       }
-      for (const candidate of ci) {
+      for (const candidate of actions) {
         if (candidate.headSha !== opening.headSha)
           throw new ObservationFailure('incomplete', 60000);
         const newest = candidate.workflowId ? workflowRuns.get(candidate.workflowId) : undefined;
@@ -273,6 +292,8 @@ export class PrMonitorObserver {
             truncated: false,
           });
         }
+      findings.push(...externalCiFindings(external));
+      const currentCi = [...latest.values(), ...external.values()];
       const currentReviews = new Map<string, z.infer<typeof reviewSchema>>();
       const authors = prMonitorAuthors(this.options.eligibleAuthors, s);
       for (const review of reviews) {
@@ -321,12 +342,12 @@ export class PrMonitorObserver {
           baseSha: opening.baseSha,
           complete: true,
           observedAt: this.now(),
-          ci: [...latest.values()].some((j) => j.status === 'failed')
+          ci: currentCi.some((j) => j.status === 'failed')
             ? 'failed'
-            : [...latest.values()].some((j) => j.status === 'pending')
+            : currentCi.some((j) => j.status === 'pending')
               ? 'pending'
-              : latest.size
-                ? [...latest.values()].every((j) => j.status === 'passed')
+              : currentCi.length
+                ? currentCi.every((j) => j.status === 'passed')
                   ? 'passed'
                   : 'partial'
                 : 'none',

@@ -1,12 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../../packages/protocol/src/event-store.js';
 import { createPrMonitorObservationRuntime } from '../pr-monitor-runtime.js';
+import { emptyExternalCi } from './fixtures/pr-monitor-external-ci.js';
 const id = '9c6bb0d4-081f-4f55-86f8-60c703452053',
   head = 'a'.repeat(40),
   base = 'b'.repeat(40);
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
-it.each([0, 3, 5, 7, 8])(
+it.each([0, 3, 4, 5, 7, 8])(
   'composes durable Watch and %i workflows through actual bounded quota admission without a model port',
   async (workflows) => {
     const store = new EventStore(':memory:');
@@ -67,7 +68,8 @@ it.each([0, 3, 5, 7, 8])(
         'x-ratelimit-reset': String(Math.floor(resetAt / 1000)),
       },
       data:
-        endpoint === '/user'
+        emptyExternalCi(endpoint) ??
+        (endpoint === '/user'
           ? { id: 42 }
           : endpoint.includes('/reviews') || endpoint.includes('/comments')
             ? []
@@ -97,7 +99,7 @@ it.each([0, 3, 5, 7, 8])(
                       sha: base,
                       repo: { node_id: 'repo-node', name: 'repo', owner: { login: 'owner' } },
                     },
-                  },
+                  }),
     }));
     const runtime = createPrMonitorObservationRuntime({
       eventStore: store,
@@ -125,22 +127,25 @@ it.each([0, 3, 5, 7, 8])(
     );
     await runtime.reconcileDue();
     const view = store.prMonitor.read('ordinary:user', 'chat', id);
-    if (workflows === 8) {
+    if (workflows > 4) {
       expect(view.refreshState).toBe('partial');
       expect(view.diagnostic?.code).toBe('incomplete');
       expect(view.outbox).toBeNull();
-      expect(transport).toHaveBeenCalledTimes(16);
-      expect(store.githubReadQuota.inspect('github:42').charged).toBe(16);
+      // Large fanout stops at the existing pre-review reserve fence; five
+      // workflows exhaust all 16 calls during closing-head verification.
+      const calls = workflows >= 7 ? workflows + 7 : 16;
+      expect(transport).toHaveBeenCalledTimes(calls);
+      expect(store.githubReadQuota.inspect('github:42').charged).toBe(calls);
       await runtime.close();
       return;
     }
     expect(view.refreshState).toBe('current');
     expect(view.snapshot?.headSha).toBe(head);
     expect(view.counters.modelTurns).toBe(0);
-    expect(transport).toHaveBeenCalledTimes(9 + workflows);
-    expect(store.githubReadQuota.inspect('github:42').charged).toBe(9 + workflows);
+    expect(transport).toHaveBeenCalledTimes(12 + workflows);
+    expect(store.githubReadQuota.inspect('github:42').charged).toBe(12 + workflows);
     await runtime.close();
     await runtime.reconcileDue();
-    expect(transport).toHaveBeenCalledTimes(9 + workflows);
+    expect(transport).toHaveBeenCalledTimes(12 + workflows);
   },
 );

@@ -3,6 +3,7 @@ import { parsePrMonitorCentaur } from './pr-monitor-centaur.js';
 import { prMonitorAuthors, type PrMonitorAuthorPolicy } from './pr-monitor-author-policy.js';
 import type { PrMonitorReadPort, PrMonitorReadRequest } from './pr-monitor-observer.js';
 import type { GitHubReadResponse } from './github-read-response.js';
+import { checkRunIdFromUrl, readPrMonitorExternalCi } from './pr-monitor-external-ci.js';
 const number = z.number().int().positive(),
   sha = z.string().regex(/^[a-f0-9]{40}$/),
   reference = z.string().min(1).max(200);
@@ -38,6 +39,7 @@ const job = z.object({
   run_id: number,
   run_attempt: number,
   completed_at: z.string().nullable(),
+  check_run_url: z.string().optional(),
 });
 const review = z.object({
   id: number,
@@ -90,6 +92,8 @@ export function createPrMonitorGitHubReader(options: {
         const result = await options.transport(endpoint, request.signal, check, request);
         check();
         options.observeQuota(request, result);
+        if (Buffer.byteLength(JSON.stringify(result.data)) > request.maxBytes)
+          throw Error('incomplete');
         return result;
       } finally {
         release?.();
@@ -132,7 +136,7 @@ export function createPrMonitorGitHubReader(options: {
           workflow_runs: z.array(run).max(100),
         })
         .parse(response.data);
-      const items = [];
+      const items: unknown[] = [];
       for (const r of runs.workflow_runs) {
         if (r.head_sha !== request.headSha) throw Error('incomplete');
         const result = await get(
@@ -186,6 +190,7 @@ export function createPrMonitorGitHubReader(options: {
           if (!status) throw Error('incomplete');
           items.push({
             id: String(j.id),
+            ...(j.check_run_url ? { checkRunId: checkRunIdFromUrl(j.check_run_url, root) } : {}),
             headSha: j.head_sha,
             workflowId: `workflow:${r.workflow_id}`,
             slot: `workflow:${r.workflow_id}/job:${j.name}`,
@@ -198,7 +203,22 @@ export function createPrMonitorGitHubReader(options: {
           if (items.length > 100) throw Error('incomplete');
         }
       }
-      return { ...response, data: { items, hasNext: runs.total_count > request.page * 100 } };
+      const external = await readPrMonitorExternalCi({
+        root,
+        headSha: request.headSha,
+        page: request.page,
+        get,
+      });
+      if (external.status !== 200) return external;
+      const page = z
+        .object({ items: z.array(z.unknown()).max(100), hasNext: z.boolean() })
+        .parse(external.data);
+      items.push(...page.items);
+      if (items.length > 100) throw Error('incomplete');
+      return {
+        ...response,
+        data: { items, hasNext: runs.total_count > request.page * 100 || page.hasNext },
+      };
     }
     const response = await get(`${root}/pulls/${g.pr}/reviews?per_page=100&page=${request.page}`);
     if (response.status !== 200) return response;

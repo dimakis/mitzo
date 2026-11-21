@@ -5,6 +5,7 @@ import { createInteractiveAuth } from '../interactive-auth-core.js';
 import type { PrMonitorSubscription } from '@mitzo/protocol';
 import express from 'express';
 import request from 'supertest';
+import { emptyExternalCi } from './fixtures/pr-monitor-external-ci.js';
 import { capabilityFixture } from './fixtures/session-capabilities.js';
 import { SessionCapabilityGrants } from '../session-capability-grants.js';
 import { createSessionCapabilityRouter } from '../session-capability-router.js';
@@ -76,7 +77,8 @@ async function fixture(path = ':memory:') {
         'x-ratelimit-reset': String(resetAt),
       },
       data:
-        endpoint === '/user'
+        emptyExternalCi(endpoint) ??
+        (endpoint === '/user'
           ? { id: 42, login: 'owner' }
           : endpoint.includes('/reviews') || endpoint.includes('/comments')
             ? []
@@ -93,7 +95,7 @@ async function fixture(path = ':memory:') {
                     sha: base,
                     repo: { node_id: 'repo-node', name: 'repo', owner: { login: 'owner' } },
                   },
-                },
+                }),
     };
   });
   let executionAvailable = true;
@@ -186,7 +188,7 @@ it('reconciles a missed push after a cold SQLite/auth restart and honors retaine
   expect(recovered.refreshState).toBe('current');
   expect(recovered.subscription.head).toMatchObject({ sha: 'c'.repeat(40), generation: 2 });
   expect(recovered.counters).toMatchObject({ observations: 2, modelTurns: 0 });
-  expect(f.read).toHaveBeenCalledTimes(9);
+  expect(f.read).toHaveBeenCalledTimes(12);
   f.store.revokeAuthSession(f.login);
   await f.restart();
   now += 120000;
