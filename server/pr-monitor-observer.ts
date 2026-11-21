@@ -227,7 +227,7 @@ export class PrMonitorObserver {
       const latest = new Map<string, z.infer<typeof ciSchema>>();
       const workflowRuns = new Map<string, z.infer<typeof ciSchema>>();
       const actions = ci.filter((c) => c.source === 'actions');
-      const external = latestExternalCi(
+      const { latest: external, mappedChecks } = latestExternalCi(
         ci.filter((c) => c.source !== 'actions'),
         opening.headSha,
         actions,
@@ -278,6 +278,13 @@ export class PrMonitorObserver {
       for (const job of latest.values())
         if (job.status === 'failed') {
           if (!job.completedAt) throw new ObservationFailure('incomplete', 60000);
+          const mapped = job.checkRunId ? mappedChecks.get(job.checkRunId) : undefined;
+          if (mapped) {
+            // Use the same immutable Check finding whether Actions exposes its
+            // explicit mapping this refresh or only in a later observation.
+            findings.push(...externalCiFindings([mapped]));
+            continue;
+          }
           findings.push({
             kind: 'ci_failure',
             sourceIds: [`${job.runId}:${job.attempt}:${job.id}:${job.completedAt}:failed`],
@@ -292,7 +299,7 @@ export class PrMonitorObserver {
             truncated: false,
           });
         }
-      findings.push(...externalCiFindings(external));
+      findings.push(...externalCiFindings(external.values()));
       const currentCi = [...latest.values(), ...external.values()];
       const currentReviews = new Map<string, z.infer<typeof reviewSchema>>();
       const authors = prMonitorAuthors(this.options.eligibleAuthors, s);

@@ -193,7 +193,7 @@ export function latestExternalCi(
   items: ExternalCi[],
   headSha: string,
   actions: ActionCheck[],
-): Map<string, ExternalCi> {
+): { latest: Map<string, ExternalCi>; mappedChecks: Map<string, ExternalCi> } {
   const checks = new Map<string, ExternalCi>();
   const seen = new Set<string>();
   for (const item of items) {
@@ -202,23 +202,23 @@ export function latestExternalCi(
     seen.add(`${item.source}:${item.id}`);
     if (item.source === 'check') checks.set(item.id, item);
   }
-  const mapped = new Set<string>();
+  const mappedChecks = new Map<string, ExternalCi>();
   for (const action of actions) {
     if (!action.checkRunId) continue;
     const c = checks.get(action.checkRunId);
     if (
       !c ||
-      mapped.has(c.id) ||
+      mappedChecks.has(c.id) ||
       action.headSha !== c.headSha ||
       action.status !== c.status ||
       action.completedAt !== c.completedAt
     )
       throw Error('incomplete');
-    mapped.add(c.id);
+    mappedChecks.set(c.id, c);
   }
   const latest = new Map<string, ExternalCi>();
   for (const item of items) {
-    if (item.source === 'check' && mapped.has(item.id)) continue;
+    if (item.source === 'check' && mappedChecks.has(item.id)) continue;
     const prior = latest.get(item.slot);
     if (!prior) {
       latest.set(item.slot, item);
@@ -234,12 +234,12 @@ export function latestExternalCi(
       throw Error('incomplete');
     if (Date.parse(revision) > Date.parse(priorRevision)) latest.set(item.slot, item);
   }
-  return latest;
+  return { latest, mappedChecks };
 }
 
-export function externalCiFindings(latest: Map<string, ExternalCi>): PrMonitorFinding[] {
+export function externalCiFindings(latest: Iterable<ExternalCi>): PrMonitorFinding[] {
   const findings: PrMonitorFinding[] = [];
-  for (const item of latest.values()) {
+  for (const item of latest) {
     if (item.status !== 'failed') continue;
     // Status target_url is producer-controlled and no exact github.com status
     // permalink is supported by the reference contract. Retain diagnostic partial
