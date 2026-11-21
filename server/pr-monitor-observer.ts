@@ -48,6 +48,7 @@ export type PrMonitorReadRequest = {
   maxBytes: 1048576;
   signal: AbortSignal;
   assertCurrent(): void;
+  reserveAdditional(): (() => void) | void;
 };
 /** The authenticated GitHub owner supplies normalized, head-associated evidence.
  * Reviews need structured finding revision/resolution evidence; free text alone
@@ -60,7 +61,7 @@ type Options = {
   store: EventStore['prMonitor'];
   capture(conversationId: string, id: string): Capture;
   read: PrMonitorReadPort;
-  reserve(request: PrMonitorReadRequest): void;
+  reserve(request: PrMonitorReadRequest): (() => void) | void;
   eligibleAuthors: readonly string[];
   now?: () => number;
 };
@@ -129,10 +130,20 @@ export class PrMonitorObserver {
           maxBytes: 1048576,
           signal,
           assertCurrent,
+          reserveAdditional: () => {
+            assertCurrent();
+            if (++requests > 10) throw new ObservationFailure('incomplete', 60000);
+            return this.options.reserve(request);
+          },
         };
-        this.options.reserve(request);
+        const release = this.options.reserve(request);
         assertCurrent();
-        const response = await this.options.read(request);
+        let response: Awaited<ReturnType<PrMonitorReadPort>>;
+        try {
+          response = await this.options.read(request);
+        } finally {
+          release?.();
+        }
         assertCurrent();
         if (
           response.status === 429 ||
