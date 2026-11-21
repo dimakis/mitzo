@@ -1,5 +1,6 @@
 import { OrdinaryCommandWithdrawals } from './ordinary-command-withdrawals.js';
 import { PrMonitorStore } from './pr-monitor-store.js';
+import { GitHubReadQuota } from './github-read-quota.js';
 import { OrdinaryEarlyStarts } from './ordinary-early-starts.js';
 export { DeploymentStore } from './deployment-store.js';
 export {
@@ -623,6 +624,7 @@ export class EventStore {
   }>();
   private db: Database.Database | null;
   readonly prMonitor: PrMonitorStore;
+  readonly githubReadQuota: GitHubReadQuota;
   private readonly sessionOutputs: SessionOutputReferenceStore;
   private readonly sessionCollaborations: SessionCollaborationStore;
   readonly collaborationConversation: CollaborationConversationStore;
@@ -2963,6 +2965,7 @@ export class EventStore {
       db.pragma('foreign_keys = ON');
       db.exec(SCHEMA);
       this.prMonitor = new PrMonitorStore(db);
+      this.githubReadQuota = new GitHubReadQuota(db);
       this.commandWithdrawals = new OrdinaryCommandWithdrawals({
         database: () => this.db!,
         hasConversation: (id) => !!this.getSession(id),
