@@ -102,7 +102,9 @@ export class PrMonitorConsent {
   }
   revoke(auth: AuthSession, input: Revoke) {
     this.interactive(auth);
-    this.subscription(input.conversationId, input.subscriptionId);
+    // Revoking retained operator consent must remain possible after an account,
+    // connection or execution context disappears. Renewal still checks all three.
+    this.ports.store.read('ordinary:user', input.conversationId, input.subscriptionId);
     const fingerprint = createHash('sha256')
       .update(JSON.stringify(['revoke', 'ordinary:user', input]))
       .digest('hex');

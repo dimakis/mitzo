@@ -156,7 +156,11 @@ export function createPrMonitorController(options: Options) {
   }
   const context = (auth: AuthSession, id: string) => {
     authorize(auth);
-    return { executionDigest: digest(options.execution(id)) };
+    try {
+      return { executionAvailable: true, executionDigest: digest(options.execution(id)) };
+    } catch {
+      return { executionAvailable: false, executionDigest: null };
+    }
   };
   async function register(auth: AuthSession, conversationId: string, raw: unknown) {
     const input = PrMonitorRegisterSchema.parse(raw);
@@ -277,7 +281,6 @@ export function createPrMonitorController(options: Options) {
     register,
     list: (auth: AuthSession, id: string) => {
       authorize(auth);
-      options.execution(id);
       return options.eventStore.prMonitor
         .list('ordinary:user', id)
         .map((v) =>

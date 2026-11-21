@@ -86,9 +86,13 @@ async function fixture() {
                 },
     };
   });
+  let executionAvailable = true;
   const controller = createPrMonitorController({
     eventStore: store,
-    execution: () => execution,
+    execution: () => {
+      if (!executionAvailable) throw Error('conversation_unavailable');
+      return execution;
+    },
     connection: () => connection,
     auth: {
       hasPersistentRevocationAuthority: auth.hasPersistentRevocationAuthority,
@@ -115,6 +119,9 @@ async function fixture() {
     execution,
     read,
     input,
+    loseExecution: () => {
+      executionAvailable = false;
+    },
     loseConnection: () => {
       connection = { ...connection, revision: 2 };
     },
@@ -302,6 +309,25 @@ it('connects the real Access registration/consent routes to the existing schedul
     const projection = await request(app).get(`${path}/pr-monitor`);
     expect(projection.body.subscriptions[0].refreshState).toBe('current');
     expect(projection.body.subscriptions[0].counters.modelTurns).toBe(0);
+    f.loseExecution();
+    vi.spyOn(grants, 'list').mockImplementation(() => {
+      throw Error('live context unavailable');
+    });
+    const retained = await request(app).get(`${path}/pr-monitor`);
+    expect(retained.status).toBe(200);
+    expect(retained.body.executionDigest).toBeNull();
+    expect(retained.body.executionAvailable).toBe(false);
+    expect(retained.body.subscriptions[0].subscription.id).toBe(s.id);
+    const revoked = await request(app)
+      .post(`${path}/pr-watch/${s.id}/revoke`)
+      .set('Host', '127.0.0.1')
+      .set('Origin', 'http://127.0.0.1')
+      .set('X-Mitzo-Access-Intent', 'manage-grants')
+      .send({ requestId: 'revoke-offline', expectedRevision: 2, expectedAuthorityRevision: 1 });
+    expect(revoked.status).toBe(200);
+    expect(f.store.prMonitor.read('ordinary:user', 'chat', s.id).subscription.lifecycle).toBe(
+      'paused',
+    );
     await service.cancelSession('chat');
     expect(f.store.prMonitor.read('ordinary:user', 'chat', s.id).subscription.lifecycle).toBe(
       'removed',

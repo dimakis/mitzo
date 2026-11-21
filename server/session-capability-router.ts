@@ -47,6 +47,15 @@ export function createSessionCapabilityRouter(options: {
       return res.status(404).json({ error: 'Conversation not found' });
     if (req.method !== 'GET' && req.get('X-Mitzo-Access-Intent') !== 'manage-grants')
       return res.status(403).json({ error: 'Use the Access controls to change grants' });
+    // Retained status and revocation depend on current interactive operator
+    // authentication, not on a running conversation or available account.
+    if (
+      (req.method === 'GET' && req.path === '/pr-monitor') ||
+      (req.method === 'POST' && /^\/pr-watch\/[a-f0-9-]+\/revoke$/.test(req.path))
+    ) {
+      next();
+      return;
+    }
     try {
       options.grants.list(auth.id, id);
     } catch {
@@ -68,12 +77,10 @@ export function createSessionCapabilityRouter(options: {
         subscriptions: options.monitor.list(auth, id),
       });
     } catch {
-      return res
-        .status(409)
-        .json({
-          code: 'pr_observation_unavailable',
-          error: 'Refresh the conversation and its account before managing Watch.',
-        });
+      return res.status(409).json({
+        code: 'pr_observation_unavailable',
+        error: 'Refresh the conversation and its account before managing Watch.',
+      });
     }
   });
   router.post(
@@ -101,13 +108,11 @@ export function createSessionCapabilityRouter(options: {
           code: 'pr_registration_unavailable',
           conversationId: req.params.id,
         });
-        return res
-          .status(409)
-          .json({
-            code: 'pr_registration_unavailable',
-            error:
-              'Registration was not confirmed. Refresh account/repository access and retry the same request.',
-          });
+        return res.status(409).json({
+          code: 'pr_registration_unavailable',
+          error:
+            'Registration was not confirmed. Refresh account/repository access and retry the same request.',
+        });
       }
     },
   );
