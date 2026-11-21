@@ -447,7 +447,7 @@ export async function maintenanceMain(args: string[]): Promise<void> {
     nativeFence = new Database(plan.native.path, { fileMustExist: true });
     nativeFence.exec('BEGIN IMMEDIATE');
     authorize();
-    persistMaintenanceRequirement(statePath, plan, seal!);
+    persistMaintenanceRequirement(statePath, plan, seal!, true);
     events = new EventStore(plan.events.path);
     authorize();
     const operation = events.deployment.maintenance.adopt(

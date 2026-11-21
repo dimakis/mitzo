@@ -44,18 +44,46 @@ export class AgentCommunicationStore {
       sender_id TEXT NOT NULL,recipient_id TEXT NOT NULL,request_id TEXT NOT NULL,
       fingerprint TEXT NOT NULL,data TEXT NOT NULL,
       transcript_projected INTEGER NOT NULL DEFAULT 0,
+      admission_claimed INTEGER NOT NULL DEFAULT 0,
       UNIQUE(sender_id,request_id));
       CREATE INDEX IF NOT EXISTS agent_communication_recipient ON agent_communication_messages(recipient_id,sequence);`);
-    if (
-      !(
+    const columns = new Set(
+      (
         db.prepare('PRAGMA table_info(agent_communication_messages)').all() as Array<{
           name: string;
         }>
-      ).some((column) => column.name === 'transcript_projected')
-    )
-      db.exec(
-        'ALTER TABLE agent_communication_messages ADD COLUMN transcript_projected INTEGER NOT NULL DEFAULT 0',
-      );
+      ).map((column) => column.name),
+    );
+    for (const column of ['transcript_projected', 'admission_claimed'])
+      if (!columns.has(column))
+        db.exec(
+          `ALTER TABLE agent_communication_messages ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`,
+        );
+  }
+  /** The exclusive database owner calls this once at startup, before any
+   * admission can start. A claim still pending was interrupted mid-admission:
+   * its effect is unknown, so it becomes uncertain and is never re-admitted.
+   * A queued message without a durable ordinary command was held only by the
+   * previous process's live query (active-turn steering), so it is unknown too.
+   * Durable queued commands keep their own recovery owner. */
+  recoverInterruptedAdmissions(hasDurableCommand: (commandId: string) => boolean): void {
+    this.db
+      .transaction(() => {
+        const rows = this.db
+          .prepare(
+            "SELECT data FROM agent_communication_messages WHERE admission_claimed=1 AND json_extract(data,'$.message.status') IN ('pending','queued')",
+          )
+          .all() as Array<{ data: string }>;
+        for (const row of rows) {
+          const value = Retained.parse(JSON.parse(row.data));
+          if (value.message.status === 'queued' && hasDurableCommand(value.message.commandId))
+            continue;
+          value.message.status = 'uncertain';
+          value.message.reason = 'admission_uncertain';
+          this.save(value);
+        }
+      })
+      .immediate();
   }
   /** Upgrade visibility only, never re-enqueue old or uncertain native input. */
   backfillTranscript(): void {
@@ -219,16 +247,51 @@ export class AgentCommunicationStore {
       .get(id.parse(sender), z.uuid().parse(requestId)) as { data: string } | undefined;
     return row ? Retained.parse(JSON.parse(row.data)).message : undefined;
   }
-  /** CAS uncertainty precedes every admission effect. Replays can only inspect. */
+  /** A durable CAS claim precedes every admission effect. Replays can only
+   * inspect. The public receipt stays pending (in flight) while this process
+   * owns the admission; settleAdmission records its outcome, and startup
+   * recovery turns an interrupted claim into uncertain. */
   claim(messageId: string): boolean {
     return this.db
       .transaction(() => {
         const value = this.retained(messageId);
         if (value.message.status !== 'pending') return false;
-        value.message.status = 'uncertain';
-        value.message.reason = 'admission_uncertain';
+        return (
+          this.db
+            .prepare(
+              'UPDATE agent_communication_messages SET admission_claimed=1 WHERE message_id=? AND admission_claimed=0',
+            )
+            .run(value.message.messageId).changes === 1
+        );
+      })
+      .immediate();
+  }
+  /** Proof for an admission owner that this message holds a live claim whose
+   * outcome is not yet recorded. Recovered (uncertain) claims never qualify. */
+  admissionInFlight(messageId: string): boolean {
+    const row = this.db
+      .prepare('SELECT admission_claimed FROM agent_communication_messages WHERE message_id=?')
+      .get(z.uuid().parse(messageId)) as { admission_claimed: number } | undefined;
+    return row?.admission_claimed === 1 && this.retained(messageId).message.status === 'pending';
+  }
+  /** The claiming admission owner records what its adapter established. It only
+   * replaces the claim's own in-flight state: a runtime-owned terminal outcome
+   * (including uncertainty after query retirement) is never overwritten. */
+  settleAdmission(
+    messageId: string,
+    status: 'queued' | 'failed' | 'uncertain',
+    reason: AgentMessage['reason'] = null,
+  ): void {
+    this.db
+      .transaction(() => {
+        const row = this.db
+          .prepare('SELECT admission_claimed FROM agent_communication_messages WHERE message_id=?')
+          .get(z.uuid().parse(messageId)) as { admission_claimed: number } | undefined;
+        const value = this.retained(messageId);
+        const { message } = value;
+        if (row?.admission_claimed !== 1 || message.status !== 'pending') return;
+        value.message = AgentMessageSchema.parse({ ...message, status, reason });
         this.save(value);
-        return true;
       })
       .immediate();
   }
