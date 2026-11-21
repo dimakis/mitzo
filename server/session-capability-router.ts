@@ -84,15 +84,13 @@ export function createSessionCapabilityRouter(options: {
       if (!parsed.success || !z.uuid().safeParse(req.params.subscriptionId).success)
         return res.status(400).json({ code: 'invalid_watch_request' });
       if (!requireRecentConnectionAuthorization(res, parsed.data.csrf ?? '')) return;
-      const input = watchChange
-        .omit({ csrf: true })
-        .parse({
-          requestId: parsed.data.requestId,
-          expectedRevision: parsed.data.expectedRevision,
-          expectedAuthorityRevision: parsed.data.expectedAuthorityRevision,
-          durationMinutes: parsed.data.durationMinutes,
-          reviewedScope: parsed.data.reviewedScope,
-        });
+      const input = watchChange.omit({ csrf: true }).parse({
+        requestId: parsed.data.requestId,
+        expectedRevision: parsed.data.expectedRevision,
+        expectedAuthorityRevision: parsed.data.expectedAuthorityRevision,
+        durationMinutes: parsed.data.durationMinutes,
+        reviewedScope: parsed.data.reviewedScope,
+      });
       try {
         return res.status(201).json(
           options.grants.issuePrWatch(auth, {
