@@ -19,6 +19,7 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import process from 'node:process';
 import console from 'node:console';
+import { dependencyIdentity, dependencyStoreRoot, restoreDependencySet } from './lib/dependency-store.mjs';
 
 const execute = promisify(execFile);
 
@@ -190,10 +191,11 @@ function meetsMinimum(version, requirement) {
   }
   return true;
 }
-/** Run inside the selected development workspace; never use a host node_modules copy. */
+/** Run inside the selected task. Only the verified host store may seed a private clone. */
 export async function prepareDevelopment({
   cwd = process.cwd(),
   install = false,
+  dependencyStore = dependencyStoreRoot(),
   run = async (command, args, options) => {
     const result = await execute(command, args, { ...options, encoding: 'utf8' });
     return { stdout: String(result.stdout), stderr: String(result.stderr) };
@@ -207,6 +209,7 @@ export async function prepareDevelopment({
   let effectStatus = 'not_started';
   let temporary;
   let pendingError;
+  let storeResult = { status: 'not_requested' };
   try {
     const available = await freeBytes();
     if (available < 2 * 1024 ** 3)
@@ -221,6 +224,11 @@ export async function prepareDevelopment({
       ['package.json', 'package-lock.json'].map((name) => readFile(join(cwd, name), 'utf8')),
     );
     const { engines } = JSON.parse(manifest);
+    if (install && dependencyStore !== false) {
+      phase = 'dependency_store';
+      storeResult = await restoreDependencySet({ store: dependencyStore, cwd });
+      if (storeResult.status === 'hit') effectStatus = 'may_have_changed';
+    }
     phase = 'environment';
     const tools = await directory(cwd, '.mitzo-devtools');
     const environment = {
@@ -235,11 +243,22 @@ export async function prepareDevelopment({
     temporary = await mkdtemp(join(environment.tmp, 'install-'));
     await writeFile(join(temporary, 'user.npmrc'), '');
     await writeFile(join(temporary, 'global.npmrc'), '');
-    // Only the executable search path and Windows platform location are inherited.
+    // Only executable/platform settings and the sandbox's loopback network
+    // transport are inherited. Without its proxy npm attempts denied direct DNS.
     // HOME, temp, npm, node-gyp and XDG writes all belong to the selected task.
     const env = Object.fromEntries(
       ['PATH', 'SystemRoot'].flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])),
     );
+    for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']) {
+      const value = process.env[key];
+      if (!value) continue;
+      let proxy;
+      try { proxy = new URL(value); }
+      catch { continue; } // An optional non-URL proxy is not an admitted transport.
+      if (['http:', 'https:'].includes(proxy.protocol) &&
+          ['localhost', '127.0.0.1', '[::1]'].includes(proxy.hostname) && proxy.port &&
+          proxy.pathname === '/' && !proxy.search && !proxy.hash) env[key] = value;
+    }
     Object.assign(env, {
       HOME: environment.home,
       USERPROFILE: environment.home,
@@ -412,6 +431,7 @@ export async function prepareDevelopment({
         prerequisites,
         manifest,
         lockfile,
+        dependencyKey: await dependencyIdentity(cwd, runtime),
       }),
     );
     environment.cache = await directory(tools, 'cache', 'dependencies', installationIdentity);
@@ -431,7 +451,7 @@ export async function prepareDevelopment({
         node,
         [
           '-e',
-          "const Database = require('better-sqlite3'); new Database(':memory:').close(); require('node-pty'); require.resolve('vitest'); require.resolve('typescript'); require.resolve('vite');",
+          "const Database = require('better-sqlite3'); new Database(':memory:').close(); require('node-pty'); require.resolve('vitest'); require.resolve('typescript'); require.resolve('vite'); if (require('node:fs').existsSync('packages/sqlite-file-owner/package.json')) require('./packages/sqlite-file-owner/build/Release/mitzo_sqlite_file_owner.node');",
         ],
         options,
       );
@@ -447,7 +467,7 @@ export async function prepareDevelopment({
         'Development setup has no unchanged verified installation. Run npm run setup:dev -- --install in this task.',
       );
     let reused = false;
-    if (install && unchanged) {
+    if (install && (unchanged || storeResult.status === 'hit')) {
       phase = 'verification';
       try {
         await verify();
@@ -462,6 +482,7 @@ export async function prepareDevelopment({
           )
         )
           throw classified;
+        if (storeResult.status === 'hit') storeResult = { ...storeResult, status: 'rejected', reason: 'native_probe_failed' };
       }
     }
     if (install && !reused) {
@@ -515,6 +536,7 @@ export async function prepareDevelopment({
       environment,
       installationIdentity,
       reused,
+      dependencyStore: storeResult,
     };
   } catch (cause) {
     pendingError = failure(phase, cause, 'Development setup failed.', effectStatus);
