@@ -1,9 +1,24 @@
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, realpath, symlink, chmod, rm, readdir } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  realpath,
+  symlink,
+  chmod,
+  rm,
+  readdir,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { dependencyIdentity, publishDependencySet, restoreDependencySet, pruneDependencyStore } from '../lib/dependency-store.mjs';
+import {
+  dependencyIdentity,
+  publishDependencySet,
+  restoreDependencySet,
+  pruneDependencyStore,
+} from '../lib/dependency-store.mjs';
 
 const roots = [];
 afterEach(async () => {
@@ -13,7 +28,8 @@ afterEach(async () => {
       const info = await lstat(path);
       if (info.isSymbolicLink()) return;
       await chmod(path, info.isDirectory() ? 0o755 : 0o644);
-      if (info.isDirectory()) for (const name of await readdir(path)) await writable(join(path, name));
+      if (info.isDirectory())
+        for (const name of await readdir(path)) await writable(join(path, name));
     };
     await writable(root);
     await rm(root, { recursive: true, force: true });
@@ -26,11 +42,13 @@ async function fixture() {
   const store = join(root, 'store');
   const cwd = join(store, '.builds', 'trusted');
   const manifest = JSON.stringify({ name: 'fixture', workspaces: ['packages/*'] });
-  const lock = JSON.stringify({ packages: {
-    '': { name: 'fixture' },
-    'packages/example': { name: '@mitzo/example' },
-    'node_modules/@mitzo/example': { resolved: 'packages/example', link: true },
-  } });
+  const lock = JSON.stringify({
+    packages: {
+      '': { name: 'fixture' },
+      'packages/example': { name: '@mitzo/example' },
+      'node_modules/@mitzo/example': { resolved: 'packages/example', link: true },
+    },
+  });
   const source = async (path) => {
     await mkdir(join(path, 'packages/example'), { recursive: true });
     await mkdir(join(path, 'packages/sqlite-file-owner'), { recursive: true });
@@ -51,7 +69,8 @@ async function fixture() {
   await writeFile(join(cwd, toolchain, 'receipt.json'), 'verified-toolchain');
   await mkdir(join(cwd, 'packages/sqlite-file-owner/build/Release'), { recursive: true });
   await writeFile(join(cwd, 'packages/sqlite-file-owner/build/Release/addon.node'), 'native');
-  const publish = () => publishDependencySet({ store, cwd, runtime, toolchain, verify: async () => ({ ready: true }) });
+  const publish = () =>
+    publishDependencySet({ store, cwd, runtime, toolchain, verify: async () => ({ ready: true }) });
   return { root, store, cwd, target, source, toolchain, publish };
 }
 
@@ -63,14 +82,23 @@ it('clones a verified entry privately with session-local workspace links and nat
   assert.equal(restored.status, 'hit');
   assert.equal(restored.key, entry.key);
   assert.ok(performance.now() - start < 60_000);
-  assert.equal(await realpath(join(f.target, 'node_modules/@mitzo/example')), join(f.target, 'packages/example'));
+  assert.equal(
+    await realpath(join(f.target, 'node_modules/@mitzo/example')),
+    join(f.target, 'packages/example'),
+  );
   const second = join(f.root, 'second');
   await f.source(second);
   await restoreDependencySet({ store: f.store, cwd: second });
   await writeFile(join(f.target, 'node_modules/value'), 'session-only');
   assert.equal(await readFile(join(second, 'node_modules/value'), 'utf8'), 'original');
-  assert.equal(await readFile(join(f.store, 'entries', entry.key, 'payload/node_modules/value'), 'utf8'), 'original');
-  assert.equal(await readFile(join(f.target, 'packages/sqlite-file-owner/build/Release/addon.node'), 'utf8'), 'native');
+  assert.equal(
+    await readFile(join(f.store, 'entries', entry.key, 'payload/node_modules/value'), 'utf8'),
+    'original',
+  );
+  assert.equal(
+    await readFile(join(f.target, 'packages/sqlite-file-owner/build/Release/addon.node'), 'utf8'),
+    'native',
+  );
 });
 
 it('keys the lockfile, runtime and native workspace source, excluding generated output', async () => {
@@ -85,8 +113,28 @@ it('keys the lockfile, runtime and native workspace source, excluding generated 
 
 it('refuses promotion from session-owned paths and failed verification', async () => {
   const f = await fixture();
-  await assert.rejects(publishDependencySet({ store: f.store, cwd: f.target, runtime, toolchain: f.toolchain, verify: async () => ({ ready: true }) }), { code: 'untrusted_build' });
-  await assert.rejects(publishDependencySet({ store: f.store, cwd: f.cwd, runtime, toolchain: f.toolchain, verify: async () => { throw Error('native probe failed'); } }), /native probe failed/);
+  await assert.rejects(
+    publishDependencySet({
+      store: f.store,
+      cwd: f.target,
+      runtime,
+      toolchain: f.toolchain,
+      verify: async () => ({ ready: true }),
+    }),
+    { code: 'untrusted_build' },
+  );
+  await assert.rejects(
+    publishDependencySet({
+      store: f.store,
+      cwd: f.cwd,
+      runtime,
+      toolchain: f.toolchain,
+      verify: async () => {
+        throw Error('native probe failed');
+      },
+    }),
+    /native probe failed/,
+  );
   assert.equal((await restoreDependencySet({ store: f.store, cwd: f.target })).status, 'miss');
 });
 

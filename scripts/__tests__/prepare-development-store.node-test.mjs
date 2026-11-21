@@ -1,6 +1,16 @@
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { prepareDevelopment } from '../prepare-development.mjs';
@@ -27,7 +37,10 @@ async function fixture() {
   const cwd = join(store, '.builds', 'trusted');
   async function source(path) {
     await mkdir(path, { recursive: true });
-    await writeFile(join(path, 'package.json'), JSON.stringify({ engines: { node: '>=24', npm: '>=11.18.0' } }));
+    await writeFile(
+      join(path, 'package.json'),
+      JSON.stringify({ engines: { node: '>=24', npm: '>=11.18.0' } }),
+    );
     await writeFile(join(path, 'package-lock.json'), '{}');
   }
   await source(cwd);
@@ -40,7 +53,8 @@ async function fixture() {
     if (args[0] === 'install') {
       const toolchain = args[args.indexOf('--prefix') + 1];
       await mkdir(join(toolchain, 'node_modules/.bin'), { recursive: true });
-      for (const name of ['node', 'npm']) await writeFile(join(toolchain, 'node_modules/.bin', name), name);
+      for (const name of ['node', 'npm'])
+        await writeFile(join(toolchain, 'node_modules/.bin', name), name);
       await mkdir(join(toolchain, 'node_modules/npm/lib'), { recursive: true });
       await writeFile(join(toolchain, 'node_modules/npm/lib/index.js'), 'verified-npm');
       await writeFile(join(toolchain, 'package-lock.json'), '{}');
@@ -51,18 +65,51 @@ async function fixture() {
       brokenProbe = false;
     }
     if (args[0] === '-e' && brokenProbe) throw Error('native probe failed');
-    return { stdout: args[0] === '-p'
-      ? JSON.stringify({ platform: process.platform, arch: process.arch, abi: process.versions.modules })
-      : args[0] === '--version' ? (command.endsWith('npm') ? '11.18.0' : 'v24.10.0') : '', stderr: '' };
+    return {
+      stdout:
+        args[0] === '-p'
+          ? JSON.stringify({
+              platform: process.platform,
+              arch: process.arch,
+              abi: process.versions.modules,
+            })
+          : args[0] === '--version'
+            ? command.endsWith('npm')
+              ? '11.18.0'
+              : 'v24.10.0'
+            : '',
+      stderr: '',
+    };
   }
-  const options = { cwd, run, install: true, dependencyStore: store, freeBytes: async () => 8 * 1024 ** 3 };
-  return { root, cwd, store, source, calls, options,
-    goOffline: () => { offline = true; }, breakProbe: () => { brokenProbe = true; } };
+  const options = {
+    cwd,
+    run,
+    install: true,
+    dependencyStore: store,
+    freeBytes: async () => 8 * 1024 ** 3,
+  };
+  return {
+    root,
+    cwd,
+    store,
+    source,
+    calls,
+    options,
+    goOffline: () => {
+      offline = true;
+    },
+    breakProbe: () => {
+      brokenProbe = true;
+    },
+  };
 }
 
 it('preserves only the sandbox loopback proxy while excluding unrelated credentials', async () => {
   const f = await fixture();
-  const previous = { HTTPS_PROXY: process.env.HTTPS_PROXY, OPENAI_API_KEY: process.env.OPENAI_API_KEY };
+  const previous = {
+    HTTPS_PROXY: process.env.HTTPS_PROXY,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  };
   process.env.HTTPS_PROXY = 'http://session:private-proxy-token@localhost:43123';
   process.env.OPENAI_API_KEY = 'must-not-reach-npm';
   try {
@@ -72,7 +119,8 @@ it('preserves only the sandbox loopback proxy while excluding unrelated credenti
     assert.equal(install.env.OPENAI_API_KEY, undefined);
   } finally {
     for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
   }
 });
@@ -81,7 +129,9 @@ it('a verified host miss becomes an offline hit in a fresh task, including its t
   const f = await fixture();
   const first = await prepareDevelopment(f.options);
   assert.equal(first.dependencyStore.status, 'miss');
-  await publishDependencySet({ store: f.store, cwd: f.cwd,
+  await publishDependencySet({
+    store: f.store,
+    cwd: f.cwd,
     runtime: { platform: first.platform, arch: first.arch, abi: first.abi },
     toolchain: relative(f.cwd, resolve(first.toolchainPath, '../..')),
     verify: () => prepareDevelopment({ ...f.options, install: false }),
@@ -97,13 +147,18 @@ it('a verified host miss becomes an offline hit in a fresh task, including its t
   assert.ok(performance.now() - started < 60_000);
   assert.ok(!f.calls.some(({ args }) => ['ci', 'install'].includes(args[0])));
   assert.ok(f.calls.some(({ args }) => args[0] === '-e'));
-  assert.ok(JSON.parse(await readFile(join(target, '.mitzo-devtools/readiness.json'), 'utf8')).installationIdentity);
+  assert.ok(
+    JSON.parse(await readFile(join(target, '.mitzo-devtools/readiness.json'), 'utf8'))
+      .installationIdentity,
+  );
 });
 
 it('a failed cache native probe falls back to the isolated install and reports the rejection', async () => {
   const f = await fixture();
   const first = await prepareDevelopment(f.options);
-  await publishDependencySet({ store: f.store, cwd: f.cwd,
+  await publishDependencySet({
+    store: f.store,
+    cwd: f.cwd,
     runtime: { platform: first.platform, arch: first.arch, abi: first.abi },
     toolchain: relative(f.cwd, resolve(first.toolchainPath, '../..')),
     verify: () => prepareDevelopment({ ...f.options, install: false }),

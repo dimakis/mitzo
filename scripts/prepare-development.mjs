@@ -19,7 +19,11 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import process from 'node:process';
 import console from 'node:console';
-import { dependencyIdentity, dependencyStoreRoot, restoreDependencySet } from './lib/dependency-store.mjs';
+import {
+  dependencyIdentity,
+  dependencyStoreRoot,
+  restoreDependencySet,
+} from './lib/dependency-store.mjs';
 
 const execute = promisify(execFile);
 
@@ -253,11 +257,20 @@ export async function prepareDevelopment({
       const value = process.env[key];
       if (!value) continue;
       let proxy;
-      try { proxy = new URL(value); }
-      catch { continue; } // An optional non-URL proxy is not an admitted transport.
-      if (['http:', 'https:'].includes(proxy.protocol) &&
-          ['localhost', '127.0.0.1', '[::1]'].includes(proxy.hostname) && proxy.port &&
-          proxy.pathname === '/' && !proxy.search && !proxy.hash) env[key] = value;
+      try {
+        proxy = new URL(value);
+      } catch {
+        continue;
+      } // An optional non-URL proxy is not an admitted transport.
+      if (
+        ['http:', 'https:'].includes(proxy.protocol) &&
+        ['localhost', '127.0.0.1', '[::1]'].includes(proxy.hostname) &&
+        proxy.port &&
+        proxy.pathname === '/' &&
+        !proxy.search &&
+        !proxy.hash
+      )
+        env[key] = value;
     }
     Object.assign(env, {
       HOME: environment.home,
@@ -482,7 +495,8 @@ export async function prepareDevelopment({
           )
         )
           throw classified;
-        if (storeResult.status === 'hit') storeResult = { ...storeResult, status: 'rejected', reason: 'native_probe_failed' };
+        if (storeResult.status === 'hit')
+          storeResult = { ...storeResult, status: 'rejected', reason: 'native_probe_failed' };
       }
     }
     if (install && !reused) {
