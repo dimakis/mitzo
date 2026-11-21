@@ -54,6 +54,22 @@ Centaur baseline review `6007096666` independently identified the lifecycle race
 as `CEN-C9E8F4BBD574`. Two further full-mode microtask regressions cover retirement
 after each authorization returns; the updated 28-case contract suite passes.
 
+At published head `d88b662f20bd77cf9f06e6f2b04c6ee72886bf63`, CI run
+`44932688769` passed and Centaur final review `6007185036` recommended merge with
+zero new or unresolved blocking findings. The App-bound final LGTM status passed.
+These are retained baseline results, not approval of later integration commits.
+
+Local integration of accepted main `9fa5d6fa6da8bfd0e54b8cb544b4f4329342bd76`
+(#1425) resolves the shared registry revision conflict while retaining both sets
+of fingerprints. The upstream change projects admitted command/account/model
+identity onto trace spans; it does not supply occupancy or replace the snapshot's
+owner binding. Its `chat.ts`/`query-loop.ts` changes and attribution fixtures were
+inspected alongside the wrapper/control probes. Publication of this integration
+is held for the coordinator's selected landing slot; the final combined candidate
+still requires CI and targeted Centaur integration verification.
+The integrated six-suite offline run passed **82 tests**; focused strict
+TypeScript, source fingerprints, registry formatting and whitespace checks passed.
+
 Not qualified: real SDK CLI control execution, summary/full latency or cost,
 model-specific context limits, ordinary OpenShell event transport, ordinary
 Claude/OpenShell runtime, endpoint delivery, source drilldown authorization or
