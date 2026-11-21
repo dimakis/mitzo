@@ -67,10 +67,18 @@ export function checkRunIdFromUrl(value: string, root: string): string {
   return id;
 }
 function checkReference(value: string | null, root: string, id: number): string | null {
-  const canonical = `https://github.com${root.slice('/repos'.length)}/runs/${id}`;
+  const repository = `https://github.com${root.slice('/repos'.length)}/`;
+  const canonical = `${repository}runs/${id}`;
   // GitHub adds this navigation-only query to check html_url. No producer URL,
   // arbitrary query, fragment, redirect or external details_url is accepted.
-  return value === canonical || value === `${canonical}?check_suite_focus=true` ? canonical : null;
+  if (value === canonical || value === `${canonical}?check_suite_focus=true`) return canonical;
+  // Actions-owned Checks use GitHub's job permalink in html_url. The API record
+  // supplies its association; a later job.check_run_url mapping must agree with
+  // these exact run/job identities. Do not assume job ID equals check ID.
+  const actions = value?.startsWith(repository)
+    ? /^actions\/runs\/([1-9][0-9]*)\/job\/([1-9][0-9]*)$/.exec(value.slice(repository.length))
+    : null;
+  return actions && actions.slice(1).every((n) => Number.isSafeInteger(Number(n))) ? value : null;
 }
 function checkState(status: string, conclusion: string | null): z.infer<typeof state> {
   if (status !== 'completed') {
@@ -180,6 +188,7 @@ export async function readPrMonitorExternalCi(options: {
 
 type ActionCheck = {
   id: string;
+  runId: string;
   headSha: string;
   checkRunId?: string;
   status: string;
@@ -213,6 +222,12 @@ export function latestExternalCi(
       action.status !== c.status ||
       action.completedAt !== c.completedAt
     )
+      throw Error('incomplete');
+    const permalink =
+      c.source === 'check' && c.referenceUrl
+        ? /\/actions\/runs\/([1-9][0-9]*)\/job\/([1-9][0-9]*)$/.exec(c.referenceUrl)
+        : null;
+    if (permalink && (permalink[1] !== action.runId || permalink[2] !== action.id))
       throw Error('incomplete');
     mappedChecks.set(c.id, c);
   }

@@ -506,6 +506,40 @@ it('keeps one immutable failure identity when the explicit Actions mapping appea
   expect(f.view().counters.distinctEvents).toBe(1);
 });
 
+it('accepts the actual GitHub Actions check html_url shape and preserves its canonical finding across mapping discovery', async () => {
+  // Qualified against #1432 /commits/7f4c572.../check-runs: GitHub emits
+  // /actions/runs/44940682630/job/136957780129, not /runs/CHECK_ID.
+  const f = fixture();
+  await f.observe();
+  f.state.checks = [check({ html_url: 'https://github.com/owner/repo/actions/runs/1/job/10' })];
+  await f.observe();
+  const prior = f.view();
+  expect(prior.events).toHaveLength(1);
+  expect(prior.events[0].references).toEqual([
+    { kind: 'check', id: '51', url: 'https://github.com/owner/repo/actions/runs/1/job/10' },
+  ]);
+  f.state.workflows = 1;
+  f.state.mapped = true;
+  await f.observe();
+  expect(f.view().refreshState).toBe('current');
+  expect(f.view().events).toEqual(prior.events);
+});
+
+it.each([
+  'https://github.com/owner/repo/actions/runs/2/job/10',
+  'https://github.com/owner/repo/actions/runs/1/job/11',
+  'https://github.com/other/repo/actions/runs/1/job/10',
+  'https://github.com/owner/repo/actions/runs/1/job/10?evil=true',
+])('rejects conflicting Actions check permalink mapping: %s', async (html_url) => {
+  const f = fixture();
+  f.state.workflows = 1;
+  f.state.mapped = true;
+  f.state.checks = [check({ html_url })];
+  await f.observe();
+  expect(f.view().refreshState).toBe('partial');
+  expect(f.view().outbox).toBeNull();
+});
+
 it.each([
   'https://api.github.com/repos/other/repo/check-runs/51',
   'https://api.github.com/repos/owner/repo/check-runs/52',
