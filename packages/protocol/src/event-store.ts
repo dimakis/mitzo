@@ -1,4 +1,5 @@
 import { OrdinaryCommandWithdrawals } from './ordinary-command-withdrawals.js';
+import { PrMonitorStore } from './pr-monitor-store.js';
 import { OrdinaryEarlyStarts } from './ordinary-early-starts.js';
 export { DeploymentStore } from './deployment-store.js';
 export {
@@ -621,6 +622,7 @@ export class EventStore {
     used: boolean;
   }>();
   private db: Database.Database | null;
+  readonly prMonitor: PrMonitorStore;
   private readonly sessionOutputs: SessionOutputReferenceStore;
   private readonly sessionCollaborations: SessionCollaborationStore;
   readonly collaborationConversation: CollaborationConversationStore;
@@ -2960,6 +2962,7 @@ export class EventStore {
       db.pragma('journal_mode = WAL');
       db.pragma('foreign_keys = ON');
       db.exec(SCHEMA);
+      this.prMonitor = new PrMonitorStore(db);
       this.commandWithdrawals = new OrdinaryCommandWithdrawals({
         database: () => this.db!,
         hasConversation: (id) => !!this.getSession(id),
