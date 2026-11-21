@@ -6,7 +6,7 @@ const id = '9c6bb0d4-081f-4f55-86f8-60c703452053',
   base = 'b'.repeat(40);
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
-it.each([0, 3])(
+it.each([0, 3, 5])(
   'composes durable Watch and %i workflows through actual bounded quota admission without a model port',
   async (workflows) => {
     const store = new EventStore(':memory:');

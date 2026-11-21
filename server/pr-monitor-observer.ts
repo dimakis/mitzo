@@ -197,7 +197,7 @@ export class PrMonitorObserver {
       const pages = async (resource: 'ci' | 'reviews') => {
         const items: unknown[] = [];
         for (let page = 1; ; page++) {
-          if (requests >= 9) throw new ObservationFailure('incomplete', 60000);
+          if (requests >= 14) throw new ObservationFailure('incomplete', 60000);
           const parsed = pageSchema.parse(await read(resource, page, opening.headSha));
           items.push(...parsed.items);
           if (!parsed.hasNext) return items;

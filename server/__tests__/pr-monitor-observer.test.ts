@@ -327,7 +327,7 @@ it('bounds pagination and preserves explicit partial state', async () => {
     data: r.resource === 'pr' ? pr : { items: [], hasNext: true },
   }));
   await f.observe();
-  expect(f.read.mock.calls.length).toBeLessThanOrEqual(10);
+  expect(f.read.mock.calls.length).toBeLessThanOrEqual(16);
   expect(f.view().diagnostic?.code).toBe('incomplete');
 });
 it('retains the exact issue comment reference for the latest eligible Centaur report', async () => {
