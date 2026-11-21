@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1271-symposium-chat-identity';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1272-symposium-mobile-freshness';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/offline/session-library-shared-identity.spec.ts':
+    '16872a37fbcadcb3d6975060b0f6c10a844fbe51daa8691936984041b6e65d11',
   '../../frontend/src/components/SharedConversationMarker.tsx':
     '3866a8804e0a3e4d37accceff5e3d382bb73e4f1b265f84d170e5e7d10404fb9',
   '../../frontend/src/components/SharedConversationMarker.css':
@@ -33,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationTree.tsx':
     '836489452347fd25918f0bf4a5c8c0036d29b1ae88acd68216c4c2a92894f52b',
   '../../docs/evidence/symposium-chat-identity-2026-11-21.md':
-    'a15cfac8b82193e3723080c1e9cba8a74cdd9491ec19d321e6c27695cce13238',
+    '6ea507791d47de2741cd5842942d72ba0f4626f9b24d1e5183a36ec87fe5ddf4',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -367,7 +370,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ContextPanel.tsx':
     'e64b65ff9dbb4e5d7e686f189f92c9105b18a8b8edf5433de772515c1d374107',
   '../../frontend/src/components/ConversationAgents.css':
-    '03ade5a5f24397a8290f4607ec7f47ad096efafda24a85cc94cb595e90f5bbe2',
+    'ba087fe1666deb54b10b6ffbe641160e734fca3c1313989b888bfe147c3bbd56',
   '../../frontend/src/components/ConversationAgents.tsx':
     '7c120afcd32aad9a33cb89dfe2cc3d1584d750da3cea58b74201a9d8cca40e0c',
   '../../frontend/src/components/ConversationContextUsage.css':
@@ -2335,7 +2338,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/session-launch.spec.ts':
     'a34f34dd777c1aecaf590c18bd96c44312c0d1c2270e1a3d5f23a947afa83bd4',
   '../../tests/offline/session-library.spec.ts':
-    '3166acdbb9a976d18a9beaaa9d4736c83cc3857479e7b20cb0e35e5b1ddc9067',
+    '4ecdc4ffa1e62dd21d7ef4f061e21c2776709ccb770e0fbd48b6cb9168856ff5',
   '../../tests/offline/session-timers.spec.ts':
     '8d4893464d480106a6938ca298e376766a3058c6862669363da6492ef0403752',
   '../../tests/offline/steering-failure-reference.spec.ts':
@@ -2349,7 +2352,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-joining-review.spec.ts':
     'a358613009c080cd19182eebae43bb62ebf79739ac4e8e0efee5598a1279f61d',
   '../../tests/offline/symposium-ordinary-surface.spec.ts':
-    '8e233b66b754d958f5e56792fa23f3dee13e39472968c156665d96e6da35d1d2',
+    '06590565fc4ecd922f9018b8df8c419f77e672afe1b79ec2d2ced1b7f70a834f',
   '../../tests/offline/symposium-search-navigation.spec.ts':
     '5a206dc73514ad3fee0006045ab5da1c96abbf2b105969e439474c52fafd5be9',
   '../../tests/offline/symposium-shared-conversation.spec.ts':

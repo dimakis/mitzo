@@ -65,3 +65,34 @@ receipt remains uncertain, with no contribution or allocated specialist session.
 Implementation and local verification were performed in this ordinary Astra chat.
 No independent review is claimed. Final exact-head CI/Centaur gates remain required
 before any separately authorized merge.
+
+## Review follow-up on #1435
+
+Baseline: `854bb33eb7107062fd01d9f92451f333a3a4b798`. Centaur review
+`6007902073` identified `CEN-E98D479B0BD2`: the phone stylesheet hid the
+loading/stale membership qualification. The compact ordinary subtitle rule now
+excludes shared identity. The ordinary-surface fixture checks visible loading and
+failed-refresh qualifications after reopening, retained membership count and
+in-bounds touch targets at 320/390/1280px with enlarged text in both themes.
+This preserves the existing S7 trigger and panel owner.
+
+CI run `44944930957` also found that the additive list assertions changed the
+fingerprinted `session-library.spec.ts` design contract. That fixture is restored
+byte-for-byte to the base. New list/tree marker, unavailable-member, exact source
+navigation and no badge transcript-read checks now live in the separate
+`session-library-shared-identity.spec.ts`, reusing the same production fixture.
+No ledger, reference or protected hash is changed. The earlier local design pass
+did not validate the final fixture edit; CI exposed that validation gap.
+
+Follow-up local checks: 131 tests passed, including the restored design protection
+(one existing CI-only check skipped). Both browser specs discover successfully.
+Chromium installation again failed when the CDN closed the download connection;
+no local browser rendering is claimed. Baseline hosted browser jobs all passed,
+but the new visibility assertions still require hosted execution. Unit shard 3/4
+includes the failing design-protection test; its full failure log remains
+unavailable through the approved log transport, so no claim is made that this was
+its only failure. Exact-head CI and Centaur delta verification remain merge gates.
+
+The original optional specialist request was stopped before publication, with no
+allocated session or attributed contribution. The Centaur baseline above is the
+completed review being retained for follow-up; no duplicate full review is requested.

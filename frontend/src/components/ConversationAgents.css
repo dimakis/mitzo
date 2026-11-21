@@ -510,7 +510,7 @@
     padding-inline: 0;
   }
   .conversation-participants-trigger:not(.header-action) > svg:first-child,
-  .conversation-participants-trigger small {
+  .conversation-participants-trigger > span:not(.conversation-shared-identity) small {
     display: none;
   }
 }
