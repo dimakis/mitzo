@@ -291,7 +291,7 @@ it('distinguishes a persisted revocation from a paused or expired Watch', async 
   p.watchRevokedAt = Date.now() - 1000;
   render(<PrMonitorSection sessionId="chat" />);
   await screen.findByText(/^Revoked/);
-  expect(screen.queryByRole('button', { name: 'Stop Watch', exact: true })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Stop Watch' })).toBeNull();
   expect(
     (screen.getByRole('button', { name: 'Review Watch renewal' }) as HTMLButtonElement).disabled,
   ).toBe(false);
