@@ -7,11 +7,16 @@ authority check, send path, Git operation, prewarm retry or trace attribution.
 
 [Machine-readable baseline](../evidence/phase-a-baseline-2026-11-21.json)
 was captured at `2026-11-21T17:44:34.123Z` from clean source
-`145f7d1e25e373cc7fb73cf6687c43263a7ee995`. The production sources are unchanged
+`145f7d1e25e373cc7fb73cf6687c43263a7ee995`. At capture, production sources were unchanged
 from fresh remote main `805fbd9c9e4ce4fed60da643bf73e6a48f5c3772`.
 The JSON pins the lockfile, runner, fixture, reducer and principal measured owners
 with SHA-256 digests. The runner checks those digests, HEAD and dirty status again
 before publishing a report. This report commit follows the measured code commit.
+
+The later integration of main `9fa5d6fa6da8bfd0e54b8cb544b4f4329342bd76`
+adds Claude turn attribution. The retained JSON remains evidence for the original
+capture only; it is not a measurement of the integrated PR head. Focused offline
+regressions validate integration behavior without qualifying new latency numbers.
 
 ## Reproduce
 

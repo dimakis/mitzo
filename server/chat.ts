@@ -3,6 +3,8 @@ import {
   ordinarySdkTelosTools,
 } from './ordinary-sdk-helper-registration.js';
 import { createTelosSdkServer, telosSdkPermission } from './telos-sdk-tools.js';
+import { ClaudeTurnAttribution } from './claude-turn-attribution.js';
+import { diagnosticReleaseRevision } from './codex-diagnostic-release.js';
 import { telosBacklogInstructions } from './telos-backlog-tools.js';
 import { createSdkToolLibrary } from './tool-library-sdk.js';
 import { CONNECTION_ACCESS_INSTRUCTIONS } from './session-connection-tools.js';
@@ -2770,6 +2772,7 @@ async function _startChatInner(
 
     // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
     let liveOrdinarySdkOwner: OrdinaryLocalVertexCommandOwner | undefined;
+    let sdkTurnAttribution: ClaudeTurnAttribution | undefined;
     let isCommandInputEcho:
       ReturnType<typeof createOrdinaryLocalVertexSdkQuery>['isCommandInputEcho'] | undefined;
     let sdkPeerMessages: SdkAgentMessageRuntime | undefined;
@@ -3285,6 +3288,10 @@ async function _startChatInner(
         once: true,
       });
       const exactSdkModelId = accountBinding?.provider === 'anthropic-api';
+      sdkTurnAttribution = new ClaudeTurnAttribution(
+        () => liveOrdinarySdkOwner?.activeCommandId(),
+        diagnosticReleaseRevision,
+      );
       const createSdkWebAccess = (state?: {
         retired: boolean;
         completing: boolean;
@@ -3596,6 +3603,11 @@ async function _startChatInner(
                     undefined,
                   );
             session.model = _admission.selection.model;
+            sdkTurnAttribution!.select(
+              id,
+              _admission,
+              parseModelSpec(_admission.selection.model, exactSdkModelId).model,
+            );
             if (!eventStore.agentCommunication.forCommand(id))
               echoOwnedSdkCommand(session.sessionId!, id, frozenPayload);
             ownedQuery.push(
@@ -3858,6 +3870,9 @@ async function _startChatInner(
         onTurnStart: notifyTurnStart,
         onTurnEnd: notifyTurnEnd,
         isCommandInputEcho,
+        ...(sdkTurnAttribution
+          ? { turnTraceAttributes: sdkTurnAttribution.attributes.bind(sdkTurnAttribution) }
+          : {}),
         onUserInput: (cId, inputUuid) => {
           const active = registry.get(cId);
           if (active) markFallbackCloseoutInputObserved(active, inputUuid);
