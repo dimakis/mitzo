@@ -9,6 +9,7 @@ import {
   type HookCallback,
 } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from './async-queue.js';
+import { gwsShellGuidance } from './gws-shell.js';
 import {
   TurnCallbacks,
   observeAssistantFollowUp,
@@ -493,7 +494,8 @@ export function createOrdinaryLocalVertexSdkQuery<
       true,
     );
     const cliGuidance =
-      '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, use the selected Connections and Tool Library helpers and their existing access flow. Use GoogleWorkspaceRead when available for Google Workspace reads; it keeps authentication with the configured Google account owner. Tool or CLI presence does not establish service access. Report missing selection or configuration precisely. Do not run gws auth login or search for credentials to repair access.\n';
+      '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, use the selected Connections and Tool Library helpers and their existing access flow. Use GoogleWorkspaceRead when available for Google Workspace reads; it keeps authentication with the configured Google account owner. Tool or CLI presence does not establish service access. Report missing selection or configuration precisely. Do not run gws auth login or search for credentials to repair access.\n' +
+      `${gwsShellGuidance()}\n`;
     const systemPrompt = owners.options.systemPrompt;
     const options: Options = {
       ...owners.options,

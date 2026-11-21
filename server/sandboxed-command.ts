@@ -1,4 +1,5 @@
 import { repositoryObservationProgram } from './native-repository-observation.js';
+import { GWS_SHELL_ENV_NAMES } from './gws-shell.js';
 import { freezeDenyOnlyReadPatterns } from './repository-read-denials.js';
 import { createLogger } from './logger.js';
 import { joinRetainedFinalizers } from './retained-finalization.js';
@@ -44,6 +45,8 @@ export interface SandboxedCommandOptions {
   env: Record<string, string>;
   /** General proxy egress, only after the caller's network-aware command approval. */
   networkAccess?: 'approved-command' | 'loopback';
+  /** Exact host-owned Unix sockets the command may connect to (the gws broker). */
+  unixSockets?: string[];
   signal: AbortSignal;
   timeoutMs?: number;
   maxOutputBytes?: number;
@@ -682,8 +685,11 @@ async function runSandboxedCommand(
     deniedRoots: [...options.deniedRoots],
     deniedReadPatterns: freezeDenyOnlyReadPatterns(options.deniedReadPatterns ?? []),
     ...(options.readableRoots ? { readableRoots: [...options.readableRoots] } : {}),
+    ...(options.unixSockets ? { unixSockets: [...options.unixSockets] } : {}),
     env: { ...options.env },
   };
+  if (options.unixSockets?.some((path) => !isAbsolute(path) || path.includes('\0')))
+    throw new Error('Invalid command socket authorization');
   if (privateHelper && options.additionalWritePaths!.length)
     throw new Error('Private helpers cannot extend their write scope');
   const authority = privateHelper?.ownedAuthority
@@ -810,6 +816,7 @@ async function runSandboxedCommand(
           ],
           allowLocalBinding: options.networkAccess !== undefined,
           allowAllUnixSockets: false,
+          ...(options.unixSockets?.length ? { allowUnixSockets: options.unixSockets } : {}),
         },
         enableWeakerNestedSandbox: false,
         enableWeakerNetworkIsolation: false,
@@ -830,7 +837,11 @@ async function runSandboxedCommand(
     await writeFile(settings, JSON.stringify(payload), { mode: 0o600 });
     const env: Record<string, string> = { PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin' };
     for (const [name, value] of Object.entries(options.env)) {
-      if (['PATH', 'LANG', 'LC_ALL'].includes(name) || /^MITZO_REPO_[A-Z0-9_]+$/.test(name))
+      if (
+        ['PATH', 'LANG', 'LC_ALL'].includes(name) ||
+        /^MITZO_REPO_[A-Z0-9_]+$/.test(name) ||
+        (options.unixSockets?.length && GWS_SHELL_ENV_NAMES.includes(name))
+      )
         env[name] = value;
     }
     Object.assign(env, {

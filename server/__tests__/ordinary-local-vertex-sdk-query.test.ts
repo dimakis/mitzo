@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { gwsShimPath } from '../gws-broker.js';
 import {
   query,
   type Options,
@@ -834,6 +835,7 @@ it('retires old native hooks and permissions without executing or aborting the s
     preset: 'claude_code',
     append: expect.stringContaining('Original profile context.'),
   });
+  expect((requests[0].options.systemPrompt as { append: string }).append).toContain(gwsShimPath());
   expect((requests[0].options.systemPrompt as { append: string }).append).toContain(
     'GoogleWorkspaceRead when available',
   );
@@ -1004,6 +1006,7 @@ it('preserves segmented SDK system prompts when appending local CLI guidance', (
     'Original instructions.',
     expect.stringContaining('GoogleWorkspaceRead when available'),
   ]);
+  expect((requests[0].options.systemPrompt as string[])[2]).toContain(gwsShimPath());
   controller.abort();
 });
 // Bundled CLI (SDK 0.3.322, claude-haiku-5-5, 2026-11-17): resuming a session whose

@@ -274,7 +274,7 @@ import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
-import { setSkillPolicy } from './skill-policy.js';
+import { checkSkillPolicy, setSkillPolicy } from './skill-policy.js';
 import { assertSkillRuntimeSupport } from './skill-runtime-support.js';
 import {
   runQueryLoop,
@@ -476,6 +476,13 @@ import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken } from '@mitzo/protocol';
 import { getAccountUseStore } from './account-use-store.js';
+import {
+  gwsBrokerForSession,
+  type GwsBroker,
+  gwsShellGuidance,
+  gwsShimInvocation,
+  gwsShimWritesFiles,
+} from './gws-broker.js';
 import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
 import { sessionLearningGuidance, parseSessionLearningPolicy } from '@mitzo/protocol';
 
@@ -2390,6 +2397,7 @@ async function _startChatInner(
 
   let newSdkSessionId: string | undefined;
   let unwatchSdkAgentMessages: (() => void) | undefined;
+  let gwsBroker: GwsBroker | undefined;
   const stopSdkAgentMessageWatch = () => {
     unwatchSdkAgentMessages?.();
     unwatchSdkAgentMessages = undefined;
@@ -2480,6 +2488,24 @@ async function _startChatInner(
     for (const [name, { path }] of repoWorktrees) {
       sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
     }
+    // Shell gws reaches the host login only through this chat's Mitzo broker.
+    gwsBroker = await gwsBrokerForSession({
+      key: `sdk:${wtId}`,
+      registry,
+      lifetime: session.abortController.signal,
+      // The selected runtime's own fences (adviser scope, ordinary SDK
+      // custody/account/workspace) gate every broker execution and delivery.
+      assertCurrent: async (signal) => {
+        options.adviserScope?.assertCurrent();
+        await options.ordinarySdkAuthority?.assertCurrent(signal, 'host_effect');
+      },
+      resolve: () => {
+        const found = session.sessionId ? registry.findBySessionId(session.sessionId) : null;
+        if (found) return found.session === session ? found : null;
+        return registry.get(clientId) === session ? { clientId, session } : null;
+      },
+    });
+    if (gwsBroker) Object.assign(sessionEnv, gwsBroker.env());
 
     // Merge dynamic MCP servers (task board if active)
     const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
@@ -3166,6 +3192,20 @@ async function _startChatInner(
           const refusal = claudePersonalToolPermission(name, input, cwd, personalConfig);
           if (refusal) return refusal;
         }
+        // The gws broker asks about the Google action itself; a shell prompt for
+        // the client command would only duplicate that consent.
+        // The shell tool ceiling still applies; in plan/Ask the client may not
+        // write local files.
+        const gwsArgs =
+          name === 'Bash' && input.dangerouslyDisableSandbox !== true
+            ? gwsShimInvocation(input.command)
+            : undefined;
+        if (
+          gwsArgs &&
+          checkSkillPolicy(registry, clientId, 'Bash') !== 'deny' &&
+          (effectivePermissionMode(session) !== 'ask' || !gwsShimWritesFiles(gwsArgs))
+        )
+          return { behavior: 'allow', updatedInput: input };
         if (
           options.ordinarySdkAuthority &&
           name.startsWith('mcp__mitzo-connections__') &&
@@ -3391,6 +3431,7 @@ async function _startChatInner(
             preset: 'claude_code' as const,
             append:
               currentSystemPromptAppend() +
+              (gwsBroker ? `\n${gwsShellGuidance()}\n` : '') +
               WEB_ACCESS_INSTRUCTIONS +
               (options.ordinarySdkAuthority
                 ? (agentToolAllowed(session, 'mcp__mitzo-connections__TaskExecution')
@@ -3984,6 +4025,7 @@ async function _startChatInner(
       }
     }
   } finally {
+    gwsBroker?.close();
     stopSdkAgentMessageWatch();
     const current = registry.get(clientId);
     if (!current || current === session) _onSessionChange?.(clientId, 'end', session.sessionId);
