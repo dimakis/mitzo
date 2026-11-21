@@ -20,7 +20,8 @@ NODE_OPTIONS=--max-old-space-size=1024 node node_modules/vitest/vitest.mjs run \
   server/__tests__/session-control-support.test.ts --maxWorkers=1
 ```
 
-Result: **66 tests in 5 files passed**. The first broader attempt encountered a
+Result: **67 tests in 5 files passed**, including a test-first follow-up ensuring
+malformed owner identity cannot break failure reporting. The first broader attempt encountered a
 missing local SQLite native artifact and a denied Supertest listener. Copying the
 matching release's existing SQLite build and using a bounded loopback test grant
 resolved those setup prerequisites; no assertions or product behavior were changed

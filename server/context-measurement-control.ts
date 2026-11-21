@@ -45,6 +45,7 @@ export async function inspectClaudeContext(input: {
   }) => void;
 }): Promise<ContextInspectionResult> {
   let owner: ContextInspectionOwner | undefined;
+  let sessionId: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let abort = () => {};
   let finished = false;
@@ -53,6 +54,7 @@ export async function inspectClaudeContext(input: {
     owner = input.current();
     if (!owner || !owner.active) throw new Unavailable('query_retired');
     const context = ContextObservationSchema.parse(owner);
+    sessionId = context.identity.sessionId;
     if (context.binding.engine !== 'claude' || context.binding.placement !== 'local')
       throw new Unavailable('unsupported_route');
     const query = owner.query;
@@ -108,7 +110,7 @@ export async function inspectClaudeContext(input: {
     return await Promise.race([work(), bounded]);
   } catch (error) {
     const reason = error instanceof Unavailable ? error.reason : 'control_failed';
-    const event = { reason, sessionId: owner?.identity.sessionId, stage: 'context_inspection' };
+    const event = { reason, sessionId, stage: 'context_inspection' };
     // Raw SDK errors can contain prompts or source paths; emit only bounded metadata.
     if (reason === 'control_failed' || reason === 'invalid_response')
       log.warn('Context inspection unavailable', event);

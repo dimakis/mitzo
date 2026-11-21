@@ -220,6 +220,20 @@ describe('versioned context measurement contract', () => {
 });
 
 describe('bounded Claude context inspection', () => {
+  it('contains malformed owner failures without reading unvalidated identity in diagnostics', async () => {
+    const diagnostic = vi.fn();
+    const result = await inspectClaudeContext({
+      current: () => ({ active: true, identity: null }) as never,
+      signal: new AbortController().signal,
+      diagnostic,
+    });
+    expect(result).toEqual({ status: 'unavailable', reason: 'control_failed' });
+    expect(diagnostic).toHaveBeenCalledWith({
+      reason: 'control_failed',
+      sessionId: undefined,
+      stage: 'context_inspection',
+    });
+  });
   function fixture() {
     const query = {
       marker: 'receiver',
