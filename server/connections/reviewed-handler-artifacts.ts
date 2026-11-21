@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1270-claude-turn-attribution';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1271-async-source-capture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2701,7 +2701,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/enmaas-account-form.integration.test.tsx':
     'fbc69660df98e9403dae7cf5cd1271b789e2ec3500b01f127dfeb991a8232685',
   '../__tests__/existing-local-repository-workspaces.test.ts':
-    '7de349c14d894d7c5f2d0df15fd201c2193a37f9fabab99543a6b1449a036b9d',
+    '217ae76f380eb10a0252297dad0d307c8ea4e0a514f7f93d22aa573093fd90a6',
   '../__tests__/fixtures/admitted-mac-service-chat.ts':
     '3c78069cc024b0fa2c86f09cc0d11825850fd418a20f9cfa66c7f07e475a7e8b',
   '../__tests__/fixtures/canonical-review-completion.ts':
@@ -2935,7 +2935,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-worktree-facts.test.ts':
     '21e3d764392027039872d0f66c0954bc5be9b843587fdc70ee6642442f2e3c66',
   '../__tests__/local-repository-worktree-performance.test.ts':
-    '166a5bd42b294a63cfd5751bce7cd96020a3cc019d956e4a8ea9521540d89e27',
+    '4ef478018a3e84fe634172688422982ee394b9be9eecf1a3963a5879162374ea',
+  '../__tests__/local-repository-capture-responsive.test.ts':
+    '9dfb39c638e0ab3ff976ee2d94e96f7a04ed86f47abb3081c57aab7ccea96e9a',
   '../__tests__/local-session-removal.test.ts':
     '4199618a0e26453d58b7dd9b186925c39d7b3eb3221b1b768b2dc708e31fa3c3',
   '../__tests__/mcp-startup-observation.test.ts':
@@ -4116,7 +4118,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-skill-source.ts':
     '494e3fb159976afc6a1face61b02444b571bb86b3bedcc56ec7943639041a727',
   '../local-repository-worktree.ts':
-    '05326dbde26bc8e04675443551613a31c283b8da136dfce5e5c924500bca33ae',
+    'be04e26e4c215a4d9554fa5d915f5f91a5ff816ff3d5536855ee95b20277d53f',
   '../local-session-removal.ts': '6ac2695a89153024b6898601d62a45731ff49993a2d0b604e1f58962388a1d16',
   '../logger-transport.ts': '835c336a641ceef7d2a5d368cd435aec33660c4b64f256055bea5dde671153d8',
   '../logger.ts': '3ce8ce6fde43006d7fd0b6c2b1cded74d12b606aa24179e973bbc2138c091ac0',
