@@ -178,6 +178,8 @@ export type PrMonitorObservation = {
  * must check refreshState, eligibility revision and authority before delivery. */
 export type PrMonitorProjection = PrMonitorObservation & {
   version: 1;
+  /** Optional for older passive runtimes; only the authority owner proves revocation. */
+  watchRevokedAt?: number | null;
   hiddenEvents: number;
   revocationPending: {
     requestId: string;
@@ -190,6 +192,7 @@ export type PrMonitorProjection = PrMonitorObservation & {
 export const PrMonitorProjectionSchema: z.ZodType<PrMonitorProjection> = z
   .strictObject({
     version: z.literal(1),
+    watchRevokedAt: timestamp.nullable().optional(),
     hiddenEvents: revision,
     compactedEvents: revision,
     revocationPending: z

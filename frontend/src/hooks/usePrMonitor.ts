@@ -21,15 +21,19 @@ export function usePrMonitor(sessionId: string) {
     const controller = new AbortController();
     current.current = controller;
     setBusy(true);
-    const timeout = setTimeout(() => {
-      controller.abort();
-      if (current.current === controller) {
-        setBusy(false);
-        setError('PR status timed out. Retained evidence may be stale.');
-      }
-    }, 15000);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        if (current.current === controller) {
+          setBusy(false);
+          setError('PR status timed out. Retained evidence may be stale.');
+        }
+        reject(Error('Read timed out'));
+      }, 15000);
+    });
     try {
-      const result = await readPrMonitors(sessionId, controller.signal);
+      const result = await Promise.race([readPrMonitors(sessionId, controller.signal), deadline]);
       if (controller.signal.aborted || current.current !== controller) return;
       setData(result);
       setCheckedAt(Date.now());
@@ -96,14 +100,19 @@ export function usePrMonitor(sessionId: string) {
     };
   }, [refresh]);
 
-  const change = async (path: string, body: object, passphrase?: string): Promise<boolean> => {
-    if (mutating.current || authBlocked.current) return false;
+  const change = async (
+    path: string,
+    body: object,
+    passphrase?: string,
+  ): Promise<'confirmed' | 'not_sent' | 'unconfirmed'> => {
+    if (mutating.current || authBlocked.current) return 'not_sent';
     current.current?.abort();
     const controller = new AbortController();
     current.current = controller;
     mutating.current = true;
     setBusy(true);
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    let dispatched = false;
     try {
       await Promise.race([
         (async () => {
@@ -122,6 +131,7 @@ export function usePrMonitor(sessionId: string) {
             csrf = proof.csrf;
           }
           if (controller.signal.aborted || current.current !== controller) throw Error('Retired');
+          dispatched = true;
           await changePrMonitor(
             sessionId,
             path,
@@ -136,14 +146,15 @@ export function usePrMonitor(sessionId: string) {
           }, 15000);
         }),
       ]);
-      if (controller.signal.aborted || current.current !== controller) return false;
+      if (controller.signal.aborted || current.current !== controller)
+        return dispatched ? 'unconfirmed' : 'not_sent';
       mutating.current = false;
-      await refresh();
-      return true;
+      void refresh();
+      return 'confirmed';
     } catch {
-      if (current.current === controller)
+      if (current.current === controller && dispatched)
         setError('Change not confirmed. Refresh PR status to check retained evidence.');
-      return false;
+      return dispatched ? 'unconfirmed' : 'not_sent';
     } finally {
       clearTimeout(timeout);
       if (current.current === controller) {

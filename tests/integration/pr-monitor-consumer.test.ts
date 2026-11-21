@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../../packages/protocol/src/event-store';
 import { createPrMonitorController } from '../../server/pr-monitor-controller';
 import { createInteractiveAuth } from '../../server/interactive-auth-core';
-import { readPrMonitors } from '../../frontend/src/lib/pr-monitor-api';
+import { changePrMonitor, readPrMonitors } from '../../frontend/src/lib/pr-monitor-api';
 import { monitorFixture } from '../../frontend/src/test-utils/pr-monitor-fixture';
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
@@ -132,10 +132,30 @@ it('consumes the actual controller projection after adapter failure and missed f
     expect(retained.executionAvailable).toBe(false);
     expect(retained.subscriptions).toHaveLength(1);
     expect(retained.subscriptions[0].counters.modelTurns).toBe(0);
+    const subscription = retained.subscriptions[0].subscription;
+    controller.consent.revoke(login, {
+      requestId: 'revoke',
+      conversationId: 'chat',
+      subscriptionId: subscription.id,
+      expectedRevision: subscription.revision,
+      expectedAuthorityRevision: subscription.watch!.revision,
+    });
+    expect((await readPrMonitors('chat')).subscriptions[0].watchRevokedAt).toBe(now);
   } finally {
     await controller.close();
     store.close();
   }
+});
+
+it('requires an owner receipt before reporting a successful mutation', async () => {
+  apiFetch.mockResolvedValue(new Response('{}'));
+  await expect(
+    changePrMonitor('chat', '/pr-watch/' + monitorFixture().subscription.id + '/revoke', {}),
+  ).rejects.toThrow(/receipt/i);
+  apiFetch.mockResolvedValue(
+    new Response(JSON.stringify({ projection: monitorFixture('other'), reviewedScope: {} })),
+  );
+  await expect(changePrMonitor('chat', '/pr-monitor', {})).rejects.toThrow(/receipt/i);
 });
 
 it('rejects malformed, cross-conversation and unsafe-link projections instead of treating them as empty or healthy', async () => {

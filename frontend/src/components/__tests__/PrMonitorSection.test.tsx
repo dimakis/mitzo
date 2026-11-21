@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PrMonitorSection } from '../PrMonitorSection';
-import { monitorFixture } from '../../test-utils/pr-monitor-fixture';
+import { monitorAuthorityFixture, monitorFixture } from '../../test-utils/pr-monitor-fixture';
 import type { PrMonitorInventory } from '@mitzo/protocol';
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('../../lib/api-fetch', () => ({
@@ -52,7 +52,7 @@ it('shows exact evidence and separate unsupported controls, then reviews bounded
         revision: 1,
         expiresAt: Date.now() + 1800000,
       };
-      return new Response('{}');
+      return new Response(JSON.stringify(monitorAuthorityFixture(data.subscriptions[0])));
     }
     return new Response(JSON.stringify(data));
   });
@@ -257,4 +257,34 @@ it('shows expired authority and never offers renewed Watch on a merged PR', asyn
     (screen.getByRole('button', { name: 'Review Watch renewal' }) as HTMLButtonElement).disabled,
   ).toBe(true);
   expect(apiFetch.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+});
+
+it('distinguishes a persisted revocation from a paused or expired Watch', async () => {
+  const p = data.subscriptions[0];
+  p.subscription.watch = { id: p.subscription.id, revision: 3, expiresAt: Date.now() + 60000 };
+  p.watchRevokedAt = Date.now() - 1000;
+  render(<PrMonitorSection sessionId="chat" />);
+  await screen.findByText(/^Revoked/);
+  expect(screen.queryByRole('button', { name: 'Stop Watch', exact: true })).toBeNull();
+  expect(
+    (screen.getByRole('button', { name: 'Review Watch renewal' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+});
+
+it('allows another explicit authorization attempt when reauthorization failed before any Watch request', async () => {
+  render(<PrMonitorSection sessionId="chat" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Review Watch' }));
+  fireEvent.change(screen.getByLabelText('App passphrase'), { target: { value: 'wrong' } });
+  apiFetch.mockImplementation(async (path) =>
+    path.endsWith('/reauthorize')
+      ? new Response('{}', { status: 403 })
+      : new Response(JSON.stringify(data)),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Allow read-only Watch' }));
+  await screen.findByText(/Watch was not changed/);
+  fireEvent.change(screen.getByLabelText('App passphrase'), { target: { value: 'correct' } });
+  expect(
+    (screen.getByRole('button', { name: 'Allow read-only Watch' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  expect(apiFetch.mock.calls.some(([path]) => path.includes('/pr-watch/'))).toBe(false);
 });

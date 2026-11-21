@@ -67,11 +67,13 @@ function PrMonitorRow({
   const expired = s.watch !== null && s.watch.expiresAt <= m.now;
   const watchLabel = p.revocationPending
     ? 'Stop pending · Watch paused'
-    : !s.watch
-      ? 'Off / revoked'
-      : expired
-        ? 'Expired'
-        : `${s.lifecycle} · expires ${time(s.watch.expiresAt)}`;
+    : p.watchRevokedAt != null
+      ? `Revoked · ${time(p.watchRevokedAt)}`
+      : !s.watch
+        ? 'Off'
+        : expired
+          ? 'Expired'
+          : `${s.lifecycle} · expires ${time(s.watch.expiresAt)}`;
   const staleEvidence =
     m.stale ||
     !!m.error ||
@@ -84,7 +86,7 @@ function PrMonitorRow({
     const secret = passphrase;
     setPassphrase('');
     const requestId = crypto.randomUUID();
-    const ok = await m.change(
+    const outcome = await m.change(
       `/pr-watch/${s.id}`,
       {
         requestId,
@@ -96,12 +98,14 @@ function PrMonitorRow({
       secret,
     );
     setNotice(
-      ok
+      outcome === 'confirmed'
         ? 'Watch consent saved. Status below is the retained observation.'
-        : `Watch change was not confirmed. Request ${requestId}. Refresh and inspect authority before reviewing again.`,
+        : outcome === 'not_sent'
+          ? 'Watch was not changed. Reauthorize and try again.'
+          : `Watch change was not confirmed. Request ${requestId}. Refresh and inspect authority before reviewing again.`,
     );
-    setUncertainIssue(!ok);
-    if (ok) setReview(false);
+    setUncertainIssue(outcome === 'unconfirmed');
+    if (outcome === 'confirmed') setReview(false);
   }
   async function stop() {
     if (m.busy) return;
@@ -111,7 +115,7 @@ function PrMonitorRow({
       expectedAuthorityRevision: s.watch?.revision ?? 0,
     };
     setRevoke(request);
-    const ok = await m.change(`/pr-watch/${s.id}/revoke`, request);
+    const ok = (await m.change(`/pr-watch/${s.id}/revoke`, request)) === 'confirmed';
     setNotice(
       ok
         ? 'Watch stopped.'
@@ -174,7 +178,7 @@ function PrMonitorRow({
         >
           {s.watch ? 'Review Watch renewal' : 'Review Watch'}
         </button>
-        {(s.watch || pending) && (
+        {((s.watch && p.watchRevokedAt == null) || pending) && (
           <button type="button" disabled={m.busy} onClick={() => void stop()}>
             {pending ? 'Retry stop Watch' : 'Stop Watch'}
           </button>

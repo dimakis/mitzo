@@ -83,13 +83,16 @@ export function PrMonitorRegistration({
     }
     const secret = passphrase;
     setPassphrase('');
-    const ok = await m.change('/pr-monitor', input, secret);
+    const outcome = await m.change('/pr-monitor', input, secret);
     setNotice(
-      ok
+      outcome === 'confirmed'
         ? 'PR registered paused. Review Watch separately to allow background reads.'
-        : `Registration was not confirmed. Refresh status and retry this same request (${input.requestId}) if needed.`,
+        : outcome === 'not_sent'
+          ? 'Registration was not sent. Reauthorize and try again.'
+          : `Registration was not confirmed. Refresh status and retry this same request (${input.requestId}) if needed.`,
     );
-    if (ok) {
+    if (outcome === 'not_sent') setPending(null);
+    if (outcome === 'confirmed') {
       setPending(null);
       setOpen(false);
       setUrl('');

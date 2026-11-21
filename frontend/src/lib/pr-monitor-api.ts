@@ -1,4 +1,10 @@
-import { PrMonitorInventorySchema, type PrMonitorInventory } from '@mitzo/protocol';
+import {
+  PrMonitorAuthoritySchema,
+  PrMonitorProjectionSchema,
+  PrMonitorInventorySchema,
+  type PrMonitorInventory,
+} from '@mitzo/protocol';
+import { z } from 'zod';
 import { apiFetch } from './api-fetch';
 
 export function prMonitorPath(sessionId: string) {
@@ -39,5 +45,27 @@ export async function changePrMonitor(
   });
   if (!response.ok)
     throw new Error('The change was not confirmed. Refresh status before another action.');
-  return response.json() as Promise<unknown>;
+  const result: unknown = await response.json();
+  if (path === '/pr-monitor') {
+    const receipt = z
+      .strictObject({
+        projection: PrMonitorProjectionSchema,
+        reviewedScope: PrMonitorAuthoritySchema.shape.scope,
+      })
+      .safeParse(result);
+    if (!receipt.success || receipt.data.projection.subscription.conversationId !== sessionId)
+      throw new Error('Registration receipt could not be verified.');
+    return receipt.data;
+  }
+  const receipt = PrMonitorAuthoritySchema.safeParse(result);
+  const subscriptionId = path.split('/')[2];
+  if (
+    !receipt.success ||
+    receipt.data.conversationId !== sessionId ||
+    receipt.data.subscriptionId !== subscriptionId ||
+    receipt.data.kind !== 'pr-watch' ||
+    (path.endsWith('/revoke') ? receipt.data.revokedAt === null : receipt.data.revokedAt !== null)
+  )
+    throw new Error('Watch receipt could not be verified.');
+  return receipt.data;
 }

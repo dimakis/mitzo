@@ -1,4 +1,37 @@
-import type { PrMonitorProjection } from '@mitzo/protocol';
+import type { PrMonitorAuthority, PrMonitorProjection } from '@mitzo/protocol';
+
+export function monitorAuthorityFixture(
+  p: PrMonitorProjection,
+  revokedAt: number | null = null,
+): PrMonitorAuthority {
+  const s = p.subscription;
+  return {
+    version: 1,
+    id: s.watch?.id ?? s.id,
+    revision: s.watch?.revision ?? 1,
+    kind: 'pr-watch',
+    subscriptionId: s.id,
+    conversationId: s.conversationId,
+    issuer: {
+      realm: 'ordinary',
+      subject: 'user',
+      authSessionId: 'offline-login',
+      authExpiresAt: Date.now() + 3600000,
+    },
+    scope: {
+      connectionId: s.github.connectionId,
+      connectionRevision: s.github.identityRevision,
+      githubPrincipalId: s.github.principalId!,
+      repositoryId: s.github.repositoryId,
+      prNodeId: s.github.prNodeId,
+    },
+    settingsDigest: null,
+    maxAttemptsPerBatch: null,
+    maxCommandsPerHour: null,
+    expiresAt: s.watch?.expiresAt ?? Date.now() + 1800000,
+    revokedAt,
+  };
+}
 
 /** Offline UI input; adapter qualification uses the actual controller/store. */
 export function monitorFixture(conversationId = 'chat'): PrMonitorProjection {

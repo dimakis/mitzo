@@ -150,6 +150,7 @@ export class PrMonitorStore {
       ...view,
       version: 1,
       events,
+      watchRevokedAt: this.authority(id, 'pr-watch')?.revokedAt ?? null,
       hiddenEvents: view.events.length - events.length,
       revocationPending: this.pendingWatchRevocation(id),
     };

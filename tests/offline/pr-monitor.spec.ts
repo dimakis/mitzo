@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
-import { monitorFixture } from '../../frontend/src/test-utils/pr-monitor-fixture';
+import {
+  monitorAuthorityFixture,
+  monitorFixture,
+} from '../../frontend/src/test-utils/pr-monitor-fixture';
 
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/pr-monitor.tsx')],
@@ -47,10 +50,11 @@ for (const theme of ['dark', 'light']) {
               json: { csrf: 'offline-proof', expiresAt: Date.now() + 60000 },
             });
           if (path.endsWith('/revoke')) {
-            p.subscription.watch = null;
+            p.watchRevokedAt = Date.now();
+            p.subscription.watch!.revision++;
             p.subscription.lifecycle = 'paused';
           }
-          return route.fulfill({ json: {} });
+          return route.fulfill({ json: monitorAuthorityFixture(p, p.watchRevokedAt ?? null) });
         }
         return route.fulfill({
           status: failed ? 503 : 200,
