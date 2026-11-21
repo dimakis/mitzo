@@ -101,6 +101,40 @@ it.each(['reply mapping', 'dispatch'])(
   },
 );
 
+it('does not fall back to the adjacent prompt after its dispatch has ended', () => {
+  steeredReply(() => {
+    store.append('one', 'ordinary_provider_dispatch_started', { messageId: 'question' });
+    store.append('one', 'ordinary_command_completed', { messageId: 'question', status: 'failed' });
+  });
+  refuses('snapshot_changed');
+});
+
+it.each(['ordinary_command_completed', 'ordinary_provider_turn_terminal'])(
+  'refuses an overlap targeting a dispatch retired by %s before the assistant starts',
+  (type) => {
+    steeredReply(() => {
+      store.append('one', 'ordinary_provider_dispatch_started', { messageId: 'question' });
+      store.append('one', type, { messageId: 'question', status: 'completed' });
+      user('queued', 'Next task');
+    });
+    refuses('snapshot_changed');
+  },
+);
+
+it.each(['ordinary_command_completed', 'ordinary_provider_turn_terminal'])(
+  'keeps the dispatch owner when %s belongs to another command/session or follows the reply',
+  (type) => {
+    steeredReply(() => {
+      store.append('one', 'ordinary_provider_dispatch_started', { messageId: 'question' });
+      store.append('other', type, { messageId: 'question', status: 'completed' });
+      store.append('one', type, { messageId: 'previous', status: 'completed' });
+      user('queued', 'Next task');
+    });
+    store.append('one', type, { messageId: 'question', status: 'completed' });
+    expect(store.getDurableSessionTranscript('one').messages).toHaveLength(5);
+  },
+);
+
 it('pages every correction in completion order with exact public overlap provenance', () => {
   const { start, end } = steeredReply();
   const captured = store.getDurableSessionTranscript('one');

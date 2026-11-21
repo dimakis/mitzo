@@ -45,6 +45,24 @@ fixed, and verified in a targeted follow-up with no new concrete blockers.
 
 ## Original attempts and remaining evidence
 
+Centaur review `6007815344` on `a5b272aeeb0908abb564d9e0ff1d50d2cd705050`
+identified `CEN-52EEB54A9503`: the dispatch fallback could select a command
+that had ended before the assistant started. Two regression cases failed before
+the fix. The latest dispatch now yields no owner if a same-session, same-command
+completion or provider terminal event occurs between dispatch and assistant
+start; it never falls back to an older dispatch or adjacent prompt. Five added
+checks cover both terminal markers, adjacency refusal, unrelated terminals and
+completion after the reply. All 199 tests in the same eight suites pass. Targeted
+local delta review found no concrete blocker; exact-head Centaur verification
+remains required.
+
+Baseline CI run `44943205094` passed core, unit, browser and native checks, but
+Telos joined acceptance macOS shard 3/3 (`136965527069`) and its aggregates failed.
+The retained artifact is `14722124307` (`telos-joined-3-of-3-44943205094`). The
+authenticated job-log reader returned a transport failure and no content;
+the annotation only records exit 1. The failed case and cause remain unverified,
+and no unchanged CI rerun was requested.
+
 The saved November 16 findings report establishes that Terra request
 `ea6c312d-1d33-438e-94c9-5f0263e372bc` failed in the interleaving guard before
 reservation. It explicitly says the specific retained events were not enumerated.

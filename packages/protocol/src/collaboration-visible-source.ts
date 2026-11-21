@@ -28,6 +28,8 @@ const messageIdProjection = boundedId("json_extract(payload,'$.messageId')");
 // mapping, then the dispatch owner (also covers tool/thinking-only messages).
 // Older histories without either marker can use their preceding user command.
 // An ambiguous or malformed mapping must not fall back to transcript adjacency.
+// A retired latest dispatch likewise yields no owner; do not select an older
+// dispatch or infer ownership from an adjacent prompt after its terminal event.
 const replyMapping = `r.session_id=s.session_id AND r.seq<=@through
  AND r.type='ordinary_reply_source'
  AND json_extract(r.payload,'$.messageId')=json_extract(s.payload,'$.messageId')`;
@@ -40,7 +42,11 @@ const owningCommand = `CASE
      THEN ${boundedId("json_extract(r.payload,'$.commandId')")} END
    FROM events r WHERE ${replyMapping})
  WHEN EXISTS (SELECT 1 FROM events d WHERE ${dispatch}) THEN (
-   SELECT CASE WHEN ${ordinary('d')} THEN ${boundedId("json_extract(d.payload,'$.messageId')")} END
+   SELECT CASE WHEN ${ordinary('d')} AND NOT EXISTS (
+     SELECT 1 FROM events t WHERE t.session_id=d.session_id AND t.seq>d.seq AND t.seq<s.seq
+     AND t.type IN ('ordinary_command_completed','ordinary_provider_turn_terminal')
+     AND json_extract(t.payload,'$.messageId')=json_extract(d.payload,'$.messageId'))
+     THEN ${boundedId("json_extract(d.payload,'$.messageId')")} END
    FROM events d WHERE ${dispatch} ORDER BY d.seq DESC LIMIT 1)
  ELSE (SELECT ${boundedId("json_extract(u.payload,'$.messageId')")} FROM events u
    WHERE u.session_id=s.session_id AND u.seq<s.seq AND u.type='user_message' AND ${ordinary('u')}

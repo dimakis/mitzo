@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1271-symposium-steered-history';
+  'v1.0.1272-symposium-dispatch-retirement';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1453,7 +1453,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/__tests__/collaboration-conversation.test.ts':
     'c5fcb68fc501fd84a14b71a76ba1d18e8d61614e50ceb0dd30227c54937e5311',
   '../../packages/protocol/__tests__/collaboration-durable-transcript.test.ts':
-    'd8dd8a03d20fa197da818238dce637ef08e70c6cdb4021d98244185b86ec5213',
+    'ad78650c66c5d4d9d5c4a4172a4ee0daa625cb07f14a688f937194d04323702b',
   '../../packages/protocol/__tests__/collaboration-navigation.test.ts':
     'c4929ff5acf626b1c9a828d0e4a7da3653024fc0012d748f77f5d3728edceb1f',
   '../../packages/protocol/__tests__/collaboration-visible-source.test.ts':
@@ -1527,7 +1527,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-source-setup.ts':
     '87909fca446e5048958fdc22cb237a4258918ea7a3db749096eb58707c1158b7',
   '../../packages/protocol/src/collaboration-visible-source.ts':
-    '01b24978cc12f460ed6a25feec82d51f94397aafbee514b67671d823ad5a0a8b',
+    '5f47415bcf941a579265a7e4f6047c285faf667082a634e3e62036a076cb8486',
   '../../packages/protocol/src/context-compaction.ts':
     '14ad6a62ebd1a263a9cfcd9eda141763f56e38789b353360980651a0695f8752',
   '../../packages/protocol/src/context-injection.ts':
