@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1270-claude-turn-attribution';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1271-shared-send-queue';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/__tests__/ChatInputSharedQueue.test.tsx':
+    '9e89f849cb672f130104ced688c385e09c9a0f3680142d1f104037b2cab4c139',
+  '../../frontend/src/hooks/__tests__/useConversationSending.admission.test.tsx':
+    '6ff4fffae3061e29b154eb42bd96ea4b10ace799d8c1aee96729f09770fdc344',
+  '../__tests__/collaboration-shared-queue.test.ts':
+    '61de0bc823f76c48af35751474178d9151e30c811a79f54f5b8d832051e1742c',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -315,7 +321,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '6efb121831e74a40fe2181409b8dde78524a06d7fb222d007fe212530bca30e4',
   '../../frontend/src/components/ChatInput.tsx':
-    '576900cfde0194775c277e4513d4583d15e732926ec8464c8e55b051595db8dc',
+    '13d72587ea03017edff89b54738fe237f1636142bc4084a94e3dc6b8dbe96765',
   '../../frontend/src/components/ChatInputHost.css':
     '6ac695e0ec3850781d32e6257738c2900657499c2545303321f200488e3ccc20',
   '../../frontend/src/components/ChatInputHost.tsx':
@@ -503,7 +509,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ShareButton.tsx':
     '3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411',
   '../../frontend/src/components/SharedConversation.tsx':
-    'b81d17f8289d3e514f9577e2bf8e2924562923482560e836a3e7f3bf65aa3308',
+    '135a84c75a71e0613531517cd5f78c743822d16e8d461239df95a4c8a569174d',
   '../../frontend/src/components/SlashPicker.tsx':
     '419685fc94e6236f49bf54029bac52a52a479d26cd2e3a6a22f4ec9b28df169b',
   '../../frontend/src/components/SymposiumConversation.tsx':
@@ -683,7 +689,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/OpenAIAccountEnrollment.test.tsx':
     '27109f9f68f9e9ed93e3d6688d86aaca5ffdf6c77b4a4bdae5a5a30563cc3a29',
   '../../frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx':
-    'ed9b0e39aef6a9e8308ad5c13a03e60dcc38c0cbe37a5a79e85e913d74cf2fe6',
+    '1f76005db487372ff6efc455d3f1f11b11858c80a619844fd0ad150664136402',
   '../../frontend/src/components/__tests__/PdfPreview.test.tsx':
     '562983c238a0ea219d9bd2bec359531bcf35073405a362fe0e2a5ade4f2f9485',
   '../../frontend/src/components/__tests__/QueuedDraftTray.compact.test.tsx':
@@ -843,7 +849,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationPromptContext.ts':
     'a4d85d48f8206594cc7f065a2df90bec4901a457dbcbf4dff391953473d61518',
   '../../frontend/src/hooks/useConversationSending.ts':
-    'e97d32781362c270148f68f21db2e3be1193977ef1c01252a4c2172f8951271a',
+    '8554f29d3f4be321eaf2b446b4b8f210e813919fc337f4205a41b3c19fac6d9d',
   '../../frontend/src/hooks/useConversationSteering.ts':
     'a7938f767028e1c31fd3a979f560da5593789b26b7b64cff5e974c942fa61601',
   '../../frontend/src/hooks/useConversationStopping.ts':
@@ -2329,7 +2335,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/steering-failure-reference.spec.ts':
     'fe164bcb7ec8411090af9048df5e3432c077c446668e97c38e1ae4c7c065e09f',
   '../../tests/offline/symposium-composer.spec.ts':
-    '0b352ef35f62003625c20f99ee660875a42882de1d715719b6bb96a8e5322019',
+    '3408b4b759d306565832a6baae12a76a38977430893710a0392d60e9115ab5f9',
   '../../tests/offline/symposium-dialog-controls.spec.ts':
     '1ad7cd58015a0428eb8ef012102bfe9c672d65029212417ea17a2b3a04679283',
   '../../tests/offline/symposium-footer.spec.ts':
