@@ -1,12 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { EventStore } from '../../../../packages/protocol/src/event-store';
-import { createPrMonitorController } from '../../../../server/pr-monitor-controller';
-import { createInteractiveAuth } from '../../../../server/interactive-auth-core';
-import { readPrMonitors } from '../pr-monitor-api';
-import { monitorFixture } from '../../test-utils/pr-monitor-fixture';
+import { EventStore } from '../../packages/protocol/src/event-store';
+import { createPrMonitorController } from '../../server/pr-monitor-controller';
+import { createInteractiveAuth } from '../../server/interactive-auth-core';
+import { readPrMonitors } from '../../frontend/src/lib/pr-monitor-api';
+import { monitorFixture } from '../../frontend/src/test-utils/pr-monitor-fixture';
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
-vi.mock('../api-fetch', () => ({ apiFetch }));
+vi.mock('../../frontend/src/lib/api-fetch', () => ({ apiFetch }));
 afterEach(() => vi.restoreAllMocks());
 
 it('consumes the actual controller projection after adapter failure and missed force-push recovery', async () => {
