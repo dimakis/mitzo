@@ -4,6 +4,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { effectivePermissionMode, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import { nativeCommandDirectoryScope } from './codex-native-grant-fence.js';
+import type { PrMonitorConsent, PrWatchRequest } from './pr-monitor-consent.js';
+import type { AuthSession } from './auth.js';
 
 export const SessionCapability = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('development') }),
@@ -111,8 +113,13 @@ export class SessionCapabilityGrants {
     private readonly registry: SessionRegistry,
     /** Server-owned custody identity, never a path or repository from tool JSON. */
     private readonly repository: (s: ManagedSession) => string | undefined = () => undefined,
+    private readonly prMonitor?: PrMonitorConsent,
   ) {
     stores.add(new WeakRef(this));
+  }
+  issuePrWatch(auth: AuthSession, input: PrWatchRequest) {
+    if (!this.prMonitor) throw Error('authority_unavailable');
+    return this.prMonitor.issue(auth, input);
   }
   private scopeMatches(grant: Grant, s: ManagedSession) {
     return (

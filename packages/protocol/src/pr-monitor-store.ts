@@ -4,6 +4,8 @@ import {
   PrMonitorSubscriptionSchema,
   PrMonitorSnapshotSchema,
   PrMonitorFindingSchema,
+  PrMonitorAuthoritySchema,
+  type PrMonitorAuthority,
   type PrMonitorSubscription,
   type PrMonitorObservation,
   type PrMonitorSnapshot,
@@ -20,6 +22,7 @@ export class PrMonitorStore {
   constructor(private readonly db: Database.Database) {
     db.exec(`CREATE TABLE IF NOT EXISTS pr_monitor_subscriptions (id TEXT PRIMARY KEY, operator_id TEXT NOT NULL, conversation_id TEXT NOT NULL, repository_id TEXT NOT NULL, pr_node_id TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(operator_id,conversation_id,repository_id,pr_node_id));
       CREATE TABLE IF NOT EXISTS pr_monitor_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS pr_monitor_authorities (id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(subscription_id,kind));
       CREATE INDEX IF NOT EXISTS pr_monitor_conversation ON pr_monitor_subscriptions(operator_id,conversation_id);`);
   }
   create(requestId: string, input: PrMonitorSubscription): PrMonitorObservation {
@@ -119,6 +122,85 @@ export class PrMonitorStore {
     this.db
       .prepare('UPDATE pr_monitor_subscriptions SET data=? WHERE id=?')
       .run(JSON.stringify(view), view.subscription.id);
+  }
+  authority(subscriptionId: string, kind: PrMonitorAuthority['kind']): PrMonitorAuthority | null {
+    const saved = row(
+      this.db
+        .prepare('SELECT data FROM pr_monitor_authorities WHERE subscription_id=? AND kind=?')
+        .get(subscriptionId, kind),
+    );
+    return saved ? PrMonitorAuthoritySchema.parse(JSON.parse(saved.data)) : null;
+  }
+  /** Internal Access persistence, never an HTTP/tool authority entrypoint. */
+  mutateAuthority(input: {
+    requestId: string;
+    fingerprint: string;
+    operatorId: string;
+    conversationId: string;
+    subscriptionId: string;
+    expectedRevision: number;
+    expectedAuthorityRevision: number;
+    kind: PrMonitorAuthority['kind'];
+    change(previous: PrMonitorAuthority | null): PrMonitorAuthority;
+    assertCurrent(): void;
+  }): PrMonitorAuthority {
+    if (!input.requestId || input.requestId.length > 200) throw Error('invalid_request');
+    return this.db.transaction(() => {
+      input.assertCurrent();
+      const prior = this.db
+        .prepare('SELECT fingerprint,result FROM pr_monitor_requests WHERE id=?')
+        .get(input.requestId) as { fingerprint: string; result: string } | undefined;
+      if (prior) {
+        if (prior.fingerprint !== input.fingerprint) throw Error('request_conflict');
+        return PrMonitorAuthoritySchema.parse(JSON.parse(prior.result));
+      }
+      const view = this.read(input.operatorId, input.conversationId, input.subscriptionId);
+      const previous = this.authority(input.subscriptionId, input.kind);
+      if (
+        view.subscription.revision !== input.expectedRevision ||
+        (previous?.revision ?? 0) !== input.expectedAuthorityRevision
+      )
+        throw Error('revision_conflict');
+      const authority = PrMonitorAuthoritySchema.parse(input.change(previous));
+      if (
+        authority.subscriptionId !== input.subscriptionId ||
+        authority.conversationId !== input.conversationId ||
+        authority.kind !== input.kind ||
+        authority.revision !== input.expectedAuthorityRevision + 1 ||
+        (previous && authority.id !== previous.id)
+      )
+        throw Error('authority_identity_conflict');
+      this.db
+        .prepare(
+          'INSERT INTO pr_monitor_authorities VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
+        )
+        .run(authority.id, authority.subscriptionId, authority.kind, JSON.stringify(authority));
+      const ref = {
+        id: authority.id,
+        revision: authority.revision,
+        expiresAt: authority.expiresAt,
+      };
+      if (authority.kind === 'pr-watch') {
+        view.subscription.watch = ref;
+        view.subscription.lifecycle = authority.revokedAt === null ? 'watching' : 'paused';
+        view.subscription.nextRefreshAt = authority.revokedAt === null ? 0 : null;
+        view.refreshState = authority.revokedAt === null ? 'stale' : 'blocked';
+        // A new Watch is a new baseline. Delivery sees revision invalidation;
+        // its native cancellation/uncertainty remains solely delivery-owned.
+        view.outbox = null;
+        for (const event of view.events)
+          if (event.disposition === 'actionable') event.disposition = 'superseded';
+        view.subscription.eligibilityRevision++;
+        view.subscription.eligibilityDigest = prMonitorDigest([]);
+      } else view.subscription.autoFix = ref;
+      view.subscription.revision++;
+      input.assertCurrent();
+      this.save(view);
+      this.db
+        .prepare('INSERT INTO pr_monitor_requests VALUES (?,?,?)')
+        .run(input.requestId, input.fingerprint, JSON.stringify(authority));
+      return authority;
+    })();
   }
   publish(input: {
     operatorId: string;
