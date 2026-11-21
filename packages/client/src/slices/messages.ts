@@ -187,7 +187,12 @@ type MessagesCoreAction =
   | { type: 'MESSAGE_END'; messageId: string; sessionId?: string }
   | { type: 'SESSION_END'; sessionId?: string }
   // Subagent events
-  | { type: 'SUBAGENT_START'; parentBlockId: string; subagentMessageId: string }
+  | {
+      type: 'SUBAGENT_START';
+      parentBlockId: string;
+      subagentMessageId: string;
+      backgroundTask?: import('@mitzo/protocol').BackgroundTaskObservation;
+    }
   | {
       type: 'SUBAGENT_BLOCK_START';
       parentBlockId: string;
@@ -282,6 +287,8 @@ type MessagesCoreAction =
   | { type: 'CLEAR' };
 
 export type MessagesAction = MessagesCoreAction & {
+  subagentMessageId?: string;
+  subagentEventSeq?: number;
   symposiumProvenance?: SymposiumProvenance;
   /** Optional parent turn identity for seat-scoped tool and subagent events. */
   attributedMessageId?: string;
@@ -314,6 +321,8 @@ function finishSubagent(
   const streaming = sub as StreamingSubagentState;
   return {
     messageId: streaming.messageId,
+    ...(streaming.backgroundTask ? { backgroundTask: streaming.backgroundTask } : {}),
+    ...(streaming.lastEventSeq !== undefined ? { lastEventSeq: streaming.lastEventSeq } : {}),
     status: streaming.status ?? 'running',
     ...(streaming.diagnostic ? { diagnostic: streaming.diagnostic } : {}),
     ...(streaming.summary ? { summary: streaming.summary } : {}),
@@ -814,6 +823,33 @@ function reduceRetainedSubagent(state: MessagesState, action: MessagesAction): M
 }
 
 function reduceLegacyMessages(state: MessagesState, action: MessagesAction): MessagesState {
+  if (!action.type.startsWith('SUBAGENT_') || !('parentBlockId' in action))
+    return reduceLegacyMessagesUnchecked(state, action);
+  const sub = state.current?.blocks.get(action.parentBlockId)?.subagent;
+  if (
+    sub &&
+    ((action.subagentMessageId && action.subagentMessageId !== sub.messageId) ||
+      (action.subagentEventSeq !== undefined &&
+        sub.lastEventSeq !== undefined &&
+        action.subagentEventSeq <= sub.lastEventSeq))
+  )
+    return state;
+  const next = reduceLegacyMessagesUnchecked(state, action);
+  if (next === state || !next.current || action.subagentEventSeq === undefined) return next;
+  const block = next.current.blocks.get(action.parentBlockId);
+  if (!block?.subagent) return next;
+  const blocks = new Map(next.current.blocks);
+  blocks.set(action.parentBlockId, {
+    ...block,
+    subagent: { ...block.subagent, lastEventSeq: action.subagentEventSeq },
+  });
+  return { ...next, current: { ...next.current, blocks } };
+}
+
+function reduceLegacyMessagesUnchecked(
+  state: MessagesState,
+  action: MessagesAction,
+): MessagesState {
   switch (action.type) {
     case 'MESSAGE_REPLY':
       return {
@@ -995,7 +1031,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
               blocks: Array<FinishedBlock & { done?: boolean }>;
             }
           | undefined;
-        const subagent: StreamingSubagentState | FinishedSubagentState | undefined =
+        let subagent: StreamingSubagentState | FinishedSubagentState | undefined =
           nested?.running && Array.isArray(nested.blocks)
             ? {
                 ...nested,
@@ -1013,6 +1049,19 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
                 running: true as const,
               }
             : b.subagent;
+        const retained =
+          state.current?.messageId === action.messageId
+            ? state.current.blocks.get(b.blockId)?.subagent
+            : undefined;
+        if (
+          retained &&
+          subagent?.messageId === retained.messageId &&
+          ((retained.status && ['completed', 'failed', 'cancelled'].includes(retained.status)) ||
+            (retained.lastEventSeq !== undefined &&
+              retained.lastEventSeq > (subagent.lastEventSeq ?? -1)))
+        ) {
+          subagent = retained;
+        }
         blocks.set(b.blockId, {
           blockId: b.blockId,
           blockType: b.blockType as BlockType,
@@ -1506,6 +1555,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         ...block,
         subagent: {
           messageId: action.subagentMessageId,
+          ...(action.backgroundTask ? { backgroundTask: action.backgroundTask } : {}),
           blocks: new Map(),
           blockOrder: [],
           running: true,

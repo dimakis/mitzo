@@ -599,6 +599,13 @@ export interface SubagentUsage {
 /** Task outcome is independent of whether its parent message has finished. */
 export type SubagentStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'unavailable';
 
+/** Verified SDK task receipt. Display provenance only: no process/Stop authority. */
+export interface BackgroundTaskObservation {
+  taskId: string;
+  runId?: string;
+  description?: string;
+}
+
 export interface SubagentDiagnostic {
   code:
     | 'claude_child_stop_failed'
@@ -609,6 +616,8 @@ export interface SubagentDiagnostic {
 
 /** Streaming subagent state — blocks in a Map, running flag set. */
 export interface StreamingSubagentState {
+  backgroundTask?: BackgroundTaskObservation;
+  lastEventSeq?: number;
   status?: SubagentStatus;
   diagnostic?: SubagentDiagnostic;
   messageId: string;
@@ -621,6 +630,8 @@ export interface StreamingSubagentState {
 
 /** Finished subagent state — blocks as array, summary + usage set. */
 export interface FinishedSubagentState {
+  backgroundTask?: BackgroundTaskObservation;
+  lastEventSeq?: number;
   status?: SubagentStatus;
   diagnostic?: SubagentDiagnostic;
   messageId: string;

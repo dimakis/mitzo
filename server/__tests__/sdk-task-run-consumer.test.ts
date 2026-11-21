@@ -221,6 +221,15 @@ it.each([
         .flatMap((message) => message.blocks)
         .find((block) => block.toolId === 'resume-second');
       expect(liveSecond?.subagent?.status).toBe(secondStatus);
+      // The actual producer must retain task identity through both consumers;
+      // display metadata is not a process-generation witness or Stop authority.
+      const backgroundTask = {
+        taskId: secondTask,
+        ...(hasRunIds ? { runId: '002' } : {}),
+        description: 'Resumed run',
+      };
+      expect(second?.subagent?.backgroundTask).toEqual(backgroundTask);
+      expect(liveSecond?.subagent?.backgroundTask).toEqual(backgroundTask);
       const first = restored
         .flatMap((message) => message.blocks)
         .find((block) => block.toolId === 'spawn-first');

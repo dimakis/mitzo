@@ -62,6 +62,8 @@ export interface RestoredMessage {
 }
 
 export interface RestoredSubagentState {
+  backgroundTask?: import('@mitzo/protocol').BackgroundTaskObservation;
+  lastEventSeq?: number;
   status?: import('@mitzo/protocol').SubagentStatus;
   diagnostic?: import('@mitzo/protocol').SubagentDiagnostic;
   messageId: string;
@@ -238,6 +240,8 @@ function replaySubagents(events: StoredEvent[]) {
     {
       messageId: string;
       blocks: Map<string, NestedBlock>;
+      backgroundTask?: import('@mitzo/protocol').BackgroundTaskObservation;
+      lastEventSeq?: number;
       order: string[];
       running: boolean;
       status?: import('@mitzo/protocol').SubagentStatus;
@@ -269,6 +273,13 @@ function replaySubagents(events: StoredEvent[]) {
       if (states.has(scope)) continue;
       states.set(scope, {
         messageId: p.subagentMessageId,
+        ...(p.backgroundTask
+          ? {
+              backgroundTask:
+                p.backgroundTask as import('@mitzo/protocol').BackgroundTaskObservation,
+            }
+          : {}),
+        lastEventSeq: event.seq,
         blocks: new Map(),
         order: [],
         running: true,
@@ -278,7 +289,13 @@ function replaySubagents(events: StoredEvent[]) {
     }
     const state = states.get(scope);
     if (!state) continue;
+    if (
+      (typeof p.subagentMessageId === 'string' && p.subagentMessageId !== state.messageId) ||
+      (state.lastEventSeq !== undefined && event.seq <= state.lastEventSeq)
+    )
+      continue;
     if (state.status && ['completed', 'failed', 'cancelled'].includes(state.status)) continue;
+    state.lastEventSeq = event.seq;
     if (event.type === 'subagent_block_start' && typeof p.blockId === 'string') {
       state.blocks.set(p.blockId, {
         blockId: p.blockId,
@@ -325,6 +342,8 @@ function replaySubagents(events: StoredEvent[]) {
     const blocks = state.order.map((id) => state.blocks.get(id)!);
     const subagent: RestoredSubagentState = {
       messageId: state.messageId,
+      ...(state.backgroundTask ? { backgroundTask: state.backgroundTask } : {}),
+      ...(state.lastEventSeq !== undefined ? { lastEventSeq: state.lastEventSeq } : {}),
       status: state.status,
       ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
       blocks: active && state.running ? blocks : blocks.map(({ done: _done, ...rest }) => rest),

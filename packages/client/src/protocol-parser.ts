@@ -812,6 +812,8 @@ export function parseServerMessage(
         type: 'SUBAGENT_START',
         parentBlockId: msg.parentBlockId as string,
         subagentMessageId: msg.subagentMessageId as string,
+        backgroundTask: msg.backgroundTask as
+          import('@mitzo/protocol').BackgroundTaskObservation | undefined,
       });
       break;
 
@@ -885,6 +887,17 @@ export function parseServerMessage(
       break;
   }
 
+  if (typeof envelope.type === 'string' && envelope.type.startsWith('subagent_')) {
+    result.messagesActions = result.messagesActions.map((action) => ({
+      ...action,
+      ...(typeof envelope.subagentMessageId === 'string'
+        ? { subagentMessageId: envelope.subagentMessageId }
+        : {}),
+      ...(Number.isSafeInteger(envelope.seq) && (envelope.seq as number) > 0
+        ? { subagentEventSeq: envelope.seq as number }
+        : {}),
+    }));
+  }
   if (
     typeof envelope.type === 'string' &&
     envelope.type.startsWith('subagent_') &&

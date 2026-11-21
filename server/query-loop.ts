@@ -427,7 +427,7 @@ async function _runQueryLoopInner(
   const startedSubagents = new Set<string>();
   // SDK task_id survives resume; run_id identifies one execution. Keep native
   // run order separate from the verified parent tool and its terminal state.
-  type TaskRun = { runId?: string; toolId: string; completed: boolean };
+  type TaskRun = { runId?: string; toolId: string; completed: boolean; description?: string };
   const taskRuns = new Map<string, TaskRun>();
   const observedTaskRuns = new Map<string, Map<string | undefined, TaskRun>>();
   const taskChildIds = new Map<string, string>();
@@ -457,6 +457,15 @@ async function _runQueryLoopInner(
         parentBlockId,
         parentToolId: toolId,
         subagentMessageId: childId,
+        ...(run?.toolId === toolId
+          ? {
+              backgroundTask: {
+                taskId,
+                ...(run.runId ? { runId: run.runId } : {}),
+                ...(run.description ? { description: run.description } : {}),
+              },
+            }
+          : {}),
       }),
     );
   }
@@ -2025,7 +2034,14 @@ async function _runQueryLoopInner(
             ) {
               taskRuns.set(
                 taskId,
-                rememberTaskRun(taskId, { runId, toolId: toolUseId, completed: false }),
+                rememberTaskRun(taskId, {
+                  runId,
+                  toolId: toolUseId,
+                  completed: false,
+                  ...(typeof msg.description === 'string'
+                    ? { description: msg.description.slice(0, 2000) }
+                    : {}),
+                }),
               );
               currentSession?.activeTaskIds.set(taskId, toolUseId);
               startTaskChild(toolUseId, taskId);
