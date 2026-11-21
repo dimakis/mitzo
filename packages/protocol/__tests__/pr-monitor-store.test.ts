@@ -79,6 +79,42 @@ afterEach(() => {
 });
 
 describe('PR monitor event-store owner', () => {
+  it('withdraws delivery eligibility on incomplete evidence and baselines recovered evidence on renewal', () => {
+    const s = open();
+    s.prMonitor.create('request', input());
+    const publish = (baseline: boolean, findings = [failure]) =>
+      s.prMonitor.publish({
+        operatorId: 'ordinary:user',
+        conversationId: 'chat',
+        subscriptionId: id,
+        expectedRevision: 1,
+        expectedSnapshotRevision: s.prMonitor.read('ordinary:user', 'chat', id).subscription
+          .snapshotRevision,
+        snapshot,
+        findings,
+        baseline,
+        assertCurrent: () => undefined,
+      });
+    const first = publish(false);
+    s.prMonitor.fail(
+      'ordinary:user',
+      'chat',
+      id,
+      1,
+      { code: 'head_changed', stage: 'read', nextRefreshAt: 60000 },
+      2000,
+    );
+    const incomplete = s.prMonitor.read('ordinary:user', 'chat', id);
+    expect(incomplete.outbox).toBeNull();
+    expect(incomplete.subscription.eligibilityRevision).toBeGreaterThan(
+      first.subscription.eligibilityRevision,
+    );
+    expect(incomplete.snapshot).toEqual(first.snapshot);
+    expect(publish(false).outbox).not.toBeNull();
+    publish(false, []);
+    expect(publish(true).outbox).toBeNull();
+    expect(publish(false).outbox).toBeNull();
+  });
   it('bounds combined evidence by references and bytes, and pauses stopped conversations durably', () => {
     const s = open();
     s.prMonitor.create('request', input());

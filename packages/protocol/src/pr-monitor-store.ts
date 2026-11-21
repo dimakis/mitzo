@@ -281,7 +281,8 @@ export class PrMonitorStore {
         const evidenceDigest = prMonitorDigest({ ...finding, sourceIds });
         if (prior) {
           if (prior.evidenceDigest !== evidenceDigest) throw Error('event_conflict');
-          if (prior.disposition === 'recovered') prior.disposition = 'actionable';
+          if (input.baseline) prior.disposition = 'status_only';
+          else if (prior.disposition === 'recovered') prior.disposition = 'actionable';
         } else
           view.events.push({
             ...finding,
@@ -298,7 +299,10 @@ export class PrMonitorStore {
       }
       for (const event of view.events) {
         if (event.generation !== generation) event.disposition = 'superseded';
-        else if (!selected.has(event.id) && event.disposition === 'actionable')
+        else if (
+          !selected.has(event.id) &&
+          ['actionable', 'status_only'].includes(event.disposition)
+        )
           event.disposition = 'recovered';
       }
       const eligible = view.events
@@ -368,6 +372,13 @@ export class PrMonitorStore {
       const view = this.read(operatorId, conversationId, id);
       if (view.subscription.revision !== expectedRevision) throw Error('revision_conflict');
       view.diagnostic = diagnostic;
+      // Last-success evidence remains visible, but uncertain current state must
+      // invalidate every previously captured delivery eligibility fence.
+      const emptyDigest = prMonitorDigest([]);
+      if (view.subscription.eligibilityDigest !== emptyDigest)
+        view.subscription.eligibilityRevision++;
+      view.subscription.eligibilityDigest = emptyDigest;
+      view.outbox = null;
       view.refreshState =
         diagnostic.code === 'rate_limited'
           ? 'backoff'

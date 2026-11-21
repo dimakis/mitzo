@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { PrMonitorAuthority, PrMonitorSubscription } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
-import type { AuthSession } from './auth.js';
+import type { AuthSession } from './interactive-auth-core.js';
 
 type Scope = PrMonitorAuthority['scope'];
 export type PrWatchRequest = {
