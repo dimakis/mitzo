@@ -8,6 +8,7 @@ import {
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
+import { codexLifecycleFailure } from './codex-lifecycle-failure.js';
 
 const unavailable = () => new Error('Owned Codex lifecycle unavailable');
 
@@ -97,25 +98,19 @@ export class OwnedCodexLifecycleBridge {
             };
             void pending.then(settled, (error) => {
               settled();
-              this.close(
-                findSessionRuntimeError(error) ??
-                  new CodexTransportError('connection', { reason: 'notification_handler_failed' }),
-              );
+              this.close(codexLifecycleFailure(error, 'notification'));
             });
           } else deliver();
         } catch (error) {
-          this.close(
-            findSessionRuntimeError(error) ??
-              (error instanceof CodexTransportError
-                ? error
-                : new CodexTransportError('connection', { reason: 'notification_handler_failed' })),
-          );
+          this.close(codexLifecycleFailure(error, 'notification'));
           throw findSessionRuntimeError(error) ?? unavailable();
         }
       },
       onRequest: async (method, params, signal, context) => {
         let originalLease: FrozenHostCodexBootstrapLease | undefined;
         let preExecutionRefusal: CodexHostToolRequestError | undefined;
+        let stage: 'host_tool_admission' | 'host_tool_execution' | 'host_tool_response' =
+          'host_tool_admission';
         const requestId = context?.requestId;
         try {
           if (!this.#owner) throw unavailable();
@@ -149,16 +144,29 @@ export class OwnedCodexLifecycleBridge {
                   },
                 })
               : context;
-          const result = await observeLocalCodexPhase('host_tool_execution', () =>
-            this.#owner!.onRequest(
-              method,
-              params,
-              AbortSignal.any([signal, this.#abort.signal]),
-              ...(requestContext ? [requestContext] : []),
-            ),
-          );
+          stage = 'host_tool_execution';
+          const result = await observeLocalCodexPhase('host_tool_execution', async () => {
+            try {
+              return await this.#owner!.onRequest(
+                method,
+                params,
+                AbortSignal.any([signal, this.#abort.signal]),
+                ...(requestContext ? [requestContext] : []),
+              );
+            } catch (error) {
+              // Preserve the exact safe-refusal and cancellation witnesses. An
+              // unexpected failure gets one reference before its phase ends.
+              if (
+                (preExecutionRefusal !== undefined && error === preExecutionRefusal) ||
+                signal.aborted
+              )
+                throw error;
+              throw codexLifecycleFailure(error, 'host_tool_execution');
+            }
+          });
           // The existing conversation/tool ledger owns any effects already
           // completed by the callback. Failure here never asserts no execution.
+          stage = 'host_tool_response';
           const qualificationAfter = this.qualifyCredentialRefresh(lease, signal);
           if (qualificationAfter) await qualificationAfter;
           signal.throwIfAborted();
@@ -192,15 +200,12 @@ export class OwnedCodexLifecycleBridge {
             }
           }
           const reviewed = findSessionRuntimeError(error);
-          if (!requestAlreadyResolved && !safelyRefused) this.close(reviewed);
+          if (!requestAlreadyResolved && !safelyRefused)
+            this.close(codexLifecycleFailure(error, stage));
           throw safelyRefused ? error : (reviewed ?? unavailable());
         }
       },
-      onClose: (error) =>
-        this.close(
-          findSessionRuntimeError(error) ??
-            (error instanceof CodexTransportError ? error : unavailable()),
-        ),
+      onClose: (error) => this.close(codexLifecycleFailure(error, 'transport')),
     } satisfies CodexLifecycleTransport);
   }
 
@@ -316,8 +321,8 @@ export class OwnedCodexLifecycleBridge {
       if (this.#closed || this.currentLease() !== lease) throw unavailable();
       this.#owner = owner;
       return lease.client;
-    } catch {
-      this.close();
+    } catch (error) {
+      this.close(codexLifecycleFailure(error, 'attachment'));
       throw unavailable();
     }
   }

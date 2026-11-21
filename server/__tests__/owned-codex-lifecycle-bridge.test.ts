@@ -15,6 +15,27 @@ import { SessionRegistry } from '../session-registry.js';
 import { resolvePending } from '../permissions.js';
 import { setSkillPolicy } from '@mitzo/harness';
 import { SessionRuntimeError } from '../session-runtime-error.js';
+import { retainedRuntimeFailure } from '../runtime-failure-diagnostics.js';
+
+it('preserves a failed host callback cause and stage through physical retirement', async () => {
+  const f = nativeTransportFixture();
+  const cause = Object.assign(new TypeError('SECRET /private/account'), { code: 'EIO' });
+  vi.mocked(f.owner.onRequest).mockRejectedValueOnce(cause);
+  f.reply({ id: 'failed-callback', method: 'item/tool/call', params: {} });
+  await vi.waitFor(() => expect(f.owner.onClose).toHaveBeenCalledOnce());
+  const failure = vi.mocked(f.owner.onClose).mock.calls[0][0] as SessionRuntimeError;
+  expect(failure).toBeInstanceOf(SessionRuntimeError);
+  expect(failure.cause).toBe(cause);
+  expect(failure.telemetry()).toMatchObject({
+    runtimeFailureStage: 'host_tool_execution',
+    causeType: 'TypeError',
+    causeCode: 'EIO',
+  });
+  expect(retainedRuntimeFailure(failure.diagnosticId)?.cause).toBe(cause);
+  expect(JSON.stringify(failure.telemetry())).not.toMatch(/SECRET|private\/account/);
+  expect(f.sent).toEqual([]);
+  expect(f.lease.close).toHaveBeenCalledOnce();
+});
 
 it('retains reviewed workspace failure through physical-close reentry', () => {
   const f = fixture();
@@ -602,7 +623,7 @@ describe('owned Codex lifecycle bridge', () => {
     expect(f.owner.onRequest).not.toHaveBeenCalled();
     expect(f.lease.close).toHaveBeenCalledOnce();
     expect(f.owner.onClose).toHaveBeenCalledWith(
-      expect.objectContaining({ message: 'Owned Codex lifecycle unavailable' }),
+      expect.objectContaining({ code: 'runtime_unavailable', stage: 'host_tool_admission' }),
     );
   });
 
@@ -641,7 +662,7 @@ describe('owned Codex lifecycle bridge', () => {
     resolve({ content: 'retained actual tool result' });
     await expect(operation).rejects.toThrow('Owned Codex lifecycle unavailable');
     expect(f.owner.onClose).toHaveBeenCalledWith(
-      expect.objectContaining({ message: 'Owned Codex lifecycle unavailable' }),
+      expect.objectContaining({ code: 'runtime_unavailable', stage: 'transport' }),
     );
     expect(f.lease.close).toHaveBeenCalledOnce();
     expect(() => f.bridge.attach(f.owner)).toThrow('Owned Codex lifecycle unavailable');
@@ -657,7 +678,11 @@ describe('owned Codex lifecycle bridge', () => {
         { secret: 'provider-secret' },
         new AbortController().signal,
       ),
-    ).rejects.toThrow('Owned Codex lifecycle unavailable');
+    ).rejects.toMatchObject({
+      code: 'runtime_unavailable',
+      stage: 'host_tool_execution',
+      message: expect.not.stringContaining('provider-secret'),
+    });
     expect(f.lease.close).toHaveBeenCalledOnce();
     expect(() => f.bridge.attach(f.owner)).toThrow('Owned Codex lifecycle unavailable');
   });
