@@ -13,6 +13,7 @@ import {
   readPrivateOperationFile,
   publishPrivateOperationFile,
   assertPrivateOperationDirectory,
+  upgradePrivateOperationFile,
 } from './private-operation-file.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import { CodexConversationStore } from './codex-conversation-store.js';
@@ -183,16 +184,22 @@ export function persistMaintenanceRequirement(
     sealSha256: maintenanceFingerprint(seal),
   };
   const marker = join(root, 'required-handoff.json');
+  const initial = Buffer.from(JSON.stringify(value) + '\n');
+  let bytes: Buffer;
   try {
-    const existing = MaintenanceRequirement.parse(
-      JSON.parse(readPrivateOperationFile(marker, 16 * 1024).toString('utf8')),
-    );
-    if (!isDeepStrictEqual(existing, value))
-      throw Error('Retained maintenance requirement changed');
+    bytes = readPrivateOperationFile(marker, requirementByteLimit);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    publishPrivateOperationFile(marker, JSON.stringify(value) + '\n');
+    publishPrivateOperationFile(marker, initial.toString('utf8'));
+    bytes = initial;
   }
+  const existing = MaintenanceRequirement.parse(JSON.parse(bytes.toString('utf8')));
+  if (
+    existing.planFile !== value.planFile ||
+    existing.planSha256 !== value.planSha256 ||
+    existing.sealSha256 !== value.sealSha256
+  )
+    throw Error('Retained maintenance requirement changed');
   if (captureStableIdentity) {
     const identities = inspectMaintenanceDatabases(
       plan,
@@ -200,8 +207,26 @@ export function persistMaintenanceRequirement(
       true,
       readMaintenanceVolumeUuids,
     )!;
-    publishMaintenanceIdentity(value, 'original-device', identities);
+    const identity = publishMaintenanceIdentity(existing, 'original-device', identities);
+    requirePersistentIdentity(marker, bytes, existing, identity);
   }
+}
+
+const requirementByteLimit = 16 * 1024;
+
+function requirePersistentIdentity(
+  marker: string,
+  previous: Buffer,
+  requirement: z.infer<typeof MaintenanceRequirement>,
+  identity: ReturnType<typeof publishMaintenanceIdentity>,
+) {
+  if (requirement.version === 2) return;
+  const next = {
+    ...requirement,
+    version: 2,
+    databaseIdentitySha256: maintenanceFingerprint(identity),
+  };
+  upgradePrivateOperationFile(marker, previous, JSON.stringify(next) + '\n', requirementByteLimit);
 }
 
 function configuredDatabases(): [string, string] {
@@ -216,17 +241,15 @@ function readRequiredHandoff() {
   if (Object.hasOwn(process.env, 'MITZO_MAINTENANCE_PLAN_FILE') && !selected)
     throw Error('Explicit maintenance selector must name its protected plan');
   const root = resolve(join(codexPrivateDirectory(), 'deployment'));
-  let required: z.infer<typeof MaintenanceRequirement>;
+  const marker = join(root, 'required-handoff.json');
+  let bytes: Buffer;
   try {
-    required = MaintenanceRequirement.parse(
-      JSON.parse(
-        readPrivateOperationFile(join(root, 'required-handoff.json'), 16 * 1024).toString('utf8'),
-      ),
-    );
+    bytes = readPrivateOperationFile(marker, requirementByteLimit);
   } catch (error) {
     if (!selected && (error as NodeJS.ErrnoException).code === 'ENOENT') return;
     throw error;
   }
+  const required = MaintenanceRequirement.parse(JSON.parse(bytes.toString('utf8')));
   const path = required.planFile;
   if (
     (selected && resolve(selected) !== path) ||
@@ -246,7 +269,7 @@ function readRequiredHandoff() {
     required.sealSha256 !== maintenanceFingerprint(seal)
   )
     throw Error('Original private maintenance requirement changed');
-  return { required, plan, seal };
+  return { required, plan, seal, marker, bytes };
 }
 
 /** Explicit local operator action after verifying provenance of both legacy files. */
@@ -258,7 +281,7 @@ export function migrateCompletedMaintenanceIdentity(
   const evidence = readRequiredHandoff();
   if (!evidence || evidence.required.planSha256 !== planSha256)
     throw Error('Exact reviewed maintenance plan fingerprint required');
-  const { required, plan, seal } = evidence;
+  const { required, plan, seal, marker, bytes } = evidence;
   const configured = configuredDatabases();
   const identities = inspectMaintenanceDatabases(plan, configured, false, volumeProbe)!;
   if (
@@ -284,7 +307,8 @@ export function migrateCompletedMaintenanceIdentity(
       )
     )
       throw Error('Maintenance databases changed during migration');
-    publishMaintenanceIdentity(required, 'completed-handoff', identities);
+    const identity = publishMaintenanceIdentity(required, 'completed-handoff', identities);
+    requirePersistentIdentity(marker, bytes, required, identity);
   } finally {
     db.close();
   }

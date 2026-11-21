@@ -333,6 +333,19 @@ it('completes only an exact zero-delivery idle handoff while legacy native recov
     /persistent maintenance identity/,
   );
 
+  // Even if macOS later reuses the original dev number, losing the bound
+  // record must fail closed. The original requirement bytes remain retained.
+  const marker = join(privateRoot, 'deployment/required-handoff.json');
+  expect(JSON.parse(readFileSync(marker + '.v1', 'utf8')).version).toBe(1);
+  f.remountedDatabases.clear();
+  renameSync(identityFile, identityFile + '.absent');
+  try {
+    expect(() => validateMaintenanceBootstrap(volumes)).toThrow(/ENOENT/);
+  } finally {
+    renameSync(identityFile + '.absent', identityFile);
+  }
+  f.remountedDatabases = new Set([eventsPath, nativePath]);
+
   const savedNative = nativePath + '.original';
   renameSync(nativePath, savedNative);
   try {

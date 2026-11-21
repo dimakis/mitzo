@@ -178,8 +178,9 @@ historical evidence on later accepted releases; it grants no new delivery author
 On macOS the bootstrap also verifies the persistent APFS volume UUID, inode
 and creation time of both databases. New adoptions save these in a private
 `$plan.database-identity.json` record bound to the original plan and seal. Keep
-this record with the original evidence. A change in the mount's device number
-does not change the persistent identity.
+this record with the original evidence. The startup marker pins its fingerprint
+and retains its prior bytes as `required-handoff.json.v1`. Startup refuses a
+missing pinned record, even if macOS reissues the legacy device number.
 
 For a completed legacy handoff without this record, a host operator can migrate
 it from a reviewed, accepted release. Use retained host evidence to verify the
@@ -196,8 +197,8 @@ node scripts/deployment-maintenance-bootstrap.mjs
 The command uses the same database paths as startup. Both inodes must match the
 sealed plan, both files must predate its seal, and the original completed
 operation and quarantine must verify. The command publishes the private
-identity record exclusively, without rewriting the previous records or database
-rows. If the original filesystem provenance is uncertain, retain the outage and
+identity record exclusively and updates the startup marker. It preserves the
+previous marker bytes, the sealed records and database rows. If the original filesystem provenance is uncertain, retain the outage and
 evidence for review.
 
 Start the accepted target only after adoption and Telos transfer succeed. New

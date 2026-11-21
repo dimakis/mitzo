@@ -1,3 +1,4 @@
+import { maintenanceFingerprint } from '@mitzo/protocol/event-store';
 import { execFileSync } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
@@ -119,11 +120,15 @@ export function readMaintenanceIdentity(required: Requirement): IdentityBinding 
   try {
     bytes = readPrivateOperationFile(required.planFile + '.database-identity.json', 16 * 1024);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' && required.version === 1) return;
     throw error;
   }
   const record = StableIdentity.parse(JSON.parse(bytes.toString('utf8')));
-  if (record.planSha256 !== required.planSha256 || record.sealSha256 !== required.sealSha256)
+  if (
+    record.planSha256 !== required.planSha256 ||
+    record.sealSha256 !== required.sealSha256 ||
+    (required.version === 2 && maintenanceFingerprint(record) !== required.databaseIdentitySha256)
+  )
     throw Error('Database identity record does not bind the original handoff');
   return record;
 }
@@ -132,21 +137,23 @@ export function publishMaintenanceIdentity(
   required: Requirement,
   basis: IdentityBinding['basis'],
   identities: Pick<IdentityBinding, 'events' | 'native'>,
-): void {
+): IdentityBinding {
   const existing = readMaintenanceIdentity(required);
   if (existing) {
     if (!isDeepStrictEqual(identities, { events: existing.events, native: existing.native }))
       throw Error('Retained database identity changed');
-    return;
+    return existing;
   }
+  const record = StableIdentity.parse({
+    version: 1,
+    planSha256: required.planSha256,
+    sealSha256: required.sealSha256,
+    basis,
+    ...identities,
+  });
   publishPrivateOperationFile(
     required.planFile + '.database-identity.json',
-    JSON.stringify({
-      version: 1,
-      planSha256: required.planSha256,
-      sealSha256: required.sealSha256,
-      basis,
-      ...identities,
-    }) + '\n',
+    JSON.stringify(record) + '\n',
   );
+  return record;
 }

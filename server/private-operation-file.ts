@@ -1,9 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   constants,
   fstatSync,
   openSync,
   readSync,
+  renameSync,
+  unlinkSync,
   lstatSync,
   writeFileSync,
   fsyncSync,
@@ -62,7 +65,7 @@ export function assertPrivateOperationDirectory(path: string): void {
 }
 
 /** Exclusive, fsynced host publication. Uncertain outputs are never replaced. */
-export function publishPrivateOperationFile(path: string, bytes: string): void {
+export function publishPrivateOperationFile(path: string, bytes: string | Buffer): void {
   assertPrivateOperationDirectory(dirname(path));
   const fd = openSync(
     path,
@@ -75,6 +78,10 @@ export function publishPrivateOperationFile(path: string, bytes: string): void {
   } finally {
     closeSync(fd);
   }
+  syncOperationDirectory(path);
+}
+
+function syncOperationDirectory(path: string): void {
   const directory = openSync(
     dirname(path),
     constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
@@ -83,5 +90,39 @@ export function publishPrivateOperationFile(path: string, bytes: string): void {
     fsyncSync(directory);
   } finally {
     closeSync(directory);
+  }
+}
+
+/** Atomically upgrade expected private evidence and preserve the original bytes. */
+export function upgradePrivateOperationFile(
+  path: string,
+  expected: Buffer,
+  replacement: string,
+  limit: number,
+): void {
+  const previous = path + '.v1';
+  try {
+    publishPrivateOperationFile(previous, expected);
+  } catch (error) {
+    if (
+      (error as NodeJS.ErrnoException).code !== 'EEXIST' ||
+      !readPrivateOperationFile(previous, limit).equals(expected)
+    )
+      throw error;
+  }
+  const candidate = path + '.' + randomUUID();
+  publishPrivateOperationFile(candidate, replacement);
+  try {
+    const current = readPrivateOperationFile(path, limit);
+    if (current.equals(Buffer.from(replacement))) return;
+    if (!current.equals(expected)) throw Error('Original private operation evidence changed');
+    renameSync(candidate, path);
+    syncOperationDirectory(path);
+  } finally {
+    try {
+      unlinkSync(candidate);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
   }
 }
