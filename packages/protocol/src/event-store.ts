@@ -47,6 +47,7 @@ import {
 } from './session-metadata-store.js';
 import { SessionLifecycleStore } from './session-lifecycle-store.js';
 import { SessionLearningStore } from './session-learning-store.js';
+import { ContextSnapshotStore } from './context-snapshot-store.js';
 import type { SessionLearningMode } from './session-learning.js';
 import { SessionRemovalStore } from './session-removal-store.js';
 import { OrdinaryContextTransitionStore } from './ordinary-context-transition-store.js';
@@ -631,6 +632,7 @@ export class EventStore {
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
   private readonly sessionLearning: SessionLearningStore;
+  readonly contextSnapshots: ContextSnapshotStore;
   private readonly commandWithdrawals: OrdinaryCommandWithdrawals;
   private readonly ordinaryWorkspaceSessions: OrdinaryWorkspaceSessionStore;
   private readonly sessionLifecycle: SessionLifecycleStore;
@@ -2970,6 +2972,10 @@ export class EventStore {
       this.ordinaryEarlyStarts = new OrdinaryEarlyStarts(() => this.db!);
       this.deployment = new DeploymentStore(db);
       this.contextTransitions = new OrdinaryContextTransitionStore(db);
+      this.contextSnapshots = new ContextSnapshotStore({
+        database: () => this.db!,
+        hasSession: (id) => !!this.getSession(id),
+      });
       db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (
       operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL UNIQUE,
       receipt TEXT NOT NULL, metadata TEXT NOT NULL);`);
