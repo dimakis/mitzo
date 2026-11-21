@@ -7,6 +7,7 @@ import { sessionProfileTools, profileToolDefinitions } from '../session-profile-
 import { agentToolCatalog } from '../agent-tool-catalog.js';
 import { revokeAuthSession } from '../auth.js';
 import { callbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
+import { EventStore } from '../event-store.js';
 
 const fixture = vi.hoisted(() => ({
   approve: vi.fn(async (_display: unknown) => true),
@@ -81,6 +82,37 @@ function tools() {
 }
 const call = { turnId: 'turn', callId: 'call' };
 const signal = () => new AbortController().signal;
+it('returns the durable overlap diagnostic when consultation fails before reservation', async () => {
+  const events = new EventStore(':memory:');
+  cleanup.push(() => events.close());
+  events.upsertSession({ sessionId: 'lead', conversationSource: 'mitzo' });
+  events.append('lead', 'user_message', { messageId: 'command', text: 'Original' });
+  events.append('lead', 'message_start', { messageId: 'answer' });
+  events.append('lead', 'block_start', { messageId: 'answer', blockId: 'text', blockType: 'text' });
+  events.append('lead', 'user_message', { messageId: 'overlap', text: 'PRIVATE' });
+  events.append('lead', 'block_end', { messageId: 'answer', blockId: 'text' });
+  events.append('lead', 'message_end', { messageId: 'answer' });
+  fixture.consult.mockImplementationOnce(async () => {
+    events.getDurableSessionTranscript('lead');
+    throw Error('Unexpected reservation');
+  });
+  const result = await tools().tool.execute(
+    'SymposiumConsult',
+    {
+      operation: 'consult',
+      requestId: randomUUID(),
+      policyId: randomUUID(),
+      role: 'planner',
+      assignment: 'Review',
+    },
+    signal(),
+    call,
+  );
+  expect(result?.isError).toBe(true);
+  expect(JSON.parse(result!.content)).toMatchObject({ error: 'source_history_overlap_invalid' });
+  expect(result!.content).toContain('overlapping messages');
+  expect(result!.content).not.toContain('PRIVATE');
+});
 it('exposes consultation on ordinary native, API and Claude lead routes', () => {
   expect(profileToolDefinitions.map((t) => t.name)).toContain('SymposiumConsult');
   expect(agentToolCatalog().find((t) => t.name === 'SymposiumConsult')?.routes).toEqual(

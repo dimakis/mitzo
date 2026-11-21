@@ -24,6 +24,27 @@ const boundedId = (expression: string) => `CASE WHEN typeof(${expression})='text
  AND length(CAST(${expression} AS BLOB))<=800 AND length(${expression}) BETWEEN 1 AND 200
  THEN ${expression} END`;
 const messageIdProjection = boundedId("json_extract(payload,'$.messageId')");
+// A queued user message is not the active command. Prefer the retained reply
+// mapping, then the dispatch owner (also covers tool/thinking-only messages).
+// Older histories without either marker can use their preceding user command.
+// An ambiguous or malformed mapping must not fall back to transcript adjacency.
+const replyMapping = `r.session_id=s.session_id AND r.seq<=@through
+ AND r.type='ordinary_reply_source'
+ AND json_extract(r.payload,'$.messageId')=json_extract(s.payload,'$.messageId')`;
+const dispatch = `d.session_id=s.session_id AND d.seq<s.seq
+ AND d.type='ordinary_provider_dispatch_started'`;
+const owningCommand = `CASE
+ WHEN EXISTS (SELECT 1 FROM events r WHERE ${replyMapping}) THEN (
+   SELECT CASE WHEN count(*)=1 AND ${ordinary('r')}
+     AND json_extract(r.payload,'$.version') IN (1,2)
+     THEN ${boundedId("json_extract(r.payload,'$.commandId')")} END
+   FROM events r WHERE ${replyMapping})
+ WHEN EXISTS (SELECT 1 FROM events d WHERE ${dispatch}) THEN (
+   SELECT CASE WHEN ${ordinary('d')} THEN ${boundedId("json_extract(d.payload,'$.messageId')")} END
+   FROM events d WHERE ${dispatch} ORDER BY d.seq DESC LIMIT 1)
+ ELSE (SELECT ${boundedId("json_extract(u.payload,'$.messageId')")} FROM events u
+   WHERE u.session_id=s.session_id AND u.seq<s.seq AND u.type='user_message' AND ${ordinary('u')}
+   AND json_type(u.payload,'$.steersMessageId') IS NULL ORDER BY u.seq DESC LIMIT 1) END`;
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 function fail(): never {
   throw new CollaborationContractError('snapshot_changed');
@@ -87,7 +108,7 @@ export function captureCollaborationDurableTranscript(
     // Freeze a complete prefix while a later ordinary reply streams. Global
     // event sequences have session gaps, so use the actual preceding session
     // event, not start-1. The ordinary source validator still rejects an active
-    // or interleaved turn inside the selected boundary.
+    // or unqualified overlapping turn inside the selected boundary.
     const unfinished = db
       .prepare(
         `SELECT MIN(s.seq) AS seq FROM events s
@@ -344,8 +365,10 @@ function createVisibleSource(
       )
       .get(args);
     if (unverified) fail();
-    // Replay inserts an assistant at message_start, whereas frozen pins use message_end.
-    // Refuse the unsupported interleaving globally, including empty/artifact-only selections.
+    // Frozen pins retain completion order. A correction may arrive while the
+    // assistant is open, but must name its retained ordinary command. Preserve
+    // the guard for overlapping assistants and unqualified user messages, even
+    // for empty/artifact-only selections. No provider acceptance is inferred.
     const interleaved = db
       .prepare(
         `SELECT 1 FROM events s WHERE s.session_id=@session
@@ -355,10 +378,19 @@ function createVisibleSource(
         AND json_extract(e.payload,'$.messageId')=json_extract(s.payload,'$.messageId')
         AND EXISTS (SELECT 1 FROM events t WHERE t.session_id=s.session_id
           AND t.seq>s.seq AND t.seq<e.seq AND t.type IN ('user_message','message_start')
-          AND ${ordinary('t')})) LIMIT 1`,
+          AND ${ordinary('t')} AND NOT COALESCE((
+            t.type='user_message'
+            AND json_extract(t.payload,'$.commandState')='steering'
+            AND ${boundedId("json_extract(t.payload,'$.steersMessageId')")} = (${owningCommand})
+            AND EXISTS (SELECT 1 FROM events u WHERE u.session_id=s.session_id
+              AND u.seq<s.seq AND u.type='user_message' AND ${ordinary('u')}
+              AND json_type(u.payload,'$.steersMessageId') IS NULL
+              AND json_extract(u.payload,'$.messageId')=json_extract(t.payload,'$.steersMessageId'))
+          ),0))) LIMIT 1`,
       )
       .get(args);
-    if (interleaved) fail();
+    if (interleaved)
+      throw new CollaborationContractError('source_history_overlap_invalid', 'snapshot_changed');
     if (initialPrompt) {
       const prompt = db
         .prepare(
@@ -419,7 +451,7 @@ function createVisibleSource(
     )
       fail();
     const blocks: Message['blocks'] = [];
-    const envelope = {
+    const envelope: Message = {
       conversationId: session,
       messageId: anchor.messageId,
       sequence: anchor.seq,
@@ -434,6 +466,24 @@ function createVisibleSource(
     };
     charge(0);
     if (anchor.type === 'user_message') {
+      // Add overlap provenance only for the newly supported shape; previously
+      // qualified non-overlapping snapshots keep their exact serialized pins.
+      const correction = db
+        .prepare(
+          `SELECT
+        CAST(${boundedId("json_extract(t.payload,'$.steersMessageId')")} AS BLOB) AS target
+        FROM events t WHERE t.session_id=@session AND t.seq=@seq AND EXISTS (
+          SELECT 1 FROM events s JOIN events e ON e.session_id=s.session_id
+          AND e.type='message_end' AND ${ordinary('e')}
+          AND json_extract(e.payload,'$.messageId')=json_extract(s.payload,'$.messageId')
+          WHERE s.session_id=t.session_id AND s.type='message_start' AND ${ordinary('s')}
+          AND s.seq<t.seq AND e.seq>t.seq AND e.seq<=@through)`,
+        )
+        .get({ ...args, seq: anchor.seq }) as { target: unknown } | undefined;
+      if (correction) {
+        envelope.steersMessageId = decodeSourceText(correction.target);
+        charge(Buffer.byteLength(JSON.stringify(envelope)) - bytes);
+      }
       const blockId = `user-${anchor.messageId}`;
       charge(Buffer.byteLength(JSON.stringify({ blockId, content: '', sha256: '0'.repeat(64) })));
       const row = db
@@ -464,6 +514,17 @@ function createVisibleSource(
         .get(session, streaming ? through + 1 : anchor.seq, anchor.messageId) as
         { seq: number } | undefined;
       if (!start) fail();
+      if (
+        db
+          .prepare(
+            `SELECT 1 FROM events WHERE session_id=? AND seq>? AND seq<?
+        AND type='user_message' AND ${ordinary()} LIMIT 1`,
+          )
+          .get(session, start.seq, anchor.seq)
+      ) {
+        envelope.startedAtSequence = start.seq;
+        charge(Buffer.byteLength(JSON.stringify(envelope)) - bytes);
+      }
       type Row = {
         seq: number;
         type: string;

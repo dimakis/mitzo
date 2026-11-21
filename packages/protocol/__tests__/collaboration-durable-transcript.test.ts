@@ -50,6 +50,137 @@ function refuses(code: 'snapshot_changed' | 'capacity_refused') {
   expect(() => store.getDurableSessionTranscript('one')).toThrowError(code);
 }
 
+function steeredReply(beforeStart?: () => void) {
+  user();
+  beforeStart?.();
+  const start = store.append('one', 'message_start', { messageId: 'answer' });
+  store.append('one', 'block_start', { messageId: 'answer', blockId: 'text', blockType: 'text' });
+  store.append('one', 'block_delta', { messageId: 'answer', blockId: 'text', delta: 'Answer' });
+  for (const requestId of ['correction-one', 'correction-two']) {
+    const input = { requestId, targetCommandId: 'question', text: requestId };
+    store.userSteering.reserve(
+      'one',
+      'operator',
+      input,
+      () => input.text,
+      () => false,
+    );
+    store.userSteering.transition('one', 'operator', input, 'submitted');
+    store.userSteering.transition('one', 'operator', input, 'accepted');
+  }
+  store.append('one', 'block_end', { messageId: 'answer', blockId: 'text' });
+  const end = store.append('one', 'message_end', { messageId: 'answer' });
+  return { start, end };
+}
+
+it.each(['reply mapping', 'dispatch'])(
+  'qualifies steering of the active command with a later queued prompt using %s',
+  (kind) => {
+    steeredReply(() => {
+      store.append('one', 'ordinary_provider_dispatch_started', { messageId: 'question' });
+      user('queued', 'Next task');
+      if (kind === 'reply mapping')
+        store.append('one', 'ordinary_reply_source', {
+          version: 2,
+          commandId: 'question',
+          messageId: 'answer',
+          providerThreadId: 'PRIVATE',
+          providerTurnId: 'PRIVATE',
+          executionFingerprint: 'PRIVATE',
+        });
+    });
+    const captured = store.getDurableSessionTranscript('one');
+    expect(captured.messages.map((m) => m.messageId)).toEqual([
+      'question',
+      'queued',
+      'correction-one',
+      'correction-two',
+      'answer',
+    ]);
+    expect(JSON.stringify(captured)).not.toContain('PRIVATE');
+  },
+);
+
+it('pages every correction in completion order with exact public overlap provenance', () => {
+  const { start, end } = steeredReply();
+  const captured = store.getDurableSessionTranscript('one');
+  expect(captured.messages.map((m) => m.messageId)).toEqual([
+    'question',
+    'correction-one',
+    'correction-two',
+    'answer',
+  ]);
+  expect(captured.messages[1]).toMatchObject({ steersMessageId: 'question' });
+  expect(captured.messages[2]).toMatchObject({ steersMessageId: 'question' });
+  expect(captured.messages[3]).toMatchObject({ sequence: end, startedAtSequence: start });
+  const source = store.openCollaborationVisibleSource('one', captured.boundary);
+  let after = 0;
+  const messages = [];
+  for (;;) {
+    const page = source.readPage(after, 1);
+    messages.push(...page.messages);
+    after = page.throughSequence;
+    if (!page.hasMore) break;
+  }
+  expect(messages).toEqual(captured.messages);
+  source.readPrefixWitness();
+  db.prepare(
+    "UPDATE events SET payload=json_set(payload,'$.steersMessageId','other-command') WHERE type='user_message' AND json_extract(payload,'$.messageId')='correction-one'",
+  ).run();
+  for (const read of [
+    () => source.readPage(0, 1),
+    () => source.readSelected([]),
+    () => source.readPrefixWitness(),
+    () => source.assertCurrent(),
+  ])
+    expect(read).toThrow('snapshot_changed');
+});
+
+it.each(['wrong command', 'duplicate mapping', 'invalid mapping'])(
+  'does not fall back to adjacency when retained ownership has %s',
+  (kind) => {
+    steeredReply();
+    const mapping = {
+      version: kind === 'invalid mapping' ? 99 : 2,
+      commandId: kind === 'wrong command' ? 'other-command' : 'question',
+      messageId: 'answer',
+    };
+    store.append('one', 'ordinary_reply_source', mapping);
+    if (kind === 'duplicate mapping') store.append('one', 'ordinary_reply_source', mapping);
+    refuses('snapshot_changed');
+  },
+);
+
+it.each([
+  'missing target',
+  'assistant target',
+  'stale command',
+  'foreign command',
+  'missing state',
+])('rejects overlap with %s instead of trusting a correction-shaped message', (kind) => {
+  if (kind === 'stale command') user('older-command');
+  if (kind === 'foreign command')
+    store.append('other', 'user_message', { messageId: 'foreign', text: 'Other' });
+  steeredReply();
+  const target =
+    kind === 'assistant target'
+      ? 'answer'
+      : kind === 'stale command'
+        ? 'older-command'
+        : kind === 'foreign command'
+          ? 'foreign'
+          : null;
+  db.prepare(
+    `UPDATE events SET payload=${
+      kind === 'missing state'
+        ? "json_remove(payload,'$.commandState')"
+        : "json_set(payload,'$.steersMessageId',@target)"
+    }
+      WHERE type='user_message' AND json_extract(payload,'$.messageId')='correction-one'`,
+  ).run(kind === 'missing state' ? {} : { target });
+  refuses('snapshot_changed');
+});
+
 it('withdraws current shared text while preserving the exact earlier source and original events', () => {
   user();
   assistant();
