@@ -4,16 +4,19 @@ Ordinary contribution to existing slice `5e5b6f6cbc37df2e`, coordinated by
 `d933a61d-7363-85ab-a329-93e6dc5a2050`. No canonical assignment, ownership or
 completion changes. This independent checkout starts at PR #1431 exact head
 `18afc8a0a0d196687df50fd3301a454bb1e9e28d`, which depends on PR #1424
-`d88b662f20bd77cf9f06e6f2b04c6ee72886bf63`. The held `413c30fc` integration is
-excluded. The source checkout and sibling branches were not edited.
+`d88b662f20bd77cf9f06e6f2b04c6ee72886bf63`. The initial candidate excluded the
+then-held `413c30fc` integration. The dependency update below now includes that
+published commit through #1431. The source checkout and sibling branches were
+not edited.
 
 ## Delivered boundary
 
 The existing single-agent TokenBar popover and per-agent recorded-usage dialog
 gain an Inspect context action. ChatInput supplies its existing session ID.
 The ring, composer placement, token-update propagation, microphone and retained
-ChatInputHost remain under their existing owners. No backend, protocol,
-fingerprint or client-store changes are required.
+ChatInputHost remain under their existing owners. The inspector changes no
+backend, protocol or client-store behavior. Its four registered UI source
+fingerprints are refreshed in the dependency update below.
 
 The hook validates `ContextSnapshotResponseSchema` from the authenticated
 `GET /api/sessions/:id/context-snapshot`. The response establishes the initial
@@ -98,9 +101,42 @@ The published transport baseline of 95 focused tests belongs to #1431; this
 candidate does not relabel that prior evidence as a new run. No release
 node_modules, provider configuration, model calls or paid token counts were used.
 
+## Dependency integration — 21 November 2026
+
+The required dependency merge retains inspector head
+`0c2b8bd0bc17314ab1dbaa1fc203c588a978f535` and integrates published #1431
+`c9828c101e2ac80bff7e7825845d79cfb3375e12`. That parent retains both original
+`18afc8a0a0d196687df50fd3301a454bb1e9e28d` and published #1424
+`413c30fcc1c25b76f609004d337967c05d4846c1`. The merge was conflict-free; incoming
+changes comprise six server/validation/registry files. The snapshot contract,
+inspector implementation and browser fixtures are unchanged.
+
+Coordinated with the #1431 owner, the runtime registry advances from
+`v1.0.1274-context-snapshot-lifecycle-and-turn-attribution` to
+`v1.0.1275-context-snapshot-inspector`. All parent registrations are retained;
+only the four changed UI source fingerprints (design contract, ChatInput,
+ConversationContextUsage and TokenBar) are refreshed.
+
+Verification on the combined tree:
+
+- 221 tests passed with one existing skip across the rendered inspector/composer
+  regressions, design guards and context measurement contract.
+- The three affected server suites initially could not complete because this
+  checkout lacked ContexGin build output and SQLite native artifacts. Building
+  these dependencies inside this checkout resolved the prerequisites without
+  changing repository manifests or borrowing release dependencies. The bounded
+  rerun passed all 31 tests: turn attribution (10), chat SDK adapter (9) and SDK
+  turn accounting (12). Total: 252 passing tests and one existing skip.
+- Focused frontend TypeScript and `npm run check:source-artifacts` passed. Checks
+  retained the one-worker and 1 GiB heap limits.
+- The earlier full-build/browser limits remain unchanged. No browser download,
+  launch or full-build retry was attempted during dependency integration. No
+  screenshot, visual qualification or native adapter qualification is claimed.
+
 ## Review and landing
 
-Review the incremental diff from `18afc8a0`, together with the declared dependent
+Review the incremental diff from `c9828c101e2ac80bff7e7825845d79cfb3375e12`,
+together with the declared dependent
 PRs. Full build/browser acceptance remains outstanding. No CI monitoring, merge,
 deployment, activation or main-only refresh was performed. Later landing still
 requires exact-head CI, trusted Centaur final LGTM and merge recommendation with
