@@ -21,6 +21,7 @@ import { createRuntimeContextSnapshots } from '../context-snapshot-runtime.js';
 import { createContextSnapshotRouter } from '../context-snapshot-router.js';
 import { revokeAuthSession } from '../auth.js';
 import { normalizeCodexContext } from '../context-measurement-adapters.js';
+import { createCodexContextSnapshotAdapter } from '../codex-context-snapshot.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -488,6 +489,47 @@ it.each(['local', 'openshell'] as const)(
     expect(f.query.getContextUsage).not.toHaveBeenCalled();
   },
 );
+
+it('keeps installed Local Codex evidence restored during passive lifecycle recovery', async () => {
+  const f = fixture();
+  const scope = structuredClone(f.owner.scope);
+  scope.binding.engine = 'codex';
+  const recovered = createRuntimeContextSnapshots(f.events, f.registry);
+  const current = vi.fn(() => scope);
+  const adapter = createCodexContextSnapshotAdapter({
+    session: f.session,
+    lifecycle: f.lifecycle,
+    current,
+    assertCurrent() {},
+  });
+  adapter.turnStarted();
+  const usage = {
+    inputTokens: 50,
+    outputTokens: 10,
+    cachedInputTokens: 20,
+    reasoningOutputTokens: 2,
+    totalTokens: 60,
+  };
+  adapter.usage({
+    threadId: 'thread',
+    turnId: 'turn',
+    tokenUsage: { last: usage, total: usage, modelContextWindow: 100 },
+  });
+  const revision = f.events.contextSnapshots.read('chat').revision;
+  expect(recovered.read('chat')).toMatchObject({ status: 'stale', reason: 'restored', revision });
+  expect(recovered.inspect('chat').snapshot?.usedTokens).toBeUndefined();
+  expect(
+    await recovered.refresh(
+      'chat',
+      { requestId: randomUUID(), detail: 'summary' },
+      f.authority,
+      new AbortController().signal,
+    ),
+  ).toMatchObject({ reason: 'refresh_unsupported' });
+  expect(f.events.contextSnapshots.read('chat').revision).toBe(revision);
+  expect(f.session.contextSnapshotOwner?.scope).toEqual(scope);
+  expect(f.query.getContextUsage).not.toHaveBeenCalled();
+});
 
 it('rejects invalid response envelopes and strips only additive fields', async () => {
   const f = fixture(),
