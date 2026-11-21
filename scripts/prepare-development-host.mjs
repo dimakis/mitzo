@@ -11,6 +11,7 @@ import {
   ownedDirectory,
   publishDependencySet,
   pruneDependencyStore,
+  managedDependencyConsumers,
 } from './lib/dependency-store.mjs';
 
 // An operator runs this reviewed host script; ordinary tasks cannot write the
@@ -38,6 +39,7 @@ export async function seedDependencyStore({
   store = dependencyStoreRoot(),
   snapshot = snapshotCommit,
   prepare = prepareDevelopment,
+  usageRoots,
 } = {}) {
   cwd = await realpath(cwd);
   store = await ownedDirectory(store);
@@ -70,7 +72,10 @@ export async function seedDependencyStore({
       toolchain: relative(build, resolve(ready.toolchainPath, '../..')),
       verify: () => prepare({ ...options, install: false }),
     });
-    const removed = await pruneDependencyStore({ store });
+    const removed = await pruneDependencyStore({
+      store,
+      usageRoots: usageRoots ?? (await managedDependencyConsumers()),
+    });
     return { ...published, removed };
   } catch (cause) {
     primary = cause;

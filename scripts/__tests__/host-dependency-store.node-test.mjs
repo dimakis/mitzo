@@ -44,7 +44,7 @@ async function fixture(t) {
       toolchainPath: bin,
     };
   }
-  return { cwd, store, calls, snapshot, prepare };
+  return { cwd, store, calls, snapshot, prepare, usageRoots: [] };
 }
 
 it('seeds only from a fresh host-owned snapshot, verifies again, and cleans its own build', async (t) => {

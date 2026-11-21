@@ -16,6 +16,7 @@ import {
   rm,
   stat,
   writeFile,
+  open,
 } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -30,6 +31,7 @@ const inside = (root, path) => {
   return scope !== '..' && !scope.startsWith(`..${sep}`) && !isAbsolute(scope);
 };
 const keyPattern = /^[a-f0-9]{64}$/;
+const toolchainPattern = /^\.mitzo-devtools\/toolchains\/[a-zA-Z0-9-]+$/;
 
 async function exists(path) {
   try {
@@ -122,8 +124,7 @@ export async function dependencyIdentity(cwd, runtime) {
 }
 
 async function partsFor(cwd, toolchain) {
-  if (!/^\.mitzo-devtools\/toolchains\/[a-zA-Z0-9-]+$/.test(toolchain))
-    throw error('invalid_toolchain');
+  if (!toolchainPattern.test(toolchain)) throw error('invalid_toolchain');
   const parts = ['node_modules', toolchain];
   for (const path of await workspacePaths(cwd)) {
     if (await exists(join(cwd, path, 'node_modules'))) parts.push(`${path}/node_modules`);
@@ -268,7 +269,15 @@ export async function restoreDependencySet({ store = dependencyStoreRoot(), cwd 
     try {
       if (!(await lstat(entry)).isDirectory()) throw error('invalid_entry');
       const metadata = JSON.parse(await readFile(join(entry, 'entry.json'), 'utf8'));
-      if (metadata.schema !== 1 || metadata.key !== key) throw error('invalid_entry');
+      if (
+        metadata?.schema !== 1 ||
+        metadata.key !== key ||
+        !metadata.runtime ||
+        !Array.isArray(metadata.parts) ||
+        !metadata.parts.every((part) => typeof part === 'string') ||
+        !Array.isArray(metadata.inventory)
+      )
+        throw error('invalid_entry');
       if (metadata.runtime.platform !== process.platform || metadata.runtime.arch !== process.arch)
         continue;
       if ((await dependencyIdentity(cwd, metadata.runtime)) !== key) continue;
@@ -284,6 +293,8 @@ export async function restoreDependencySet({ store = dependencyStoreRoot(), cwd 
       ]);
       if (
         !toolchain ||
+        !toolchainPattern.test(toolchain) ||
+        !metadata.parts.includes('node_modules') ||
         metadata.parts.some((part) => !allowed.has(part)) ||
         new Set(metadata.parts).size !== metadata.parts.length
       )
@@ -308,7 +319,11 @@ export async function restoreDependencySet({ store = dependencyStoreRoot(), cwd 
         if (await exists(target)) await rename(target, join(temporary, `old-${randomUUID()}`));
         await rename(join(payload, part), target);
       }
-      await readFile(join(entry, 'access'));
+      // APFS may not update atime. Sessions record use in their own writable
+      // task; only the host adopts these bounded advisory receipts for LRU.
+      const usage = join(temporary, 'usage.json');
+      await writeFile(usage, JSON.stringify({ key }), { flag: 'wx' });
+      await rename(usage, join(cwd, '.mitzo-devtools', 'dependency-store-use.json'));
       return {
         status: 'hit',
         key,
@@ -339,13 +354,53 @@ export async function restoreDependencySet({ store = dependencyStoreRoot(), cwd 
   return { status: 'miss' };
 }
 
-/** Host-only LRU: the access sentinel's atime records hits without granting session
- * writes. Filesystems with coarsened atime use that bounded resolution. */
+export async function managedDependencyConsumers() {
+  const root = join(userInfo().homedir, '.local', 'share', 'mitzo', 'ordinary-tasks');
+  if (!(await exists(root))) return [];
+  const entries = await readdir(root, { withFileTypes: true });
+  if (entries.length > 10000) throw error('consumer_scan_limit');
+  return entries
+    .filter((entry) => entry.isDirectory() && /^(repo|ordinary)-[a-f0-9-]+$/.test(entry.name))
+    .map((entry) => join(root, entry.name));
+}
+
+async function usageReceipts(roots, now) {
+  const usage = {};
+  for (const root of roots) {
+    const directory = join(root, '.mitzo-devtools');
+    const path = join(directory, 'dependency-store-use.json');
+    // Task receipts are advisory only: never follow a redirected directory or
+    // file, retain payloads, or let a receipt expand the candidate deletion set.
+    if (!(await exists(directory))) continue;
+    if ((await realpath(directory)) !== resolve(directory)) continue;
+    let file;
+    try {
+      file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const info = await file.stat();
+      if (!info.isFile() || info.nlink !== 1 || info.size > 1024 || info.uid !== process.getuid?.())
+        continue;
+      const receipt = JSON.parse(await file.readFile('utf8'));
+      if (keyPattern.test(receipt?.key ?? ''))
+        usage[receipt.key] = Math.max(usage[receipt.key] ?? 0, Math.min(now, info.mtimeMs));
+    } catch (cause) {
+      // A removed, redirected or malformed task hint grants no retention claim.
+      if (!['ENOENT', 'ELOOP', 'ENOTDIR'].includes(cause.code) && !(cause instanceof SyntaxError))
+        throw cause;
+    } finally {
+      if (file) await file.close();
+    }
+  }
+  return usage;
+}
+
+/** Host-only LRU. Private session receipts update a host-owned ledger, without
+ * granting any session writes to entries or trusting atime on APFS. */
 export async function pruneDependencyStore({
   store = dependencyStoreRoot(),
   maxEntries = 8,
   maxAgeMs = 30 * 86400_000,
   now = Date.now(),
+  usageRoots = [],
 } = {}) {
   if (
     !Number.isInteger(maxEntries) ||
@@ -358,13 +413,26 @@ export async function pruneDependencyStore({
     const entries = join(store, 'entries');
     if (!(await exists(entries))) return [];
     const candidates = [];
+    const ledgerPath = join(store, 'usage.json');
+    const previous = (await exists(ledgerPath))
+      ? JSON.parse(await readFile(ledgerPath, 'utf8'))
+      : {};
+    const usage = await usageReceipts(usageRoots, now);
     for (const key of (await readdir(entries)).filter((name) => keyPattern.test(name))) {
       const path = join(entries, key);
       if (!(await lstat(path)).isDirectory()) throw error('invalid_entry');
-      const info = await stat(join(path, 'access'));
       const metadata = JSON.parse(await readFile(join(path, 'entry.json'), 'utf8'));
       if (metadata.schema !== 1 || metadata.key !== key) throw error('invalid_entry');
-      candidates.push({ key, path, used: Math.max(info.atimeMs, metadata.createdAt) });
+      if (!Number.isFinite(metadata.createdAt)) throw error('invalid_entry');
+      candidates.push({
+        key,
+        path,
+        used: Math.max(
+          Math.min(now, metadata.createdAt),
+          Number.isFinite(previous[key]) ? Math.min(now, previous[key]) : 0,
+          usage[key] ?? 0,
+        ),
+      });
     }
     candidates.sort((a, b) => b.used - a.used || b.key.localeCompare(a.key));
     const removed = [];
@@ -373,6 +441,19 @@ export async function pruneDependencyStore({
       await removeOwned(item.path);
       removed.push(item.key);
     }
+    const pending = join(store, `.usage-${randomUUID()}`);
+    await writeFile(
+      pending,
+      JSON.stringify(
+        Object.fromEntries(
+          candidates
+            .filter((item) => !removed.includes(item.key))
+            .map((item) => [item.key, item.used]),
+        ),
+      ),
+      { flag: 'wx' },
+    );
+    await rename(pending, ledgerPath);
     return removed;
   });
 }

@@ -10,6 +10,7 @@ import {
   chmod,
   rm,
   readdir,
+  utimes,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -164,4 +165,47 @@ it('prunes only owned entries by host-recorded LRU with a finite entry/age bound
   assert.deepEqual(await readdir(join(f.store, 'entries')), [second.key]);
   assert.notEqual(second.key, first.key);
   assert.equal(await readFile(unrelated, 'utf8'), 'keep');
+});
+
+it('rejects malformed metadata before replacing task files', async () => {
+  const f = await fixture();
+  const entry = await f.publish();
+  const path = join(f.store, 'entries', entry.key, 'entry.json');
+  const metadata = JSON.parse(await readFile(path, 'utf8'));
+  await chmod(path, 0o644);
+  metadata.parts = ['.mitzo-devtools/toolchains/../../package.json'];
+  await writeFile(path, JSON.stringify(metadata));
+  const before = await readFile(join(f.target, 'package.json'), 'utf8');
+  const result = await restoreDependencySet({ store: f.store, cwd: f.target });
+  assert.equal(result.status, 'invalid');
+  assert.equal(result.reason, 'invalid_entry');
+  assert.equal(await readFile(join(f.target, 'package.json'), 'utf8'), before);
+});
+
+it('refuses symlinked install destinations without changing their target', async () => {
+  const f = await fixture();
+  await f.publish();
+  const outside = join(f.root, 'other-session');
+  await mkdir(outside);
+  await writeFile(join(outside, 'keep'), 'original');
+  await symlink(outside, join(f.target, 'node_modules'));
+  await assert.rejects(restoreDependencySet({ store: f.store, cwd: f.target }), {
+    code: 'redirected_directory',
+  });
+  assert.equal(await readFile(join(outside, 'keep'), 'utf8'), 'original');
+});
+
+it('retains the recently read entry and expires old entries without touching other data', async () => {
+  const f = await fixture();
+  const first = await f.publish();
+  await writeFile(join(f.cwd, 'package-lock.json'), '{"packages":{}}');
+  const second = await f.publish();
+  const old = new Date(Date.now() - 2 * 86400_000);
+  for (const key of [first.key, second.key])
+    await utimes(join(f.store, 'entries', key, 'access'), old, old);
+  assert.equal((await restoreDependencySet({ store: f.store, cwd: f.target })).status, 'hit');
+  await pruneDependencyStore({ store: f.store, maxEntries: 1, usageRoots: [f.target] });
+  assert.deepEqual(await readdir(join(f.store, 'entries')), [first.key]);
+  await pruneDependencyStore({ store: f.store, now: Date.now() + 31 * 86400_000 });
+  assert.deepEqual(await readdir(join(f.store, 'entries')), []);
 });
