@@ -3,9 +3,15 @@
 This extends [the one-session baseline](phase-a-baseline-2026-11-21.md) with
 equal-work, multi-session measurement through actual HTTP, ordinary workspace,
 SQLite EventStore, CodexConversation queue and CodexAppServerClient owners.
-The implementation is commit `703607f2633152d7e6e57d56ad0618f6c2a1ca6a`, dependent
+The initial implementation is commit `703607f2633152d7e6e57d56ad0618f6c2a1ca6a`, dependent
 on PR #1426 at `795043576ab5ccfb48a8ef36efb6c79cb708b4df`. PR #1426 is preserved.
 No production execution path was optimized or replaced.
+
+The later integration includes parent PR #1426 at
+`692e235ab02096474e865d06c1987cd18f5e8905` and main
+`9fa5d6fa6da8bfd0e54b8cb544b4f4329342bd76` (Claude turn attribution).
+Historical captures below retain their original source identities. Focused
+integration tests do not qualify latency or resource measurements at the new head.
 
 The completed **single diagnostic sweep** shows materially increasing delay
 before HTTP-handler entry under concurrent submissions. Repeated-run validation
@@ -30,7 +36,7 @@ one session. The E2E fixture added an out-of-window cross-session substitution
 and recovery probe. Neither changed the numerical reduction or measured workload,
 but **their source hashes differ** from the capture. The report retains both
 original hashes in `sourceFiles`; all other measured file fingerprints match the
-implementation commit. Production owner files remain those inherited from
+implementation commit. Captured production owner files are those inherited from
 PR #1426 (main `805fbd9c9e4ce4fed60da643bf73e6a48f5c3772`), not current main.
 
 Environment: Node 24.10.0, ABI 137, Darwin 27.2.0 arm64, Apple M4 Pro,
