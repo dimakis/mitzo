@@ -185,3 +185,84 @@ export type PrMonitorProjection = PrMonitorObservation & {
     expectedAuthorityRevision: number;
   } | null;
 };
+
+/** Validate the persisted owner's wire view before exposing retained evidence. */
+export const PrMonitorProjectionSchema: z.ZodType<PrMonitorProjection> = z
+  .strictObject({
+    version: z.literal(1),
+    hiddenEvents: revision,
+    compactedEvents: revision,
+    revocationPending: z
+      .strictObject({
+        requestId: reference,
+        expectedRevision: revision.min(1),
+        expectedAuthorityRevision: revision,
+      })
+      .nullable(),
+    baselinePending: z.boolean(),
+    failureCount: revision,
+    subscription: PrMonitorSubscriptionSchema,
+    snapshot: PrMonitorSnapshotSchema.nullable(),
+    events: z.array(
+      PrMonitorFindingSchema.extend({
+        version: z.literal(1),
+        id: reference,
+        subscriptionId: z.uuid(),
+        headSha: sha,
+        generation: revision.min(1),
+        evidenceDigest: digest,
+        observedAt: timestamp,
+        disposition: z.enum(['status_only', 'actionable', 'recovered', 'superseded']),
+      }),
+    ),
+    outbox: z
+      .strictObject({
+        eventIds: z.array(reference),
+        eligibilityRevision: revision,
+        eligibilityDigest: digest,
+        headSha: sha,
+        generation: revision.min(1),
+        availableAt: timestamp,
+        firstObservedAt: timestamp,
+        overflow: revision,
+      })
+      .nullable(),
+    refreshState: z.enum(['current', 'partial', 'stale', 'quota_delayed', 'backoff', 'blocked']),
+    diagnostic: z
+      .strictObject({
+        code: z.enum([
+          'rate_limited',
+          'read_failed',
+          'authority_unavailable',
+          'connection_unavailable',
+          'conversation_unavailable',
+          'head_changed',
+          'incomplete',
+          'retention_limit',
+          'quota_delayed',
+        ]),
+        stage: z.enum(['read', 'publish', 'reconcile']),
+        nextRefreshAt: timestamp.nullable(),
+      })
+      .nullable(),
+    counters: z.strictObject({
+      observations: revision,
+      distinctEvents: revision,
+      modelTurns: z.literal(0),
+    }),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.events.some((event) => event.subscriptionId !== value.subscription.id) ||
+      value.events.reduce((count, event) => count + event.references.length, 0) > 20 ||
+      new TextEncoder().encode(JSON.stringify(value.events)).length > 16 * 1024
+    )
+      ctx.addIssue({ code: 'custom', message: 'Invalid bounded PR evidence' });
+  });
+
+export const PrMonitorInventorySchema = z.strictObject({
+  executionAvailable: z.boolean(),
+  executionDigest: digest.nullable(),
+  subscriptions: z.array(PrMonitorProjectionSchema),
+});
+export type PrMonitorInventory = z.infer<typeof PrMonitorInventorySchema>;
