@@ -132,3 +132,14 @@ repository-mandated 1 GiB heap. Full application build/browser acceptance remain
 pending CI. Local logs are retained in the continuation workspace under
 `implementation-evidence/background-ui/`; they are not substituted for passing
 browser evidence or a physical iOS check.
+
+PR1438 CI run `44945325215` at `4fb8db67178915738b72e9f38c2437156ae017d1`
+passed server source type checking, frontend type checking and shared frontend
+asset builds. Compile/source preflight failed because eight registered source
+fingerprints had not been regenerated; dependent browser/test jobs were skipped.
+The preparation fix retains every existing registration, regenerates those eight
+fingerprints, registers the extracted task observation and Stop consumer modules,
+and advances the runtime revision to `v1.0.1271-background-task-ui`.
+`npm run check:source-artifacts` and all four source/compile-preflight regression
+tests pass locally. Fresh CI and exact-head Centaur review remain required;
+the earlier green job named `centaur` had no published final review report.
