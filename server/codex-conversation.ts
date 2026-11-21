@@ -101,6 +101,7 @@ import { classifyProviderFailure, ProviderFailureError } from './provider-failur
 import { tracer } from './tracing.js';
 import { createLogger } from './logger.js';
 import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { codexLifecycleDiagnostic } from './codex-lifecycle-failure.js';
 const log = createLogger('codex-conversation');
 function reportCommandFailure(
   conversationId: string,
@@ -891,6 +892,7 @@ export class CodexConversation {
     try {
       const diagnostic = error instanceof CodexTransportError ? error.diagnostic : undefined;
       this.opts.store.recordTransportDiagnostic(this.opts.conversationId, this.binding, command, {
+        lifecycle: codexLifecycleDiagnostic(error),
         stage: 'native_transport',
         reason:
           diagnostic &&
