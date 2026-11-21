@@ -22,7 +22,13 @@ import {
   ordinaryWorkspaceArtifactRoot,
   hasOrdinaryWorkspaceArtifactScope,
 } from './ordinary-workspace-artifact-root.js';
-import { hasPersistentRevocationAuthority, isAuthSessionCurrent } from './auth.js';
+import {
+  hasPersistentRevocationAuthority,
+  isAuthSessionCurrent,
+  isAuthenticatedOperatorSessionId,
+} from './auth.js';
+import { createApplicationPrMonitor } from './pr-monitor-application.js';
+import { executeTrustedGitHubReadResponse } from './trusted-native-operation.js';
 import { createOrdinaryWorkspacePreparationRouter } from './ordinary-workspace-router.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import {
@@ -3905,7 +3911,26 @@ mountObservedRouter(
   }),
 );
 
-const sessionCapabilityGrants = new SessionCapabilityGrants(registry, repositoryCapabilityIdentity);
+export const prMonitorController = createApplicationPrMonitor({
+  eventStore,
+  registry,
+  accounts: loadAccountProfiles,
+  connections: getConnectionsRuntime,
+  auth: {
+    hasPersistentRevocationAuthority,
+    isLoginCurrent: isAuthSessionCurrent,
+    isInteractive: isAuthenticatedOperatorSessionId,
+  },
+  read: executeTrustedGitHubReadResponse,
+  eligibleAuthors: process.env.CENTAUR_REVIEWER_LOGIN?.trim()
+    ? [process.env.CENTAUR_REVIEWER_LOGIN.trim()]
+    : [],
+});
+const sessionCapabilityGrants = new SessionCapabilityGrants(
+  registry,
+  repositoryCapabilityIdentity,
+  prMonitorController.consent,
+);
 mountObservedRouter(
   app,
   '/api/sessions/:id/learning',
@@ -3918,6 +3943,7 @@ mountObservedRouter(
   operatorAuthMiddleware,
   createSessionCapabilityRouter({
     grants: sessionCapabilityGrants,
+    monitor: prMonitorController,
     hasSession: (id) => {
       const meta = eventStore.getSession(id);
       return Boolean(
