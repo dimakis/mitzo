@@ -6,7 +6,7 @@ import {
   openSync,
   readSync,
   renameSync,
-  unlinkSync,
+  rmSync,
   lstatSync,
   writeFileSync,
   fsyncSync,
@@ -114,15 +114,24 @@ export function upgradePrivateOperationFile(
   publishPrivateOperationFile(candidate, replacement);
   try {
     const current = readPrivateOperationFile(path, limit);
-    if (current.equals(Buffer.from(replacement))) return;
-    if (!current.equals(expected)) throw Error('Original private operation evidence changed');
-    renameSync(candidate, path);
-    syncOperationDirectory(path);
-  } finally {
-    try {
-      unlinkSync(candidate);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    if (!current.equals(Buffer.from(replacement))) {
+      if (!current.equals(expected)) throw Error('Original private operation evidence changed');
+      renameSync(candidate, path);
+      syncOperationDirectory(path);
     }
+  } catch (error) {
+    try {
+      rmSync(candidate, { force: true });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Private operation upgrade and cleanup failed',
+        {
+          cause: cleanupError,
+        },
+      );
+    }
+    throw error;
   }
+  rmSync(candidate, { force: true });
 }
