@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
+import { PrMonitorRegisterSchema, type PrMonitorController } from './pr-monitor-controller.js';
+import { createLogger } from './logger.js';
 import {
   recentAuthorizationSession,
   requireRecentConnectionAuthorization,
@@ -19,6 +22,7 @@ const watchRevoke = watchChange.pick({
   expectedRevision: true,
   expectedAuthorityRevision: true,
 });
+const log = createLogger('session-capability-router');
 import {
   CreateSessionCapabilityGrant,
   type SessionCapabilityGrants,
@@ -29,6 +33,7 @@ import {
  * grants. The custom header forces a browser preflight on cross-origin writes. */
 export function createSessionCapabilityRouter(options: {
   grants: SessionCapabilityGrants;
+  monitor?: PrMonitorController;
   hasSession(id: string): boolean;
   title?(id: string): string | undefined;
 }) {
@@ -52,6 +57,60 @@ export function createSessionCapabilityRouter(options: {
     }
     next();
   });
+  router.get('/pr-monitor', (req, res) => {
+    const auth = recentAuthorizationSession(res);
+    if (!auth) return;
+    if (!options.monitor) return res.status(503).json({ code: 'pr_watch_unavailable' });
+    try {
+      const id = req.params.id as string;
+      return res.json({
+        ...options.monitor.context(auth, id),
+        subscriptions: options.monitor.list(auth, id),
+      });
+    } catch {
+      return res
+        .status(409)
+        .json({
+          code: 'pr_observation_unavailable',
+          error: 'Refresh the conversation and its account before managing Watch.',
+        });
+    }
+  });
+  router.post(
+    '/pr-monitor',
+    rateLimit({ windowMs: 60000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false }),
+    requireSameOriginJson,
+    async (req, res) => {
+      const auth = recentAuthorizationSession(res);
+      if (!auth) return;
+      if (!options.monitor) return res.status(503).json({ code: 'pr_watch_unavailable' });
+      const parsed = PrMonitorRegisterSchema.extend({ csrf: z.string().optional() }).safeParse(
+        req.body,
+      );
+      if (!parsed.success) return res.status(400).json({ code: 'invalid_watch_request' });
+      if (!requireRecentConnectionAuthorization(res, parsed.data.csrf ?? '')) return;
+      try {
+        const input = { ...parsed.data };
+        delete input.csrf;
+        return res
+          .status(201)
+          .json(await options.monitor.register(auth, req.params.id as string, input));
+      } catch {
+        log.warn('PR registration could not retain verified scope', {
+          stage: 'register',
+          code: 'pr_registration_unavailable',
+          conversationId: req.params.id,
+        });
+        return res
+          .status(409)
+          .json({
+            code: 'pr_registration_unavailable',
+            error:
+              'Registration was not confirmed. Refresh account/repository access and retry the same request.',
+          });
+      }
+    },
+  );
   router.get<{ id: string }>('/', (req, res) => {
     const id = req.params.id as string;
     const auth = recentAuthorizationSession(res);

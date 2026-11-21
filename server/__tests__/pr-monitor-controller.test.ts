@@ -3,6 +3,14 @@ import { EventStore } from '../../packages/protocol/src/event-store.js';
 import { createPrMonitorController } from '../pr-monitor-controller.js';
 import { createInteractiveAuth } from '../interactive-auth-core.js';
 import type { PrMonitorSubscription } from '@mitzo/protocol';
+import express from 'express';
+import request from 'supertest';
+import { capabilityFixture } from './fixtures/session-capabilities.js';
+import { SessionCapabilityGrants } from '../session-capability-grants.js';
+import { createSessionCapabilityRouter } from '../session-capability-router.js';
+import { recentAppReauthorizationHandlers } from '../connections-router.js';
+import { SessionPromptStore } from '../session-prompt-store.js';
+import { SessionPromptService } from '../session-prompt-service.js';
 
 const connectionId = '9c6bb0d4-081f-4f55-86f8-60c703452053';
 const head = 'a'.repeat(40),
@@ -179,4 +187,95 @@ it('rejects caller execution replacement and host identity mismatch without crea
   );
   expect(f.store.prMonitor.list('ordinary:user', 'chat')).toEqual([]);
   await f.controller.close();
+});
+it('connects the real Access registration/consent routes to the existing scheduler without model delivery', async () => {
+  const f = await fixture();
+  const { registry, session } = capabilityFixture();
+  session.sessionId = 'chat';
+  session.ownedLocalAuthSessionId = f.login.id;
+  const grants = new SessionCapabilityGrants(registry, undefined, f.controller.consent);
+  const app = express();
+  app.use(express.json());
+  app.use((_req, res, next) => {
+    res.locals.authSession = f.login;
+    next();
+  });
+  app.post('/reauth', ...recentAppReauthorizationHandlers());
+  app.use(
+    '/api/sessions/:id/access-grants',
+    createSessionCapabilityRouter({
+      grants,
+      monitor: f.controller,
+      hasSession: (id) => id === 'chat',
+    }),
+  );
+  const path = '/api/sessions/chat/access-grants';
+  expect((await request(app).get(`${path}/pr-monitor`)).status).toBe(200);
+  expect(
+    (
+      await request(app)
+        .post(`${path}/pr-monitor`)
+        .set('Host', '127.0.0.1')
+        .set('Origin', 'http://127.0.0.1')
+        .set('X-Mitzo-Access-Intent', 'manage-grants')
+        .send(f.input)
+    ).status,
+  ).toBe(403);
+  expect(f.read).not.toHaveBeenCalled();
+  const reauth = await request(app)
+    .post('/reauth')
+    .set('Host', '127.0.0.1')
+    .set('Origin', 'http://127.0.0.1')
+    .send({ passphrase: 'test-passphrase-for-vitest' });
+  expect(reauth.status).toBe(200);
+  const created = await request(app)
+    .post(`${path}/pr-monitor`)
+    .set('Host', '127.0.0.1')
+    .set('Origin', 'http://127.0.0.1')
+    .set('X-Mitzo-Access-Intent', 'manage-grants')
+    .send({ ...f.input, csrf: reauth.body.csrf });
+  expect(created.status).toBe(201);
+  const s = created.body.projection.subscription;
+  const watch = await request(app)
+    .post(`${path}/pr-watch/${s.id}`)
+    .set('Host', '127.0.0.1')
+    .set('Origin', 'http://127.0.0.1')
+    .set('X-Mitzo-Access-Intent', 'manage-grants')
+    .send({
+      requestId: 'watch-http',
+      expectedRevision: s.revision,
+      expectedAuthorityRevision: 0,
+      durationMinutes: 30,
+      reviewedScope: created.body.reviewedScope,
+      csrf: reauth.body.csrf,
+    });
+  expect(watch.status).toBe(201);
+  const prompts = new SessionPromptStore(':memory:');
+  const deliver = vi.fn();
+  const service = new SessionPromptService(
+    prompts,
+    {
+      authorized: () => true,
+      inspect: async () => ({ busy: false }),
+      deliver,
+      receipt: () => 'absent',
+      close: () => undefined,
+    },
+    f.controller,
+  );
+  try {
+    await service.tick();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(prompts.deliveries()).toEqual([]);
+    const projection = await request(app).get(`${path}/pr-monitor`);
+    expect(projection.body.subscriptions[0].refreshState).toBe('current');
+    expect(projection.body.subscriptions[0].counters.modelTurns).toBe(0);
+    await service.cancelSession('chat');
+    expect(f.store.prMonitor.read('ordinary:user', 'chat', s.id).subscription.lifecycle).toBe(
+      'removed',
+    );
+  } finally {
+    await service.drain();
+    prompts.close();
+  }
 });
