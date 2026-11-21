@@ -78,12 +78,54 @@ afterEach(() => {
   for (const d of directories.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
+const clocks = new WeakMap<EventStore, number>();
+function publishClaimed(
+  store: EventStore,
+  args: Omit<Parameters<EventStore['prMonitor']['publish']>[0], 'claim' | 'now'>,
+) {
+  const s = store.prMonitor.read(
+    args.operatorId,
+    args.conversationId,
+    args.subscriptionId,
+  ).subscription;
+  const now = Math.max(clocks.get(store) ?? 0, args.snapshot.observedAt);
+  clocks.set(store, now);
+  const claim = store.prMonitor.leases.acquire(s, now)!;
+  try {
+    return store.prMonitor.publish({ ...args, claim, now: () => now });
+  } finally {
+    store.prMonitor.leases.release(claim);
+  }
+}
+function failClaimed(
+  store: EventStore,
+  diagnostic: Parameters<EventStore['prMonitor']['fail']>[0]['diagnostic'],
+) {
+  const s = store.prMonitor.read('ordinary:user', 'chat', id).subscription;
+  clocks.set(store, 2000);
+  const claim = store.prMonitor.leases.acquire(s, 2000)!;
+  try {
+    return store.prMonitor.fail({
+      operatorId: s.operatorId,
+      conversationId: s.conversationId,
+      subscriptionId: id,
+      expectedRevision: s.revision,
+      expectedSnapshotRevision: s.snapshotRevision,
+      diagnostic,
+      claim,
+      now: () => 2000,
+    });
+  } finally {
+    store.prMonitor.leases.release(claim);
+  }
+}
+
 describe('PR monitor event-store owner', () => {
   it('compacts superseded generations while retaining current-head deduplication and lifetime event counters', () => {
     const s = open();
     s.prMonitor.create('request', input());
     const publish = (headSha: string, source: string) =>
-      s.prMonitor.publish({
+      publishClaimed(s, {
         operatorId: 'ordinary:user',
         conversationId: 'chat',
         subscriptionId: id,
@@ -112,7 +154,7 @@ describe('PR monitor event-store owner', () => {
     const s = open();
     s.prMonitor.create('request', input());
     const publish = (findings: (typeof failure)[]) =>
-      s.prMonitor.publish({
+      publishClaimed(s, {
         operatorId: 'ordinary:user',
         conversationId: 'chat',
         subscriptionId: id,
@@ -134,7 +176,7 @@ describe('PR monitor event-store owner', () => {
     const s = open();
     s.prMonitor.create('request', input());
     const publish = (baseline: boolean, findings = [failure]) =>
-      s.prMonitor.publish({
+      publishClaimed(s, {
         operatorId: 'ordinary:user',
         conversationId: 'chat',
         subscriptionId: id,
@@ -147,14 +189,7 @@ describe('PR monitor event-store owner', () => {
         assertCurrent: () => undefined,
       });
     const first = publish(false);
-    s.prMonitor.fail(
-      'ordinary:user',
-      'chat',
-      id,
-      1,
-      { code: 'head_changed', stage: 'read', nextRefreshAt: 60000 },
-      2000,
-    );
+    failClaimed(s, { code: 'head_changed', stage: 'read', nextRefreshAt: 60000 });
     const incomplete = s.prMonitor.read('ordinary:user', 'chat', id);
     expect(incomplete.outbox).toBeNull();
     expect(incomplete.subscription.eligibilityRevision).toBeGreaterThan(
@@ -181,7 +216,7 @@ describe('PR monitor event-store owner', () => {
         },
       ],
     }));
-    const view = s.prMonitor.publish({
+    const view = publishClaimed(s, {
       operatorId: 'ordinary:user',
       conversationId: 'chat',
       subscriptionId: id,
@@ -235,7 +270,7 @@ describe('PR monitor event-store owner', () => {
     let s = open(path);
     s.prMonitor.create('request', input());
     const publish = (baseline: boolean, findings = [failure]) =>
-      s.prMonitor.publish({
+      publishClaimed(s, {
         operatorId: 'ordinary:user',
         conversationId: 'chat',
         subscriptionId: id,
@@ -265,7 +300,7 @@ describe('PR monitor event-store owner', () => {
     s.prMonitor.create('request', input());
     let calls = 0;
     expect(() =>
-      s.prMonitor.publish({
+      publishClaimed(s, {
         operatorId: 'ordinary:user',
         conversationId: 'chat',
         subscriptionId: id,
@@ -298,9 +333,9 @@ describe('PR monitor event-store owner', () => {
       baseline: false,
       assertCurrent: () => undefined,
     };
-    const first = s.prMonitor.publish(args);
-    expect(() => s.prMonitor.publish(args)).toThrow('revision_conflict');
-    const next = s.prMonitor.publish({
+    const first = publishClaimed(s, args);
+    expect(() => publishClaimed(s, args)).toThrow('revision_conflict');
+    const next = publishClaimed(s, {
       ...args,
       expectedSnapshotRevision: 1,
       snapshot: { ...snapshot, headSha: 'd'.repeat(40) },
@@ -323,8 +358,8 @@ describe('PR monitor event-store owner', () => {
       baseline: false,
       assertCurrent: () => undefined,
     };
-    s.prMonitor.publish(args);
-    const recovered = s.prMonitor.publish({
+    publishClaimed(s, args);
+    const recovered = publishClaimed(s, {
       ...args,
       expectedSnapshotRevision: 1,
       snapshot: { ...snapshot, ci: 'passed' },
@@ -333,14 +368,7 @@ describe('PR monitor event-store owner', () => {
     expect(recovered.outbox).toBeNull();
     expect(recovered.events[0].disposition).toBe('recovered');
     expect(recovered.subscription.eligibilityRevision).toBe(2);
-    s.prMonitor.fail(
-      'ordinary:user',
-      'chat',
-      id,
-      1,
-      { code: 'rate_limited', stage: 'read', nextRefreshAt: 5000 },
-      2000,
-    );
+    failClaimed(s, { code: 'rate_limited', stage: 'read', nextRefreshAt: 5000 });
     const delayed = s.prMonitor.read('ordinary:user', 'chat', id);
     expect(delayed.snapshot).toEqual(recovered.snapshot);
     expect(delayed.refreshState).toBe('backoff');

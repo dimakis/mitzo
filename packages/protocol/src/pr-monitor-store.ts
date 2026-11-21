@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
+import { PrMonitorLeases, type PrMonitorClaim } from './pr-monitor-lease.js';
 import {
   PrMonitorSubscriptionSchema,
   PrMonitorSnapshotSchema,
@@ -36,12 +37,14 @@ function boundedEvents(events: PrMonitorEvent[]): PrMonitorEvent[] {
 /** Borrows EventStore's existing SQLite owner/transaction lifetime. No second DB,
  * provider client, timer or execution ledger. Callers own authorization fences. */
 export class PrMonitorStore {
+  readonly leases: PrMonitorLeases;
   constructor(private readonly db: Database.Database) {
     db.exec(`CREATE TABLE IF NOT EXISTS pr_monitor_subscriptions (id TEXT PRIMARY KEY, operator_id TEXT NOT NULL, conversation_id TEXT NOT NULL, repository_id TEXT NOT NULL, pr_node_id TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(operator_id,conversation_id,repository_id,pr_node_id));
       CREATE TABLE IF NOT EXISTS pr_monitor_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS pr_monitor_authorities (id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(subscription_id,kind));
       CREATE TABLE IF NOT EXISTS pr_monitor_revocations (subscription_id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS pr_monitor_conversation ON pr_monitor_subscriptions(operator_id,conversation_id);`);
+    this.leases = new PrMonitorLeases(db);
   }
   create(requestId: string, input: PrMonitorSubscription): PrMonitorObservation {
     const subscription = PrMonitorSubscriptionSchema.parse(input);
@@ -217,6 +220,7 @@ export class PrMonitorStore {
       view.diagnostic = { code: 'authority_unavailable', stage: 'reconcile', nextRefreshAt: null };
       input.assertCurrent();
       this.save(view);
+      this.leases.invalidate(input.subscriptionId);
     })();
   }
   /** Bounded oldest-attempt rotation; caller invokes from the existing scheduler. */
@@ -249,6 +253,7 @@ export class PrMonitorStore {
         for (const event of view.events)
           if (event.disposition === 'actionable') event.disposition = 'superseded';
         this.save(view);
+        this.leases.invalidate(r.id);
       }
     })();
   }
@@ -335,6 +340,7 @@ export class PrMonitorStore {
       view.subscription.revision++;
       input.assertCurrent();
       this.save(view);
+      this.leases.invalidate(input.subscriptionId);
       if (revocation)
         this.db
           .prepare('DELETE FROM pr_monitor_revocations WHERE subscription_id=?')
@@ -346,6 +352,8 @@ export class PrMonitorStore {
     })();
   }
   publish(input: {
+    claim: PrMonitorClaim;
+    now(): number;
     operatorId: string;
     conversationId: string;
     subscriptionId: string;
@@ -359,7 +367,7 @@ export class PrMonitorStore {
     const snapshot = PrMonitorSnapshotSchema.parse(input.snapshot);
     if (!snapshot.complete || input.findings.length > 1000) throw Error('incomplete_observation');
     const findings = input.findings.map((f) => PrMonitorFindingSchema.parse(f));
-    return this.db.transaction(() => {
+    return this.leases.withClaim(input, () => {
       input.assertCurrent();
       const view = this.read(input.operatorId, input.conversationId, input.subscriptionId);
       const s = view.subscription;
@@ -472,19 +480,27 @@ export class PrMonitorStore {
       input.assertCurrent();
       this.save(view);
       return view;
-    })();
+    });
   }
-  fail(
-    operatorId: string,
-    conversationId: string,
-    id: string,
-    expectedRevision: number,
-    diagnostic: PrMonitorDiagnostic,
-    now: number,
-  ) {
-    return this.db.transaction(() => {
-      const view = this.read(operatorId, conversationId, id);
-      if (view.subscription.revision !== expectedRevision) throw Error('revision_conflict');
+  fail(input: {
+    operatorId: string;
+    conversationId: string;
+    subscriptionId: string;
+    expectedRevision: number;
+    expectedSnapshotRevision: number;
+    diagnostic: PrMonitorDiagnostic;
+    claim: PrMonitorClaim;
+    now(): number;
+  }) {
+    return this.leases.withClaim(input, () => {
+      const { diagnostic } = input;
+      const now = input.now();
+      const view = this.read(input.operatorId, input.conversationId, input.subscriptionId);
+      if (
+        view.subscription.revision !== input.expectedRevision ||
+        view.subscription.snapshotRevision !== input.expectedSnapshotRevision
+      )
+        throw Error('revision_conflict');
       view.diagnostic = diagnostic;
       // Last-success evidence remains visible, but uncertain current state must
       // invalidate every previously captured delivery eligibility fence.
@@ -521,6 +537,6 @@ export class PrMonitorStore {
       }
       this.save(view);
       return view;
-    })();
+    });
   }
 }

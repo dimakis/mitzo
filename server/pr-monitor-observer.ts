@@ -78,6 +78,17 @@ class ObservationFailure extends Error {
     super(code);
   }
 }
+const lostCustody = (error: unknown) =>
+  error instanceof Error &&
+  ['observation_claim_lost', 'revision_conflict', 'subscription_unavailable'].includes(
+    error.message,
+  );
+const storageCode = (error: unknown) => {
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+  return typeof code === 'string' && /^SQLITE_[A-Z_]+$/.test(code)
+    ? code
+    : 'observation_storage_failed';
+};
 /** Deterministic observation only. No provider, command, publication or delivery
  * port exists here. The existing scheduler calls reconcile; there is no timer. */
 export class PrMonitorObserver {
@@ -121,13 +132,31 @@ export class PrMonitorObserver {
   }
   private async collect(s: PrMonitorSubscription) {
     const initial = this.options.store.read(s.operatorId, s.conversationId, s.id);
+    let claim;
+    try {
+      claim = this.options.store.leases.acquire(s, this.now());
+    } catch (error) {
+      log.error('PR observation custody could not be acquired', {
+        stage: 'claim',
+        code: storageCode(error),
+        subscriptionId: s.id,
+        conversationId: s.conversationId,
+      });
+      throw error;
+    }
+    // Another collector owns this revision. This is coalescing, not failure;
+    // no authenticated read, quota charge or outbox mutation belongs to us.
+    if (!claim) return;
     const entry = { conversationId: s.conversationId, controller: new AbortController() };
     this.controllers.add(entry);
     const signal = AbortSignal.any([AbortSignal.timeout(20000), entry.controller.signal]);
     let requests = 0;
+    let operationError: unknown;
+    let cleanupError: unknown;
     try {
       const authority = this.options.capture(s.conversationId, s.id);
       const assertCurrent = () => {
+        this.options.store.leases.assert(claim, this.now());
         signal.throwIfAborted();
         authority();
       };
@@ -308,6 +337,8 @@ export class PrMonitorObserver {
                 truncated: false,
               });
       this.options.store.publish({
+        claim,
+        now: this.now,
         operatorId: s.operatorId,
         conversationId: s.conversationId,
         subscriptionId: s.id,
@@ -336,6 +367,8 @@ export class PrMonitorObserver {
         assertCurrent,
       });
     } catch (error) {
+      operationError = error;
+      if (lostCustody(error)) return;
       // Raw transport/review/log diagnostics never enter retained projection.
       const known =
         error instanceof Error &&
@@ -355,32 +388,54 @@ export class PrMonitorObserver {
               known ?? 'incomplete',
               known?.endsWith('unavailable') ? null : 60000,
             );
-      const current = this.options.store.read(s.operatorId, s.conversationId, s.id);
-      if (
-        current.subscription.revision !== s.revision ||
-        current.subscription.snapshotRevision !== s.snapshotRevision
-      )
-        return;
-      log.warn('PR observation could not publish complete evidence', {
-        stage: 'read',
-        code: failure.code,
-        subscriptionId: s.id,
-        conversationId: s.conversationId,
-      });
-      this.options.store.fail(
-        s.operatorId,
-        s.conversationId,
-        s.id,
-        s.revision,
-        {
-          code: failure.code,
+      try {
+        this.options.store.fail({
+          operatorId: s.operatorId,
+          conversationId: s.conversationId,
+          subscriptionId: s.id,
+          expectedRevision: s.revision,
+          expectedSnapshotRevision: s.snapshotRevision,
+          claim,
+          now: this.now,
+          diagnostic: {
+            code: failure.code,
+            stage: 'read',
+            nextRefreshAt: failure.delay === null ? null : this.now() + failure.delay,
+          },
+        });
+        log.warn('PR observation could not publish complete evidence', {
           stage: 'read',
-          nextRefreshAt: failure.delay === null ? null : this.now() + failure.delay,
-        },
-        this.now(),
-      );
+          code: failure.code,
+          subscriptionId: s.id,
+          conversationId: s.conversationId,
+        });
+      } catch (persistenceError) {
+        if (lostCustody(persistenceError)) return;
+        log.error('PR observation failure could not be persisted', {
+          stage: 'fail',
+          code: storageCode(persistenceError),
+          observationCode: failure.code,
+          subscriptionId: s.id,
+          conversationId: s.conversationId,
+        });
+        throw new AggregateError([error, persistenceError], 'observation_failure_not_persisted', {
+          cause: persistenceError,
+        });
+      }
     } finally {
       this.controllers.delete(entry);
+      try {
+        this.options.store.leases.release(claim);
+      } catch (error) {
+        log.error('PR observation custody release is unconfirmed; expiry is required', {
+          stage: 'release',
+          code: storageCode(error),
+          subscriptionId: s.id,
+          conversationId: s.conversationId,
+        });
+        cleanupError = error;
+      }
     }
+    if (cleanupError && !operationError) throw cleanupError;
   }
 }
