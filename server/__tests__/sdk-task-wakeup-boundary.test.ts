@@ -89,7 +89,7 @@ it.each(['completed', 'retired', 'stopped'] as const)(
           await retired.canUseTool!(
             'Bash',
             { command: 'private-effect' },
-            { signal, toolUseID: 'old' },
+            { signal, toolUseID: 'old', requestId: 'old-permission-request' },
           ),
         ).toMatchObject({ behavior: 'deny' });
       }
