@@ -163,7 +163,7 @@ it('separates active steering from idle ordinary delivery and preserves uncertai
     (m) => m.replyToDeliveryId === active.message.deliveries[0].deliveryId,
   );
   expect(replies).toHaveLength(1);
-  expect(replies[0].author.sessionId).toBe(h.joinedSessionId);
+  expect(replies[0].author).toEqual({ sessionId: h.joinedSessionId });
   expect(replies[0].source?.commandId).toBe(activeCommand);
   // Neither acceptance nor this synthetic final answer claims the live provider
   // applied the requested correction to its reasoning.

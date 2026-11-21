@@ -138,8 +138,9 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
         }
         if (method === 'turn/steer') {
           if (
+            !retainedTurn ||
             params.threadId !== threadId ||
-            params.expectedTurnId !== retainedTurn?.id ||
+            params.expectedTurnId !== retainedTurn.id ||
             retainedTurn.status !== 'inProgress'
           )
             throw Error('Wrong synthetic native steering target');
