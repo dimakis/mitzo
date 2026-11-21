@@ -49,6 +49,8 @@ export class PrMonitorConsent {
     )
       throw Error('invalid_duration');
     const s = this.subscription(input.conversationId, input.subscriptionId);
+    if (s.lifecycle === 'removed' || s.lifecycle === 'merged')
+      throw Error('subscription_unavailable');
     const scope = this.ports.connection(s);
     if (
       !isDeepStrictEqual(scope, input.reviewedScope) ||

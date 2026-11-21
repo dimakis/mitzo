@@ -191,3 +191,20 @@ it('renewing Watch establishes a new baseline and due reconciliation without cre
   expect(f.store.prMonitor.read('ordinary:user', 'one', id).subscription.lifecycle).toBe('removed');
   expect(() => f.consent.capture('one', id)).toThrow('authority_unavailable');
 });
+it('cannot renew a subscription removed by conversation deletion even with an obsolete conversation adapter', async () => {
+  const f = await fixture();
+  f.issue();
+  f.store.prMonitor.stopConversation('one', 'deleted');
+  expect(() =>
+    f.consent.issue(f.login, {
+      requestId: 'renew-deleted',
+      conversationId: 'one',
+      subscriptionId: id,
+      expectedRevision: 3,
+      expectedAuthorityRevision: 1,
+      durationMinutes: 30,
+      reviewedScope: f.ports.connection(),
+    }),
+  ).toThrow('subscription_unavailable');
+  expect(f.store.prMonitor.read('ordinary:user', 'one', id).subscription.lifecycle).toBe('removed');
+});
