@@ -40,7 +40,7 @@ vi.mock('node:fs', async (importOriginal) => {
     ...fs,
     lstatSync(path: string, options?: { bigint?: boolean }) {
       const stat = fs.lstatSync(path, options);
-      if (f.remountedDatabases.has(path))
+      if (stat && f.remountedDatabases.has(path))
         stat.dev = typeof stat.dev === 'bigint' ? stat.dev + 1n : stat.dev + 1;
       return stat;
     },
