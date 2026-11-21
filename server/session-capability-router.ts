@@ -71,7 +71,7 @@ export function createSessionCapabilityRouter(options: {
       },
     } satisfies SessionCapabilityInventory);
   });
-  router.post('/pr-watch/:subscriptionId', (req, res) => {
+  router.post<{ id: string; subscriptionId: string }>('/pr-watch/:subscriptionId', (req, res) => {
     if (!options.grants.prWatchAvailable)
       return res.status(503).json({
         code: 'pr_watch_unavailable',
