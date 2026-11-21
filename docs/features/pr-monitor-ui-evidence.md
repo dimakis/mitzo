@@ -10,11 +10,15 @@ were retained. Original work and checkout remain untouched.
 
 ## Candidate and scope
 
-This is a dependent candidate based on [PR #1432](https://github.com/dimakis/mitzo/pull/1432)
+This dependent candidate originally used [PR #1432](https://github.com/dimakis/mitzo/pull/1432)
 at `7f4c572da48a918ebff189d33406a97b7b486fa0`, which includes
 [PR #1427](https://github.com/dimakis/mitzo/pull/1427) at
 `f9c4286135f0621ffd53474f70d7d300bef4f7e7`. The prerequisite commits are retained
-unchanged. Review the UI increment from the #1432 head; land prerequisites first.
+unchanged. The follow-up integrates published #1432 repair
+`897ecd35fd2d3fc5c52a1b04d22139b3584bc6c0`, including #1427 repair
+`41f95cd272919afdab46742d20ee0bc7ff14a86f`, as a parent merge without refreshing main.
+Review the current UI increment from `897ecd35fd2d3fc5c52a1b04d22139b3584bc6c0`;
+land prerequisites first.
 The runtime contract is [documented by its owner](pr-monitor-runtime-evidence.md).
 
 The existing desktop/mobile Session details dialog now contains grouped PR rows:
@@ -77,6 +81,16 @@ No network GitHub collector or model is used by these tests.
 Protocol, harness and client TypeScript builds and production frontend build pass.
 Changed-file ESLint, Prettier and `git diff --check` pass. Full root server typecheck
 and repository-wide CI remain landing checks.
+
+The dependency-repair follow-up passed 33 focused tests in six files: controller,
+consent, Access router, rendered UI, actual adapter-to-consumer integration and
+source-artifact drift checks. The parent supplies the typed connection fixture;
+its identical router annotations reconcile without behavior changes. Combined
+source-artifact validation passes at runtime revision `v1.0.1272-pr-monitor-ui`,
+preserving all 2,623 parent registrations and refreshing the three UI-modified
+registered sources. The earlier 389-test/build evidence remains attributed to the
+original UI candidate; full test-inclusive TypeScript/CI on the new combined head
+and the previously blocked browser validation remain landing requirements.
 
 ## UI design and remaining browser verification
 
