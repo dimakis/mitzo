@@ -85,9 +85,7 @@ const lostCustody = (error: unknown) =>
   );
 const storageCode = (error: unknown) => {
   const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
-  return typeof code === 'string' && /^SQLITE_[A-Z_]+$/.test(code)
-    ? code
-    : 'observation_storage_failed';
+  return typeof code === 'string' && /^SQLITE_[A-Z_]+$/.test(code) ? code : undefined;
 };
 /** Deterministic observation only. No provider, command, publication or delivery
  * port exists here. The existing scheduler calls reconcile; there is no timer. */
@@ -138,7 +136,7 @@ export class PrMonitorObserver {
     } catch (error) {
       log.error('PR observation custody could not be acquired', {
         stage: 'claim',
-        code: storageCode(error),
+        code: storageCode(error) ?? 'observation_storage_failed',
         subscriptionId: s.id,
         conversationId: s.conversationId,
       });
@@ -416,7 +414,7 @@ export class PrMonitorObserver {
         if (lostCustody(persistenceError)) return;
         log.error('PR observation failure could not be persisted', {
           stage: 'fail',
-          code: storageCode(persistenceError),
+          code: storageCode(persistenceError) ?? 'observation_storage_failed',
           observationCode: failure.code,
           subscriptionId: s.id,
           conversationId: s.conversationId,
@@ -432,7 +430,7 @@ export class PrMonitorObserver {
       } catch (error) {
         log.error('PR observation custody release is unconfirmed; expiry is required', {
           stage: 'release',
-          code: storageCode(error),
+          code: storageCode(error) ?? 'observation_storage_failed',
           subscriptionId: s.id,
           conversationId: s.conversationId,
         });

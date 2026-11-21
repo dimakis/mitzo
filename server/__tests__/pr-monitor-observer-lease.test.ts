@@ -250,6 +250,19 @@ it('retains sanitized publish failure stage and SQLite cause through the consume
   );
   expect(JSON.stringify(logs.warn.mock.calls)).not.toContain('private injection');
 });
+it('does not mislabel an HTTP failure as a storage failure', async () => {
+  const f = fixture();
+  f.read.mockResolvedValue({ status: 503, data: {} });
+  await f.observe();
+  expect(logs.warn).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.objectContaining({
+      stage: 'read',
+      code: 'read_failed',
+      causeCode: undefined,
+    }),
+  );
+});
 it('fences late authenticated HTTP through the runtime and retains every charged reservation', async () => {
   const f = fixture();
   vi.spyOn(Date, 'now').mockImplementation(f.now);
