@@ -8,7 +8,8 @@ Claude Agent SDK is declared and installed as `0.3.322`. Its `sdk.d.ts` declares
 `getContextUsage({detail: 'summary' | 'full'})`; `sdk.mjs` forwards a
 `get_context_usage` control request. Omitting detail defaults to **full**, which
 invokes per-category token-count APIs. Summary uses last-response usage and local
-estimates without those per-category calls. This inspection made no such call.
+estimates without those per-category calls. Qualification made no provider or
+token-count API call; control calls in tests use in-memory fake query methods.
 
 Native Mac Codex source pins `0.160.0`, artifact SHA256
 `112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b`, in
@@ -30,11 +31,16 @@ The context port does not upgrade that product projection.
 ## Wrapper and attribution evidence
 
 - `chat.ts:adaptSdkQuery` validates events and binds methods to their original
-  receiver. Generic control passthrough is not a capability guarantee.
+  receiver. Offline summary/full probes in `chat-sdk-query-adapter.test.ts`
+  exercise that actual wrapper with a fake query and confirm explicit detail and
+  receiver binding. Generic passthrough is not a CLI capability guarantee.
 - `sdk-turn-query.ts:createSdkTurnQuery` retires and replaces native queries on
   later inputs. A retained bound generic method can target the old query.
   The new port requires the actual current query and checks identity before and
-  after awaits; native query exposure remains a propagation handoff.
+  after awaits; native query exposure remains a propagation handoff. The offline
+  probe in `sdk-turn-query.test.ts` exercises real query-wrapper replacement:
+  fresh lookup targets the successor, while a captured method still targets the
+  retired fake query. This is demonstrated behavior, not just a type inspection.
 - `sdk-query-retirement.ts` authenticates host retirement events by object
   identity. Provider JSON must not manufacture that boundary.
 - `query-loop.ts` separates parent input/cache context from subagent windows.
