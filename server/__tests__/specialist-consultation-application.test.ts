@@ -7,6 +7,43 @@ const journey = createApplicationJourney();
 const approveAdmission = async () => true;
 afterAll(() => journey.close());
 
+it('serves operator settings, persists overrides and rejects stale edits through HTTP', async () => {
+  const h = await journey.getApplicationUiJourney();
+  const endpoint = '/api/specialist-model-policy/existing-chat';
+  const initial = await h.fetch(endpoint);
+  expect(initial.status).toBe(200);
+  const view = await initial.json();
+  const request = {
+    requestId: crypto.randomUUID(),
+    expectedRevision: view.conversation.revision,
+    scope: 'conversation',
+    policy: {
+      models: [
+        { accountId: 'offline-personal', model: 'fixture-model', admission: 'auto', allowance: 12 },
+      ],
+    },
+  };
+  const saved = await h.fetch(endpoint, { method: 'PUT', body: JSON.stringify(request) });
+  expect(saved.status).toBe(200);
+  const repeated = await h.fetch(endpoint, { method: 'PUT', body: JSON.stringify(request) });
+  expect(await repeated.json()).toEqual(await saved.json());
+  const stale = await h.fetch(endpoint, {
+    method: 'PUT',
+    body: JSON.stringify({ ...request, requestId: crypto.randomUUID() }),
+  });
+  expect(stale.status).toBe(409);
+  expect((await h.fetch('/api/specialist-model-policy/missing')).status).toBe(404);
+  await h.fetch(endpoint, {
+    method: 'PUT',
+    body: JSON.stringify({
+      ...request,
+      requestId: crypto.randomUUID(),
+      expectedRevision: request.expectedRevision + 1,
+      policy: null,
+    }),
+  });
+}, 30000);
+
 async function authorizationFixture() {
   const h = await journey.getApplicationUiJourney();
   const { getSpecialistConsultations } = await import('../specialist-consultation-runtime.js');

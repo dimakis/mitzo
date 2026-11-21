@@ -4,6 +4,26 @@ export function specialistDiagnostic(cause: unknown) {
   const message = cause instanceof Error ? cause.message : '';
   const rules = [
     [
+      /^Selected model is Off/,
+      'model_off',
+      'This model is Off in Symposium model policy. Edit Model policy in Agents or explicitly select an eligible model. No replacement was selected.',
+    ],
+    [
+      /^Model consultation allowance/,
+      'model_allowance_exhausted',
+      'This model has reached its conversation allowance. Edit or remove its allowance in Agents → Model policy.',
+    ],
+    [
+      /^Model policy changed/,
+      'model_policy_changed',
+      'Model policy changed before admission. Inspect the current policy and recover the original request for fresh review.',
+    ],
+    [
+      /^Specialist admission was not approved/,
+      'admission_not_approved',
+      'The specialist admission was not approved. No consultation was reserved or dispatched.',
+    ],
+    [
       /^No eligible independent specialist/,
       'independent_route_unavailable',
       'No independent specialist route is authorized and available for this role. Inspect catalog and review the policy; no replacement model was selected.',

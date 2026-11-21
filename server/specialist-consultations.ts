@@ -120,7 +120,8 @@ export class SpecialistConsultations {
       try {
         const inventory = ordinaryRepositoryRuntimeInventory('local', harness);
         for (const route of inventory.result.routes) {
-          if (!route.modes.some((mode) => String(mode) === 'ask')) continue;
+          if (!route.modes.some((mode) => ['ask', 'agent', 'auto'].includes(String(mode))))
+            continue;
           const account = inventory.result.accounts.find(
             (item) => item.account.accountId === route.account.accountId,
           );
@@ -307,7 +308,8 @@ export class SpecialistConsultations {
       if (!decision) throw Error('Specialist consultation policy was not approved');
       if (decision !== true) {
         const { maxConsultations, ...rest } = decision;
-        const { maxConsultations: _requestedAllowance, ...expected } = display;
+        const expected: Record<string, unknown> = { ...display };
+        delete expected.maxConsultations;
         if (!isDeepStrictEqual(rest, expected))
           throw Error('Consultation approval changed protected fields');
         selection.maxConsultations = ConsultationAllowanceSchema.parse(maxConsultations);
@@ -432,6 +434,10 @@ export class SpecialistConsultations {
         throw Error('Consultation request conflict');
       return this.read(a, input.requestId);
     }
+    if (this.pending.has(a.leadSessionId))
+      throw Error(
+        'Another consultation is preparing; retain this requestId and retry after it settles',
+      );
     let candidates = policy.routes.filter((route) => route.role === input.role);
     if (input.reviewOf) {
       const reviewed = this.read(a, input.reviewOf);
