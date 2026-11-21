@@ -17,7 +17,12 @@ at `7f4c572da48a918ebff189d33406a97b7b486fa0`, which includes
 unchanged. The follow-up integrates published #1432 repair
 `897ecd35fd2d3fc5c52a1b04d22139b3584bc6c0`, including #1427 repair
 `41f95cd272919afdab46742d20ee0bc7ff14a86f`, as a parent merge without refreshing main.
-Review the current UI increment from `897ecd35fd2d3fc5c52a1b04d22139b3584bc6c0`;
+The subsequent required conflict repair integrates #1432
+`4d9803b9a7004c276ed2d86e9c216b8f53d44516`, including #1427
+`7c78504282b39c40d8a3be37ba1404fe388300cd` and accepted main `9fa5d6fa`.
+This resolves the parents' actual merge conflicts; no independent main refresh
+was performed. Only the artifact runtime revision required manual reconciliation.
+Review the current UI increment from `4d9803b9a7004c276ed2d86e9c216b8f53d44516`;
 land prerequisites first.
 The runtime contract is [documented by its owner](pr-monitor-runtime-evidence.md).
 
@@ -91,6 +96,13 @@ preserving all 2,623 parent registrations and refreshing the three UI-modified
 registered sources. The earlier 389-test/build evidence remains attributed to the
 original UI candidate; full test-inclusive TypeScript/CI on the new combined head
 and the previously blocked browser validation remain landing requirements.
+
+The actual-conflict repair then passed 43 focused tests in seven files, adding
+the inherited Claude turn-attribution regression suite to those six suites.
+Source-artifact validation passes at `v1.0.1275-pr-monitor-ui`, retaining all
+2,625 registrations from the corrected parent and accepted main. The only manual
+conflict resolution was this runtime revision label; the three UI source hashes
+remain intact. Current-head full CI, TypeScript and browser gates remain open.
 
 ## UI design and remaining browser verification
 
