@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1270-claude-turn-attribution';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1271-terminal-open-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1178,7 +1179,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/SessionList.tsx':
     '41a6452447347c89302a5e2cc60ae9c07527c501b132f975fe5914303f487acb',
   '../../frontend/src/pages/TerminalView.tsx':
-    'f88e2ab24470ec7cd3cd421da7603d38c2aa49c1bcd9405d759afb3eade28a3c',
+    '20348380c08df616845cb610553a70375f1e0af3f45c443021f758e0a38290aa',
   '../../frontend/src/pages/TodoDetailView.tsx':
     '32f3679b73be5e6e852d3de6eb366afd314f487ccece8f59223a759e680bf049',
   '../../frontend/src/pages/TodoView.tsx':
@@ -1228,7 +1229,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/TelosWorkspace.scroll.test.tsx':
     '8720d9d18358ff490779791ac874c24fac4a465a911f295973aefefdbeb7fe2e',
   '../../frontend/src/pages/__tests__/TerminalView.test.tsx':
-    '50e3e7c46f54b35320f136caf0deaa1cbdc5793132ddffbe501fb76b582cac9a',
+    '82e6dcf1e9882358c73da84c2d0047092032b7adf1a7d294cccffa4b840aa981',
   '../../frontend/src/pages/__tests__/TodoDetailView.hydration.test.tsx':
     '768c6c34e4f076850396f587f23a5d88bedd0f9b7252fda163b1c60ee6cd3fcf',
   '../../frontend/src/pages/__tests__/TodoDetailView.parent-fallback.test.tsx':
@@ -2375,7 +2376,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/telos-source-navigation.spec.ts':
     'f30b0593aaf02e30ecac251d6951999727a367e3ef9cf461e1e9732602313441',
   '../../tests/offline/terminal.spec.ts':
-    '5ccdb84c7f2618e0a6f69df867bd5d1ec3aa99af44302187290b62c3e30c5b72',
+    '590ba50ee71956b48162e8a5822db43dd498f2c9c4e6ce62a4e96155ff6b340e',
   '../../tests/offline/tool-interrupted-display.spec.ts':
     '5daacac8ec4cd074a1f59393ff65683fdbe2a8920e462cf1765b688427f68d12',
   '../../tests/offline/tool-results.spec.ts':
@@ -3640,9 +3641,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/terminal-plan-adviser.test.ts':
     'e657b5709800d2f3c769e76ede818a8c5336f36a5184be315d06e28550bee459',
   '../__tests__/terminal-router.test.ts':
-    '34c9754c598ab37ac996fb9f0ea2b3a2e7d63ea00c1af73d4a80e89e50b95ce9',
+    '50bfe235f375d6ab4456917f44c4c02bcac66680247e9eef168b378f8c8dec22',
   '../__tests__/terminal-targets.test.ts':
-    '7d610d777eebb88a61ad841754291177704546d12b9f09d927dfca623583c9d7',
+    '84f916210a672a8f4b4ab96c93c1bbfe02f856590cb1a5f843a8561f4fc10294',
   '../__tests__/tool-builder-responses.test.ts':
     '31a03a7f6b588bc8b106227cb37344650428d2245286c28512814a7776b6e70f',
   '../__tests__/tool-failure-reporting.test.ts':
@@ -4845,8 +4846,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8b7ab6e3a4ae1ec5106bba34cc8fd7809597e6d22093b4cc3f6e29b7124c5116',
   '../terminal-adviser.ts': 'c4a57e13f28b04f01b6dc2a71c2ccd357a6e469a46d7ad9a0a559e0c9ee54760',
   '../terminal-plan-adviser.ts': '61208a378b3dcba9730b30f175afb2f7e91f8864b04be096c3ebf63d5e1f2663',
-  '../terminal-router.ts': 'ace2b59f629e18801257c64ab5b9be0c8553c2f4dfb93ca2abe1b03f1834a6cd',
-  '../terminal-service.ts': '4459f9c19c299b7c84757b94eb05dd177cdacbb3b605cf3636ba9e40a53aa334',
+  '../terminal-router.ts': 'f813b15b6d88269b9ddac30e1a1dc883164ec6c41fa3589e51019bcd4680d852',
+  '../terminal-service.ts': '31154a0174ba723a6bc55e0947cdb06911c87248de2a40b207c024dff340d3e4',
   '../tool-builder-router.ts': '098b60cbc463a81cb3a43fa45a6fcd0ddba309ae6c4ef1ba3b69a26c2c916bd5',
   '../tool-builder-runtime.ts': 'b854fbfa534a8d47f249e1ba8edf65009719ece8c2718d213f29589001e47f05',
   '../tool-builder-schema.ts': 'b55fb292b80f3f1c5ad9376a27abaf62b901cdf07e5fb62ce07cf7fbc17a419f',
