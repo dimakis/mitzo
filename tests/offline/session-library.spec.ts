@@ -28,6 +28,16 @@ const sessions = Array.from({ length: 12 }, (_, index) => ({
   accountLabel: index % 2 ? 'Work' : 'Personal',
   totalTokens: 1200000,
   isActive: false,
+  sharedConversation:
+    index === 0
+      ? {
+          collaborationId: 'canonical-discussion',
+          sourceConversationId: 'session-0',
+          membershipRevision: 3,
+          participantSessionIds: ['session-0', 'joined-peer'],
+          unavailableParticipantSessionIds: ['joined-peer'],
+        }
+      : undefined,
   parentConversationId: index === 2 ? 'session-1' : index === 3 ? 'session-2' : undefined,
   agentName:
     index === 1 ? 'Coordinator' : index === 2 ? 'Developer' : index === 3 ? 'Architect' : undefined,
@@ -234,6 +244,7 @@ for (const theme of ['dark', 'light'])
     await page.goto('/sessions');
     await page.getByRole('button', { name: 'Tree', exact: true }).click();
     const tree = page.getByRole('navigation', { name: 'Conversation tree' });
+    await expect(tree.getByText('Symposium · 2 agents', { exact: true })).toBeVisible();
     await expect(tree.getByRole('button', { name: /^Conversation 3/ })).toBeVisible();
     await expect(tree.getByText('Outcome orchestrator', { exact: true })).toBeVisible();
     await expect(tree.getByText(/Developer · Codex · OpenShell/)).toBeVisible();
@@ -308,6 +319,8 @@ for (const theme of ['dark', 'light'])
     });
     await expect(first.getByLabel('Model: gpt-6.1-sol')).toBeVisible();
     await expect(first.getByText('Personal', { exact: true })).toBeVisible();
+    await expect(first.getByText('Symposium · 2 agents', { exact: true })).toBeVisible();
+    await expect(first.getByText('1 unavailable', { exact: true })).toBeVisible();
     const activity = (index: number, state: string, extra: Record<string, unknown> = {}) => ({
       sessionId: sessions[index].id,
       clientId: `client-${index}`,

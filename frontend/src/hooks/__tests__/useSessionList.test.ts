@@ -46,6 +46,47 @@ afterEach(() => {
 });
 
 describe('useSessionList', () => {
+  it('retains canonical membership through activity updates and failed list refresh without extra row reads', async () => {
+    const sharedConversation = {
+      collaborationId: 'discussion',
+      sourceConversationId: 'source',
+      membershipRevision: 2,
+      participantSessionIds: ['peer', 'source'],
+      unavailableParticipantSessionIds: [],
+    };
+    vi.mocked(apiFetch).mockImplementation(
+      async (url) =>
+        new Response(
+          JSON.stringify(
+            url === '/api/sessions'
+              ? {
+                  sessions: [{ id: 'source', participantSessionIds: ['peer'], sharedConversation }],
+                  hasMore: false,
+                }
+              : {},
+          ),
+        ),
+    );
+    const { result } = renderHook(() => useSessionList());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const onActivity = vi
+      .mocked(eventBus.on)
+      .mock.calls.filter(([name]) => name === 'session_activity')
+      .at(-1)![1];
+    act(() => onActivity([{ sessionId: 'peer', state: 'working' }]));
+    expect(result.current.sessions[0]).toMatchObject({ isActive: true, sharedConversation });
+    vi.mocked(apiFetch).mockRejectedValueOnce(new Error('Offline'));
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.error).toContain('Showing the last loaded list'));
+    expect(result.current.sessions[0].sharedConversation).toEqual(sharedConversation);
+    expect(
+      vi
+        .mocked(apiFetch)
+        .mock.calls.every(([url]) =>
+          ['/api/sessions', '/api/config', '/api/version'].includes(String(url)),
+        ),
+    ).toBe(true);
+  });
   it('keeps unchanged activity snapshots and rows stable across repeated broadcasts', async () => {
     const sessions = [
       { id: 'one', isActive: true, isAttached: true },

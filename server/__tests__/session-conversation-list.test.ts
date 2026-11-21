@@ -92,6 +92,44 @@ it('preserves failed allocations, removed members and hidden/missing-source part
   );
 });
 
+it('retains canonical shared identity across roster changes and reopening without reading transcripts', () => {
+  const group = begin(store);
+  expect(sessionConversationPage(store).sessions[0].sharedConversation).toBeUndefined();
+  joinParticipant(store, group);
+  const transcript = vi.spyOn(store.collaborationConversation, 'view');
+  const events = vi.spyOn(store, 'getSessionEvents');
+  const first = sessionConversationPage(store).sessions.find((s) => s.id === 'source')!;
+  expect(first.sharedConversation).toMatchObject({
+    collaborationId: group,
+    sourceConversationId: 'source',
+    membershipRevision: 2,
+    participantSessionIds: ['peer', 'source'],
+    unavailableParticipantSessionIds: [],
+  });
+  expect(transcript).not.toHaveBeenCalled();
+  expect(events).not.toHaveBeenCalled();
+  store.hideSession('peer');
+  expect(sessionConversationPage(store).sessions[0].sharedConversation).toMatchObject({
+    participantSessionIds: ['peer', 'source'],
+    unavailableParticipantSessionIds: ['peer'],
+  });
+  store.setSessionCollaboration(group, { expectedRevision: 2, participantSessionIds: ['source'] });
+  store.close();
+  store = new EventStore(path);
+  const reopened = sessionConversationPage(store).sessions[0];
+  expect(reopened.id).toBe('source');
+  expect(reopened.sharedConversation).toMatchObject({
+    collaborationId: group,
+    sourceConversationId: 'source',
+    membershipRevision: 3,
+    participantSessionIds: ['source'],
+  });
+  expect(store.collaborationConversation.sourceSetup(reopened.id)).toMatchObject({
+    state: 'selected',
+    collaboration: { collaborationId: group, revision: 3 },
+  });
+});
+
 it('delivers actual permission attention through the emitter and Chats consumer without changing its owner', () => {
   const group = begin(store);
   joinParticipant(store, group);

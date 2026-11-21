@@ -3,6 +3,7 @@ import type { SessionActivity } from '../hooks/useSessionOverview';
 import { conversationTree, type ConversationTreeNode } from '../lib/conversation-tree';
 import { MotionDetails } from './MotionDetails';
 import { SessionActivityStatus } from './SessionActivityStatus';
+import { SharedConversationMarker } from './SharedConversationMarker';
 import { UiIcon } from './UiIcon';
 import './ConversationTree.css';
 
@@ -78,6 +79,7 @@ export function ConversationTree({
         onClick={() => onSelect(node.session.id)}
       >
         <span>{node.session.summary || 'Untitled conversation'}</span>
+        <SharedConversationMarker session={node.session} />
         {roleLabel(node.session) && <small>{roleLabel(node.session)}</small>}
         {runtimeLabel(node.session) && <small>{runtimeLabel(node.session)}</small>}
         {node.session.runtimeUnavailable && <small>Runtime details unavailable</small>}

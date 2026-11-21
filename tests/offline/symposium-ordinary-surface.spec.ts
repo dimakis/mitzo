@@ -199,8 +199,13 @@ for (const theme of ['dark', 'light'])
       await heading.screenshot({
         path: info.outputPath(`ordinary-header-large-${width}-${theme}.png`),
       });
-      const names = heading.locator('.conversation-participant-names');
-      expect((await names.boundingBox())!.width).toBeGreaterThanOrEqual(64);
+      const identity = heading.getByText('Symposium · 2 agents', { exact: true });
+      await expect(identity).toBeVisible();
+      const agents = heading.getByRole('button', { name: /Agents,/ });
+      await agents.click();
+      await expect(page.getByRole('dialog', { name: 'Agents', exact: true })).toHaveCount(1);
+      await page.keyboard.press('Escape');
+      await expect(agents).toBeFocused();
       for (const action of await heading.getByRole('button').all()) {
         const bounds = (await action.boundingBox())!;
         expect(bounds.x).toBeGreaterThanOrEqual(0);

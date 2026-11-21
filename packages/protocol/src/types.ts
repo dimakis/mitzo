@@ -373,6 +373,15 @@ export interface SessionContextUsage {
   limits: ModelTokenLimits | null;
 }
 
+/** Read-only identity from canonical membership, independent of transcript/runtime state. */
+export interface SharedConversationSummary {
+  collaborationId: string;
+  sourceConversationId: string;
+  membershipRevision: number;
+  participantSessionIds: string[];
+  unavailableParticipantSessionIds: string[];
+}
+
 export interface Session {
   id: string;
   summary: string;
@@ -380,6 +389,7 @@ export interface Session {
   matchedSessionId?: string;
   /** Presentation membership only. Each participant retains its execution owner. */
   participantSessionIds?: string[];
+  sharedConversation?: SharedConversationSummary;
   /** Navigation metadata only; never task, runtime or transcript authority. */
   parentConversationId?: string;
   parentConversationTitle?: string;
