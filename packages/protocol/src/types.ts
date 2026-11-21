@@ -603,6 +603,8 @@ export type SubagentStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 
 export interface BackgroundTaskObservation {
   taskId: string;
   runId?: string;
+  /** Reserved for a qualified producer; the current SDK receipt has no witness. */
+  processGeneration?: string;
   description?: string;
 }
 
@@ -616,6 +618,8 @@ export interface SubagentDiagnostic {
 
 /** Streaming subagent state — blocks in a Map, running flag set. */
 export interface StreamingSubagentState {
+  /** Only authoritative terminal evidence may supply this; retirement is insufficient. */
+  stopReason?: 'process_restart';
   backgroundTask?: BackgroundTaskObservation;
   lastEventSeq?: number;
   status?: SubagentStatus;
@@ -630,6 +634,7 @@ export interface StreamingSubagentState {
 
 /** Finished subagent state — blocks as array, summary + usage set. */
 export interface FinishedSubagentState {
+  stopReason?: 'process_restart';
   backgroundTask?: BackgroundTaskObservation;
   lastEventSeq?: number;
   status?: SubagentStatus;

@@ -49,6 +49,7 @@ it('ignores duplicate output and foreign execution receipts without parsing opaq
       type: 'subagent_end',
       parentBlockId: 'tool',
       subagentMessageId: 'old-execution',
+      backgroundTask: { taskId: 'task', runId: 'old-run' },
       status: 'completed',
       seq: 6,
     },
@@ -56,6 +57,39 @@ it('ignores duplicate output and foreign execution receipts without parsing opaq
   const sub = state.current!.blocks.get('tool')!.subagent!;
   expect(sub.status).toBe('running');
   expect(sub.blocks instanceof Map && sub.blocks.get('output')!.content).toBe('Retained output');
+});
+
+it('retains a newer finished task when cold history hydration races a live terminal event', () => {
+  let state = feed([
+    ...start,
+    { type: 'subagent_end', parentBlockId: 'tool', status: 'failed', seq: 8 },
+    { type: 'message_end', messageId: 'parent' },
+  ]);
+  state = messagesReducer(state, {
+    type: 'RESTORE',
+    messages: [
+      {
+        messageId: 'parent',
+        role: 'assistant',
+        timestamp: 1,
+        blocks: [
+          {
+            blockId: 'tool',
+            blockType: 'tool_use',
+            content: '',
+            subagent: {
+              messageId: 'opaque-execution',
+              status: 'running',
+              blocks: [],
+              lastEventSeq: 3,
+            },
+          },
+        ],
+      },
+      { messageId: 'new-history-message', role: 'assistant', timestamp: 2, blocks: [] },
+    ],
+  } as never);
+  expect(state.messages[0].blocks[0].subagent?.status).toBe('failed');
 });
 
 it('retains terminal evidence and output when a stale running snapshot arrives', () => {

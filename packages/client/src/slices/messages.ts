@@ -21,7 +21,7 @@ import type {
   SymposiumProvenance,
 } from '@mitzo/protocol';
 import { messageIdentity } from '../message-identity.js';
-import { agentMessageTranscriptRow } from '@mitzo/protocol';
+import { agentMessageTranscriptRow, sameBackgroundTask } from '@mitzo/protocol';
 import {
   projectMessageRetractions,
   retractToolResult,
@@ -220,6 +220,7 @@ type MessagesCoreAction =
     }
   | {
       type: 'SUBAGENT_END';
+      stopReason?: 'process_restart';
       parentBlockId: string;
       status?: import('@mitzo/protocol').SubagentStatus;
       diagnostic?: import('@mitzo/protocol').SubagentDiagnostic;
@@ -287,7 +288,7 @@ type MessagesCoreAction =
   | { type: 'CLEAR' };
 
 export type MessagesAction = MessagesCoreAction & {
-  subagentMessageId?: string;
+  backgroundTask?: import('@mitzo/protocol').BackgroundTaskObservation;
   subagentEventSeq?: number;
   symposiumProvenance?: SymposiumProvenance;
   /** Optional parent turn identity for seat-scoped tool and subagent events. */
@@ -321,6 +322,7 @@ function finishSubagent(
   const streaming = sub as StreamingSubagentState;
   return {
     messageId: streaming.messageId,
+    ...(streaming.stopReason ? { stopReason: streaming.stopReason } : {}),
     ...(streaming.backgroundTask ? { backgroundTask: streaming.backgroundTask } : {}),
     ...(streaming.lastEventSeq !== undefined ? { lastEventSeq: streaming.lastEventSeq } : {}),
     status: streaming.status ?? 'running',
@@ -828,7 +830,9 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
   const sub = state.current?.blocks.get(action.parentBlockId)?.subagent;
   if (
     sub &&
-    ((action.subagentMessageId && action.subagentMessageId !== sub.messageId) ||
+    ((action.backgroundTask &&
+      sub.backgroundTask &&
+      !sameBackgroundTask(action.backgroundTask, sub.backgroundTask)) ||
       (action.subagentEventSeq !== undefined &&
         sub.lastEventSeq !== undefined &&
         action.subagentEventSeq <= sub.lastEventSeq))
@@ -844,6 +848,21 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
     subagent: { ...block.subagent, lastEventSeq: action.subagentEventSeq },
   });
   return { ...next, current: { ...next.current, blocks } };
+}
+
+function retainNewerSubagent(
+  incoming: StreamingSubagentState | FinishedSubagentState | undefined,
+  retained: StreamingSubagentState | FinishedSubagentState | undefined,
+) {
+  if (
+    retained &&
+    incoming?.messageId === retained.messageId &&
+    ((retained.status && ['completed', 'failed', 'cancelled'].includes(retained.status)) ||
+      (retained.lastEventSeq !== undefined &&
+        retained.lastEventSeq > (incoming.lastEventSeq ?? -1)))
+  )
+    return retained;
+  return incoming;
 }
 
 function reduceLegacyMessagesUnchecked(
@@ -1053,15 +1072,7 @@ function reduceLegacyMessagesUnchecked(
           state.current?.messageId === action.messageId
             ? state.current.blocks.get(b.blockId)?.subagent
             : undefined;
-        if (
-          retained &&
-          subagent?.messageId === retained.messageId &&
-          ((retained.status && ['completed', 'failed', 'cancelled'].includes(retained.status)) ||
-            (retained.lastEventSeq !== undefined &&
-              retained.lastEventSeq > (subagent.lastEventSeq ?? -1)))
-        ) {
-          subagent = retained;
-        }
+        subagent = retainNewerSubagent(subagent, retained);
         blocks.set(b.blockId, {
           blockId: b.blockId,
           blockType: b.blockType as BlockType,
@@ -1248,8 +1259,27 @@ function reduceLegacyMessagesUnchecked(
       const valid = action.messages
         .filter((m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks))
         .map((m) => {
-          const projected = projectUserContext(m);
+          let projected = projectUserContext(m);
           const live = existingById.get(messageIdentity(m.messageId, m.symposiumProvenance));
+          const current =
+            state.current &&
+            messageIdentity(state.current.messageId, state.current.symposiumProvenance) ===
+              messageIdentity(m.messageId, m.symposiumProvenance)
+              ? finishCurrent(state.current)
+              : undefined;
+          const retainedBlocks = new Map(
+            (live ?? current)?.blocks.map((block) => [block.blockId, block]) ?? [],
+          );
+          projected = {
+            ...projected,
+            blocks: projected.blocks.map((block) => {
+              const retained = retainedBlocks.get(block.blockId)?.subagent;
+              const subagent = retainNewerSubagent(block.subagent, retained);
+              return subagent && subagent !== block.subagent
+                ? { ...block, subagent: finishSubagent(subagent) }
+                : block;
+            }),
+          };
           return projected.agentMessage || live?.agentMessage
             ? { ...projected, ...mergeAgentMessageReceipt(live, projected) }
             : projected;
@@ -1548,7 +1578,15 @@ function reduceLegacyMessagesUnchecked(
       if (!state.current) return state;
       const block = state.current.blocks.get(action.parentBlockId);
       if (!block) return state;
-      if (block.subagent) return state;
+      if (block.subagent) {
+        if (!action.backgroundTask || block.subagent.backgroundTask) return state;
+        const blocks = new Map(state.current.blocks);
+        blocks.set(action.parentBlockId, {
+          ...block,
+          subagent: { ...block.subagent, backgroundTask: action.backgroundTask },
+        });
+        return { ...state, current: { ...state.current, blocks } };
+      }
 
       const newBlocks = new Map(state.current.blocks);
       newBlocks.set(action.parentBlockId, {
@@ -1695,6 +1733,9 @@ function reduceLegacyMessagesUnchecked(
       const finished: FinishedSubagentState = {
         ...finishSubagent(sub),
         status: action.status ?? 'completed',
+        ...(action.status === 'cancelled' && action.stopReason
+          ? { stopReason: action.stopReason }
+          : {}),
         diagnostic: action.diagnostic,
         summary: action.summary ?? sub.summary,
         usage: action.usage ?? sub.usage,

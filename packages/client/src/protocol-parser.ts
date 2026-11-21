@@ -1,4 +1,8 @@
-import { AgentMessageProjectionSchema, MessageReplyContextSchema } from '@mitzo/protocol';
+import {
+  AgentMessageProjectionSchema,
+  MessageReplyContextSchema,
+  parseBackgroundTaskObservation,
+} from '@mitzo/protocol';
 import { AgentContextReceiptSchema, SourceSnapshotsSchema } from '@mitzo/protocol';
 import { MessageRetractionSchema } from '@mitzo/protocol';
 /**
@@ -812,8 +816,7 @@ export function parseServerMessage(
         type: 'SUBAGENT_START',
         parentBlockId: msg.parentBlockId as string,
         subagentMessageId: msg.subagentMessageId as string,
-        backgroundTask: msg.backgroundTask as
-          import('@mitzo/protocol').BackgroundTaskObservation | undefined,
+        backgroundTask: parseBackgroundTaskObservation(msg.backgroundTask),
       });
       break;
 
@@ -863,6 +866,9 @@ export function parseServerMessage(
       result.messagesActions.push({
         type: 'SUBAGENT_END',
         parentBlockId: msg.parentBlockId as string,
+        ...(msg.status === 'cancelled' && msg.stopReason === 'process_restart'
+          ? { stopReason: 'process_restart' as const }
+          : {}),
         status: msg.status as import('@mitzo/protocol').SubagentStatus | undefined,
         diagnostic: msg.diagnostic as import('@mitzo/protocol').SubagentDiagnostic | undefined,
         summary: msg.summary as string | undefined,
@@ -890,9 +896,7 @@ export function parseServerMessage(
   if (typeof envelope.type === 'string' && envelope.type.startsWith('subagent_')) {
     result.messagesActions = result.messagesActions.map((action) => ({
       ...action,
-      ...(typeof envelope.subagentMessageId === 'string'
-        ? { subagentMessageId: envelope.subagentMessageId }
-        : {}),
+      backgroundTask: parseBackgroundTaskObservation(envelope.backgroundTask),
       ...(Number.isSafeInteger(envelope.seq) && (envelope.seq as number) > 0
         ? { subagentEventSeq: envelope.seq as number }
         : {}),

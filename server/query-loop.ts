@@ -431,6 +431,7 @@ async function _runQueryLoopInner(
   const taskRuns = new Map<string, TaskRun>();
   const observedTaskRuns = new Map<string, Map<string | undefined, TaskRun>>();
   const taskChildIds = new Map<string, string>();
+  const taskObservations = new Map<string, import('@mitzo/protocol').BackgroundTaskObservation>();
   const terminalSubagents = new Set<string>();
   const childDiagnostics = new Map<string, SubagentDiagnostic>();
   const unavailableSubagents = new Set<string>();
@@ -444,11 +445,19 @@ async function _runQueryLoopInner(
 
   function startTaskChild(toolId: string, taskId: string) {
     const parentBlockId = toolIdToBlockId.get(toolId);
-    if (!parentBlockId || !agentToolIds.has(toolId) || startedSubagents.has(toolId)) return;
-    startedSubagents.add(toolId);
+    if (!parentBlockId || !agentToolIds.has(toolId)) return;
     const run = taskRuns.get(taskId);
+    if (startedSubagents.has(toolId) && (!run || taskObservations.has(parentBlockId))) return;
+    startedSubagents.add(toolId);
+    if (run?.toolId === toolId)
+      taskObservations.set(parentBlockId, {
+        taskId,
+        ...(run.runId ? { runId: run.runId } : {}),
+        ...(run.description ? { description: run.description } : {}),
+      });
     const childId =
-      run?.toolId === toolId && run.runId ? `task-${taskId}-run-${run.runId}` : `task-${taskId}`;
+      activeSubagents.get(toolId)?.subagentMessageId ??
+      (run?.toolId === toolId && run.runId ? `task-${taskId}-run-${run.runId}` : `task-${taskId}`);
     taskChildIds.set(toolId, childId);
     const parentMessageId = toolIdToMessageId.get(toolId);
     if (parentMessageId) parentMessageByChild.set(childId, parentMessageId);
@@ -457,15 +466,6 @@ async function _runQueryLoopInner(
         parentBlockId,
         parentToolId: toolId,
         subagentMessageId: childId,
-        ...(run?.toolId === toolId
-          ? {
-              backgroundTask: {
-                taskId,
-                ...(run.runId ? { runId: run.runId } : {}),
-                ...(run.description ? { description: run.description } : {}),
-              },
-            }
-          : {}),
       }),
     );
   }
@@ -475,6 +475,7 @@ async function _runQueryLoopInner(
     status: 'completed' | 'failed' | 'cancelled' | 'unavailable',
     taskId?: string,
     diagnostic?: SubagentDiagnostic,
+    summary?: string,
   ) {
     const parentBlockId = toolIdToBlockId.get(toolId);
     if (!parentBlockId || !agentToolIds.has(toolId) || terminalSubagents.has(toolId)) return;
@@ -488,6 +489,7 @@ async function _runQueryLoopInner(
         parentToolId: toolId,
         status,
         taskId,
+        ...(summary ? { summary } : {}),
         ...(retainedDiagnostic ? { diagnostic: retainedDiagnostic } : {}),
         subagentMessageId:
           sub?.subagentMessageId ?? taskChildIds.get(toolId) ?? `task-${taskId ?? toolId}`,
@@ -740,6 +742,8 @@ async function _runQueryLoopInner(
   /** Wrapper that auto-injects store + sessionId + connRegistry into sendOrBuffer */
   function emit(data: Record<string, unknown>, eventSessionId = resolvedSessionId) {
     if (String(data.type).startsWith('subagent_') && typeof data.parentBlockId === 'string') {
+      const backgroundTask = taskObservations.get(data.parentBlockId);
+      if (backgroundTask) data = { ...data, backgroundTask };
       const messageId =
         typeof data.parentToolId === 'string'
           ? toolIdToMessageId.get(data.parentToolId)
@@ -2092,6 +2096,8 @@ async function _runQueryLoopInner(
                 toolUseId,
                 status === 'stopped' ? 'cancelled' : (status as 'completed' | 'failed'),
                 taskId,
+                undefined,
+                typeof msg.summary === 'string' ? msg.summary.slice(0, 16_000) : undefined,
               );
               log.info('subagent task finished', { clientId, taskId, toolUseId, status });
             } else if (taskId && !toolUseId) {

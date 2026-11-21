@@ -1,5 +1,7 @@
 import {
   AgentMessageProjectionSchema,
+  parseBackgroundTaskObservation,
+  sameBackgroundTask,
   agentMessageTranscriptRow,
   MessageReplyContextSchema,
   type MessageReplyContext,
@@ -62,6 +64,7 @@ export interface RestoredMessage {
 }
 
 export interface RestoredSubagentState {
+  stopReason?: 'process_restart';
   backgroundTask?: import('@mitzo/protocol').BackgroundTaskObservation;
   lastEventSeq?: number;
   status?: import('@mitzo/protocol').SubagentStatus;
@@ -245,6 +248,7 @@ function replaySubagents(events: StoredEvent[]) {
       order: string[];
       running: boolean;
       status?: import('@mitzo/protocol').SubagentStatus;
+      stopReason?: 'process_restart';
       diagnostic?: import('@mitzo/protocol').SubagentDiagnostic;
       summary?: string;
       usage?: Record<string, number>;
@@ -270,15 +274,18 @@ function replaySubagents(events: StoredEvent[]) {
     if (!parentMessageId) continue;
     const scope = key(parentMessageId, parentId);
     if (event.type === 'subagent_start' && typeof p.subagentMessageId === 'string') {
-      if (states.has(scope)) continue;
+      const previous = states.get(scope);
+      if (previous) {
+        const task = parseBackgroundTaskObservation(p.backgroundTask);
+        if (task && !previous.backgroundTask && event.seq > (previous.lastEventSeq ?? -1)) {
+          previous.backgroundTask = task;
+          previous.lastEventSeq = event.seq;
+        }
+        continue;
+      }
       states.set(scope, {
         messageId: p.subagentMessageId,
-        ...(p.backgroundTask
-          ? {
-              backgroundTask:
-                p.backgroundTask as import('@mitzo/protocol').BackgroundTaskObservation,
-            }
-          : {}),
+        backgroundTask: parseBackgroundTaskObservation(p.backgroundTask),
         lastEventSeq: event.seq,
         blocks: new Map(),
         order: [],
@@ -290,7 +297,12 @@ function replaySubagents(events: StoredEvent[]) {
     const state = states.get(scope);
     if (!state) continue;
     if (
-      (typeof p.subagentMessageId === 'string' && p.subagentMessageId !== state.messageId) ||
+      (state.backgroundTask &&
+        parseBackgroundTaskObservation(p.backgroundTask) &&
+        !sameBackgroundTask(
+          state.backgroundTask,
+          parseBackgroundTaskObservation(p.backgroundTask)!,
+        )) ||
       (state.lastEventSeq !== undefined && event.seq <= state.lastEventSeq)
     )
       continue;
@@ -331,6 +343,8 @@ function replaySubagents(events: StoredEvent[]) {
           ? 'cancelled'
           : ((p.status as import('@mitzo/protocol').SubagentStatus | undefined) ?? 'completed');
       state.diagnostic = p.diagnostic as import('@mitzo/protocol').SubagentDiagnostic | undefined;
+      if (state.status === 'cancelled' && p.stopReason === 'process_restart')
+        state.stopReason = 'process_restart';
       if (typeof p.summary === 'string') state.summary = p.summary;
       else if (event.type === 'subagent_cancelled') state.summary = 'Cancelled';
       if (p.usage && typeof p.usage === 'object') state.usage = p.usage as Record<string, number>;
@@ -342,6 +356,7 @@ function replaySubagents(events: StoredEvent[]) {
     const blocks = state.order.map((id) => state.blocks.get(id)!);
     const subagent: RestoredSubagentState = {
       messageId: state.messageId,
+      ...(state.stopReason ? { stopReason: state.stopReason } : {}),
       ...(state.backgroundTask ? { backgroundTask: state.backgroundTask } : {}),
       ...(state.lastEventSeq !== undefined ? { lastEventSeq: state.lastEventSeq } : {}),
       status: state.status,

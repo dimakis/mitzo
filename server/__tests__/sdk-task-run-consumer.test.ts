@@ -18,14 +18,22 @@ import {
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
 
 it.each([
-  ['completed predecessor', true, true, true, true],
-  ['late predecessor', false, true, true, true],
-  ['legacy distinct tasks', true, false, true, true],
-  ['missing predecessor receipt', false, true, false, true],
-  ['both receipts missing at native retirement', false, true, false, false],
+  ['completed predecessor', true, true, true, true, false],
+  ['late predecessor', false, true, true, true, false],
+  ['legacy distinct tasks', true, false, true, true, false],
+  ['missing predecessor receipt', false, true, false, true, false],
+  ['both receipts missing at native retirement', false, true, false, false, false],
+  ['native child starts before background announcement', false, true, true, true, true],
 ] as const)(
   'keeps native task runs distinct through live/cold consumers: %s',
-  async (_scenario, firstCompleted, hasRunIds, firstReceiptArrives, secondReceiptArrives) => {
+  async (
+    _scenario,
+    firstCompleted,
+    hasRunIds,
+    firstReceiptArrives,
+    secondReceiptArrives,
+    nativeChildFirst,
+  ) => {
     const events = new AsyncQueue<Record<string, unknown>>();
     vi.mocked(query).mockReturnValue({
       close: vi.fn(),
@@ -97,6 +105,13 @@ it.each([
       push({ type: 'stream_event', event: { type: 'content_block_stop', index } });
     };
     startTool(0, 'spawn-first');
+    // Real child output can start before the SDK announces its background task.
+    if (nativeChildFirst)
+      push({
+        type: 'stream_event',
+        parent_tool_use_id: 'spawn-first',
+        event: { type: 'message_start', message: { id: 'native-first-turn' } },
+      });
     const firstStart = {
       type: 'system',
       subtype: 'task_started',
@@ -230,6 +245,10 @@ it.each([
       };
       expect(second?.subagent?.backgroundTask).toEqual(backgroundTask);
       expect(liveSecond?.subagent?.backgroundTask).toEqual(backgroundTask);
+      if (secondReceiptArrives) {
+        expect(second?.subagent?.summary).toBe('Second result');
+        expect(liveSecond?.subagent?.summary).toBe('Second result');
+      }
       const first = restored
         .flatMap((message) => message.blocks)
         .find((block) => block.toolId === 'spawn-first');
@@ -237,6 +256,11 @@ it.each([
         .flatMap((message) => message.blocks)
         .find((block) => block.toolId === 'spawn-first');
       expect(first?.subagent?.status).toBe(firstStatus);
+      expect(first?.subagent?.backgroundTask).toMatchObject({
+        taskId: 'same-task',
+        description: 'First run',
+      });
+      expect(liveFirst?.subagent?.backgroundTask).toEqual(first?.subagent?.backgroundTask);
       expect(liveFirst?.subagent?.status).toBe(firstStatus);
       if (!firstReceiptArrives) {
         expect(first?.subagent?.diagnostic?.code).toBe('claude_child_outcome_unavailable');
@@ -248,7 +272,11 @@ it.each([
         expect(session.activeTaskIds.get(secondTask)).toBe('resume-second');
       }
       expect(first?.subagent?.messageId).toBe(
-        hasRunIds ? 'task-same-task-run-001' : 'task-same-task',
+        nativeChildFirst
+          ? 'native-first-turn'
+          : hasRunIds
+            ? 'task-same-task-run-001'
+            : 'task-same-task',
       );
       expect(first?.subagent?.messageId).not.toBe(second?.subagent?.messageId);
     } finally {
