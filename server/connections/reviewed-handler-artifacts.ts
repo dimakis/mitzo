@@ -1488,7 +1488,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/account-binding.ts':
     'd8dffcafa6d25beb3dc2a32631300d5ba412f02b8e8ed0e86d2ab9f8b731712b',
   '../../packages/protocol/src/agent-communication-store.ts':
-    '851c57e112d93e7a36f0b8e4a392e4e8bae112ce0353b193eb5d616aa3e52a54',
+    'fac108cd120629c1a007e313fc49fc1c4709eee439bf720721f023a8a9f33b88',
   '../../packages/protocol/src/agent-communication.ts':
     'e9e62109ca5af2c47282197761d703e1de35d28a0aa940c6c65b7e30496fa7c9',
   '../../packages/protocol/src/agent-context-pack.ts':

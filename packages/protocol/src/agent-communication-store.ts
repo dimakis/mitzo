@@ -289,12 +289,7 @@ export class AgentCommunicationStore {
           .get(z.uuid().parse(messageId)) as { admission_claimed: number } | undefined;
         const value = this.retained(messageId);
         const { message } = value;
-        if (
-          row?.admission_claimed !== 1 ||
-          message.status !== 'pending' ||
-          (message.status === status && message.reason === reason)
-        )
-          return;
+        if (row?.admission_claimed !== 1 || message.status !== 'pending') return;
         value.message = AgentMessageSchema.parse({ ...message, status, reason });
         this.save(value);
       })
