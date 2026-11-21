@@ -24,10 +24,16 @@ vi.mock('../specialist-consultation-runtime.js', () => ({
     catalog: fixture.catalog,
     authorize: async (
       _a: unknown,
-      _raw: unknown,
+      raw: Record<string, unknown>,
       approve: (value: unknown) => Promise<boolean>,
     ) => {
-      const display = { accountId: 'approved-account', maxConsultations: 2 };
+      const display = {
+        ...raw,
+        maxConsultations: 2,
+        expiresAt: Date.now() + 60000,
+        maxContextBytes: 32000,
+        scope: 'Selected public context only.',
+      };
       return { approved: await approve(display) };
     },
   }),

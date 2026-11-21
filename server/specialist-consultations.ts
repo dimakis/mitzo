@@ -464,7 +464,7 @@ export class SpecialistConsultations {
       input,
       this.owners.events.getDurableSessionTranscript(a.leadSessionId).boundary,
       selected.route,
-      selected.revision,
+      { modelPolicyRevision: selected.revision },
     );
     if (record.state !== 'reserved' && !this.pending.has(a.leadSessionId))
       return this.read(a, record.requestId);
@@ -588,6 +588,7 @@ export class SpecialistConsultations {
     const signal = AbortSignal.any([a.signal, stopSignal]);
     let record = original;
     let stage = 'preparation';
+    let chargedHere = false;
     const assertCurrent = () => {
       signal.throwIfAborted();
       this.current(a);
@@ -735,6 +736,7 @@ export class SpecialistConsultations {
       }
       stage = 'delivery';
       assertCurrent();
+      chargedHere = record.allowanceState !== 'charged';
       update({ allowanceState: 'charged' });
       await this.owners.messaging.send(
         a.auth,
@@ -749,6 +751,18 @@ export class SpecialistConsultations {
     } catch (cause) {
       const diagnostic = specialistDiagnostic(cause);
       const current = this.receipts.read(a.leadSessionId, record.requestId);
+      // Messaging durably retains the request before any dispatch. Absence after
+      // send has settled proves this attempt never entered delivery. Never refund
+      // legacy or previously uncertain charges on this evidence alone.
+      const refusedBeforeDelivery =
+        chargedHere &&
+        record.messageInput &&
+        !this.owners.events.collaborationConversation.getMessageForRequest(
+          policy.collaborationId,
+          record.messageInput,
+        );
+      const allowanceState =
+        current.allowanceState === 'charged' && !refusedBeforeDelivery ? 'charged' : 'released';
       const details = {
         sessionId: a.leadSessionId,
         requestId: record.requestId,
@@ -761,7 +775,7 @@ export class SpecialistConsultations {
       if (current.state !== 'stopped' && current.revision === record.revision)
         this.receipts.update(a.leadSessionId, record.requestId, current.revision, {
           state: 'uncertain',
-          allowanceState: current.allowanceState === 'charged' ? 'charged' : 'released',
+          allowanceState,
           diagnostic: {
             code: diagnostic.code,
             stage,
@@ -769,6 +783,10 @@ export class SpecialistConsultations {
               diagnostic.message +
               ' Read or recover the original request; do not submit a replacement.',
           },
+        });
+      else if (current.state === 'stopped' && refusedBeforeDelivery)
+        this.receipts.update(a.leadSessionId, record.requestId, current.revision, {
+          allowanceState,
         });
       this.current(a);
       return this.read(a, record.requestId);

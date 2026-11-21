@@ -53,7 +53,7 @@ function SpecialistModelPolicyEditor({ sessionId }: { sessionId: string }) {
   const [status, setStatus] = useState('');
   const [account, setAccount] = useState('');
   const [model, setModel] = useState('');
-  const generation = useRef(0);
+  const lifetime = useRef({ generation: 0 });
   const endpoint = `/api/specialist-model-policy/${encodeURIComponent(sessionId)}`;
   const recoveryKey = `mitzo-specialist-policy-save:${sessionId}`;
   const retain = (save?: Save) => {
@@ -65,51 +65,67 @@ function SpecialistModelPolicyEditor({ sessionId }: { sessionId: string }) {
       setStatus('Save recovery is available while this dialog remains open.');
     }
   };
-  const load = async () => {
-    const current = generation.current;
+  const load = async (recovery?: Save) => {
+    const current = lifetime.current.generation;
     setBusy(true);
     setError('');
     try {
       const response = await apiFetch(endpoint, { signal: AbortSignal.timeout(20000) });
       if (!response.ok) throw Error('Model policy could not be loaded. Refresh to try again.');
       const value = SettingsSchema.parse(await response.json());
-      if (current !== generation.current) return;
+      if (current !== lifetime.current.generation) return;
       setView(value);
-      setDraft(structuredClone(value[scope].policy ?? value.workspace.policy ?? { models: [] }));
+      if (recovery) setScope(recovery.scope);
+      setDraft(
+        structuredClone(
+          recovery
+            ? (recovery.policy ?? value.workspace.policy ?? { models: [] })
+            : (value[scope].policy ?? value.workspace.policy ?? { models: [] }),
+        ),
+      );
       setAccount(value.accounts[0]?.id ?? '');
     } catch (cause) {
-      if (current === generation.current)
+      if (current === lifetime.current.generation)
         setError(cause instanceof Error ? cause.message : 'Model policy unavailable.');
     } finally {
-      if (current === generation.current) setBusy(false);
+      if (current === lifetime.current.generation) setBusy(false);
     }
   };
   useEffect(() => {
+    const owner = lifetime.current;
+    let recovery: Save | undefined;
     try {
       const retained = sessionStorage.getItem(recoveryKey);
-      if (retained) setPending(SaveSchema.parse(JSON.parse(retained)));
+      if (retained) {
+        recovery = SaveSchema.parse(JSON.parse(retained));
+        setPending(recovery);
+      }
     } catch {
       setError('Saved recovery could not be read. Refresh policy before another save.');
     }
-    void load();
+    void load(recovery);
     const retire = () => {
-      generation.current++;
+      owner.generation++;
       setView(undefined);
       setPending(undefined);
       setBusy(false);
       setError('Sign in again to edit model policy.');
-      sessionStorage.removeItem(recoveryKey);
+      try {
+        sessionStorage.removeItem(recoveryKey);
+      } catch {
+        /* Storage may be unavailable. */
+      }
     };
     window.addEventListener(AUTH_LOST_EVENT, retire);
     return () => {
-      generation.current++;
+      owner.generation++;
       window.removeEventListener(AUTH_LOST_EVENT, retire);
     };
     // The parent keys this component by the ordinary conversation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
   const save = async (request: Save) => {
-    const current = generation.current;
+    const current = lifetime.current.generation;
     retain(request);
     setBusy(true);
     setError('');
@@ -122,7 +138,7 @@ function SpecialistModelPolicyEditor({ sessionId }: { sessionId: string }) {
         signal: AbortSignal.timeout(20000),
       });
       const body = await response.json();
-      if (current !== generation.current) return;
+      if (current !== lifetime.current.generation) return;
       if (!response.ok) {
         if (response.status >= 400 && response.status < 500) retain();
         throw Error(
@@ -137,14 +153,14 @@ function SpecialistModelPolicyEditor({ sessionId }: { sessionId: string }) {
       setDraft(structuredClone(saved.policy ?? view?.workspace.policy ?? { models: [] }));
       setStatus('Model policy saved. Changes apply to future admissions.');
     } catch (cause) {
-      if (current === generation.current)
+      if (current === lifetime.current.generation)
         setError(
           cause instanceof Error
             ? cause.message
             : 'Save could not be confirmed. Retry the original save.',
         );
     } finally {
-      if (current === generation.current) setBusy(false);
+      if (current === lifetime.current.generation) setBusy(false);
     }
   };
   const submit = (policy: SpecialistModelPolicy | null) => {

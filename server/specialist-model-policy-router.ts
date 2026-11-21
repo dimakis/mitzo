@@ -51,12 +51,9 @@ export function createSpecialistModelPolicyRouter(events: EventStore) {
         error.message,
       )
     )
-      return res
-        .status(403)
-        .json({
-          error:
-            'The original consultation authorization is no longer current. Review a new policy.',
-        });
+      return res.status(403).json({
+        error: 'The original consultation authorization is no longer current. Review a new policy.',
+      });
     log.error('Model policy operation failed', {
       err: error,
       stage: 'model_policy',
@@ -71,13 +68,7 @@ export function createSpecialistModelPolicyRouter(events: EventStore) {
       return res.json({
         ...getSpecialistConsultations().receipts.modelPolicies.view(req.params.sessionId),
         allowances: getSpecialistConsultations()
-          .receipts.policies(req.params.sessionId)
-          .filter(
-            (policy) =>
-              !policy.revoked &&
-              policy.expiresAt > Date.now() &&
-              policy.authSessionId === recentAuthorizationSession(res)!.id,
-          )
+          .receipts.activePolicies(req.params.sessionId, recentAuthorizationSession(res)!.id)
           .map(allowanceSummary),
         accounts: loadAccountProfiles()
           .catalog()

@@ -60,6 +60,18 @@ export class SpecialistConsultationStore {
         .all(lead) as { body: string }[]
     ).map((row) => SpecialistPolicySchema.parse(JSON.parse(row.body)));
   }
+  activePolicies(lead: string, login: string) {
+    return (
+      this.db
+        .prepare(
+          `SELECT body FROM specialist_consultation_policies
+      WHERE lead_id=? AND json_extract(body, '$.authSessionId')=?
+      AND json_extract(body, '$.expiresAt')>? AND NOT json_extract(body, '$.revoked')
+      ORDER BY rowid DESC`,
+        )
+        .all(lead, login, Date.now()) as { body: string }[]
+    ).map((row) => SpecialistPolicySchema.parse(JSON.parse(row.body)));
+  }
   authorizationInput(lead: string, policyId: string) {
     const row = this.db
       .prepare('SELECT input FROM specialist_consultation_policies WHERE lead_id=? AND policy_id=?')
@@ -179,7 +191,7 @@ export class SpecialistConsultationStore {
     raw: unknown,
     boundary: ConsultationRecord['boundary'],
     selectedRoute?: ConsultationRecord['route'],
-    modelPolicyRevision?: string,
+    admission: { modelPolicyRevision?: string } = {},
   ) {
     const input = ConsultationInputSchema.parse(raw);
     return this.db
@@ -207,7 +219,7 @@ export class SpecialistConsultationStore {
           revision: 0,
           attemptOrdinal: count.count,
           allowanceState: 'held',
-          modelPolicyRevision,
+          modelPolicyRevision: admission.modelPolicyRevision,
           input,
           route,
           boundary,

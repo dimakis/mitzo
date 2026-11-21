@@ -119,6 +119,11 @@ it('replays an exact authorization outside the recent-policy catalog without ano
   for (let i = 0; i < 21; i++)
     await service.authorize(authority, { ...input, requestId: crypto.randomUUID() }, approve);
   expect(service.receipts.policies(authority.leadSessionId)).toHaveLength(20);
+  expect(
+    service.receipts
+      .activePolicies(authority.leadSessionId, authority.auth.id)
+      .map((entry) => entry.policyId),
+  ).toContain(original.policyId);
   const approvals = approve.mock.calls.length;
   await expect(service.authorize(authority, input, approve)).resolves.toEqual(original);
   expect(approve).toHaveBeenCalledTimes(approvals);
@@ -260,6 +265,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       maxContextBytes: 32000,
       routes: ['planner', 'plan-reviewer'].map((role) => ({
         role,
+        permissionMode: role === 'planner' ? 'auto' : 'agent',
         accountId: 'offline-personal',
         model: 'fixture-model',
         modelFamily: 'synthetic-openai-family',
@@ -273,7 +279,10 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
   expect(approve).toHaveBeenCalledOnce();
   expect(approve.mock.calls[0][0]).toMatchObject({
     maxConsultations: 4,
-    specialistPermissionModes: expect.arrayContaining([expect.objectContaining({ mode: 'ask' })]),
+    specialistPermissionModes: [
+      { role: 'planner', mode: 'auto' },
+      { role: 'plan-reviewer', mode: 'agent' },
+    ],
   });
   const { recordApplicationMessagingRuntime } =
     await import('./fixtures/symposium-recording-runtime.js');
@@ -286,7 +295,24 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       messageIds: ['selected-source'],
       artifacts: [],
     };
-    const first = await service.consult(authority, policy.policyId, input, approveAdmission);
+    const savedModels = service.receipts.modelPolicies.read(authority.leadSessionId);
+    service.receipts.modelPolicies.save(authority.leadSessionId, {
+      requestId: crypto.randomUUID(),
+      expectedRevision: savedModels.revision,
+      policy: {
+        models: [
+          {
+            accountId: 'offline-personal',
+            model: 'fixture-model',
+            admission: 'auto',
+            allowance: null,
+          },
+        ],
+      },
+    });
+    const admission = vi.fn(approveAdmission);
+    const first = await service.consult(authority, policy.policyId, input, admission);
+    expect(admission).not.toHaveBeenCalled();
     expect(
       first.receipt.state,
       readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
@@ -294,6 +320,9 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
         .filter((line) => line.includes('specialist-consultation'))
         .join('\n'),
     ).toBe('dispatched');
+    expect(
+      h.events.getOrdinaryConversationSettings(first.receipt.sessionId!)?.selection.permission.mode,
+    ).toBe('auto');
     expect(first.receipt.routingAudit).toMatchObject({
       role: 'planner',
       policyId: policy.policyId,
@@ -311,6 +340,12 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       { timeout: 5000 },
     );
     const planned = service.read(authority, input.requestId);
+    expect(planned.receipt.allowanceState).toBe('charged');
+    service.receipts.modelPolicies.save(authority.leadSessionId, {
+      requestId: crypto.randomUUID(),
+      expectedRevision: savedModels.revision + 1,
+      policy: savedModels.policy,
+    });
     expect(planned.contributions[0]).toMatchObject({
       role: 'planner',
       profileId: 'planner',
@@ -566,6 +601,7 @@ it('recovers a lost join response using the original shared owner without alloca
       const refused = await service.consult(authority, policy.policyId, expiring, approveAdmission);
       expect(elapsedTime.clock).toBeDefined();
       expect(refused.status).toBe('uncertain');
+      expect(refused.receipt.allowanceState).toBe('released');
       expect(
         h.events.collaborationConversation.getMessageForRequest(
           policy.collaborationId,

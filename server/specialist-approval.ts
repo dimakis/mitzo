@@ -6,10 +6,13 @@ const allowanceQuestion =
   'How many consultations may this policy authorize? Enter a positive number or unlimited.';
 const routeQuestion =
   'Approve the exact specialist model, charged account and agent mode for this admission.';
+function authorizationQuestion(display: Record<string, unknown>) {
+  return `${allowanceQuestion}\n\nRepository: ${display.repository}\nConnection: ${display.connectionId}\nExpires: ${new Date(Number(display.expiresAt)).toISOString()}\nSelected-context limit: ${display.maxContextBytes} bytes\n${routeLabels(display).join('\n')}\nProfiles: ${JSON.stringify((display.routes as Record<string, unknown>[]).map((route) => route.agent))}\n\n${display.scope}`;
+}
 function routeLabels(display: Record<string, unknown>) {
   return (display.routes as Record<string, unknown>[]).map(
     (route, index) =>
-      `${index + 1}. ${route.role}: ${route.model} · ${route.accountLabel ?? route.accountId} · ${route.permissionMode ?? 'ask'} · allowance ${display.maxConsultations ?? 'unlimited'}`,
+      `${index + 1}. ${route.role}: ${route.model} · ${route.accountLabel ?? route.accountId} (${route.accountId}) · ${route.permissionMode ?? 'ask'} · allowance ${display.maxConsultations ?? 'unlimited'}`,
   );
 }
 export function specialistApprovalQuestions(display: Record<string, unknown>): UserQuestion[] {
@@ -32,7 +35,7 @@ export function specialistApprovalQuestions(display: Record<string, unknown>): U
     {
       id: 'allowance',
       header: 'Allowance',
-      question: allowanceQuestion,
+      question: authorizationQuestion(display),
       multiSelect: false,
       options: [...new Set([requested, 'unlimited'])].map((label) => ({
         label,
@@ -63,7 +66,7 @@ export function specialistApprovalResult(
       throw Error('Invalid specialist selection');
     return { ...display, routeIndex: index };
   }
-  const value = response[allowanceQuestion];
+  const value = response[authorizationQuestion(display)];
   if (typeof value !== 'string' || Object.keys(response).length !== 1)
     throw Error('Invalid consultation allowance');
   const maxConsultations = ConsultationAllowanceSchema.parse(

@@ -48,6 +48,12 @@ export function SpecialistAllowanceEditor({
     }
     const retire = () => {
       owner.active = false;
+      setPending(undefined);
+      try {
+        sessionStorage.removeItem(key);
+      } catch {
+        /* Storage may be unavailable. */
+      }
       setError('Sign in again to edit this allowance.');
       setBusy(false);
     };

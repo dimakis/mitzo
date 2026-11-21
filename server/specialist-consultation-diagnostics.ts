@@ -56,7 +56,7 @@ export function specialistDiagnostic(cause: unknown) {
     [
       /^Consultation call budget/,
       'budget_exhausted',
-      'The approved consultation call budget is exhausted. Request a new bounded policy before more model work.',
+      'The approved consultation allowance is exhausted. Edit or remove it in Agents → Model policy before more model work.',
     ],
     [
       /^Consultation policy expired or revoked|^Original consultation authorization/,
