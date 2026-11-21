@@ -19,9 +19,21 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createCredentialSdkServer, credentialSdkPermission } from '../credential-sdk-tools.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from '../agent-tool-selection.js';
 import { SdkAgentMessageRuntime } from '../sdk-agent-message-runtime.js';
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { AsyncQueue } from '../async-queue.js';
+import {
+  createOrdinaryLocalVertexSdkQuery,
+  SdkHookLifetime,
+} from '../ordinary-local-vertex-sdk-query.js';
+import * as nativeHistory from '../ordinary-local-vertex-native-history.js';
+import { lateSteerHold } from '../sdk-late-steer-hold.js';
 import { createInteractiveAuth } from '../interactive-auth-core.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
+
+vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
+  ...(await original<typeof import('@anthropic-ai/claude-agent-sdk')>()),
+  query: vi.fn(),
+}));
 
 const cleanups: Array<() => void> = [];
 const revocations = new EventStore(':memory:');
@@ -176,6 +188,120 @@ async function signedOperator() {
   cleanups.push(() => revokeAuthSession(auth));
   return auth;
 }
+
+it.each(
+  (['successor', 'stream_end', 'close'] as const).flatMap((retirement) =>
+    (['submitted', 'unsubmitted', 'acknowledged'] as const).map(
+      (delivery) => [retirement, delivery] as const,
+    ),
+  ),
+)(
+  'settles a real busy SDK send when its query retires through %s with %s input',
+  async (retirement, delivery) => {
+    const f = fixture();
+    const session = f.registry.get('operator:claude-worker')!;
+    const controller = session.abortController;
+    const streams: Array<AsyncQueue<Record<string, unknown>>> = [];
+    const prompts: Array<AsyncIterable<SDKUserMessage>> = [];
+    vi.mocked(query).mockClear();
+    vi.mocked(query).mockImplementation(({ prompt }) => {
+      const stream = new AsyncQueue<Record<string, unknown>>();
+      streams.push(stream);
+      prompts.push(prompt as AsyncIterable<SDKUserMessage>);
+      return {
+        close: () => stream.close(),
+        [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](),
+      } as never;
+    });
+    const history = vi.spyOn(nativeHistory, 'assertOrdinaryLocalVertexHistory').mockResolvedValue();
+    const timeout = lateSteerHold.echoTimeoutMs;
+    lateSteerHold.echoTimeoutMs = 5;
+    cleanups.push(() => {
+      history.mockRestore();
+      lateSteerHold.echoTimeoutMs = timeout;
+      controller.abort();
+    });
+    const owner = createOrdinaryLocalVertexSdkQuery<
+      AsyncIterable<Record<string, unknown>> & { close(): void }
+    >({
+      options: {},
+      input: new AsyncQueue(),
+      controller,
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'claude-worker',
+      cwd: process.cwd(),
+      authorize: async () => {},
+      authorizeSync() {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged() {},
+      onUnsent: vi.fn(),
+      peerMessages: () => runtime,
+    });
+    let input!: SDKUserMessage;
+    const runtime = new SdkAgentMessageRuntime({
+      events: f.events,
+      session,
+      identity: session.ordinaryRuntimeOwner!.identity,
+      operatorAuthSessionId: f.auth.id,
+      assertCurrent() {},
+      activeCommandId: () => 'original-recipient-command',
+      stopped: () => false,
+      push: (message) => {
+        input = message;
+        owner.push(message);
+      },
+      enqueue: vi.fn(),
+    });
+    cleanups.push(registerAgentMessageRuntime(session, runtime));
+    const sendInput = {
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'Keep this correction on its original query.',
+    };
+    const sent = await f.execute(sendInput);
+    expect(sent).toMatchObject({ status: 'queued', reason: null });
+    if (delivery !== 'unsubmitted')
+      expect((await prompts[0][Symbol.asyncIterator]().next()).value).toBe(input);
+    const iterator = owner.query[Symbol.asyncIterator]();
+    if (delivery === 'acknowledged') {
+      streams[0].push({ type: 'user', uuid: input.uuid, message: input.message });
+      streams[0].push({ type: 'assistant', session_id: 'claude-worker' });
+      expect((await iterator.next()).value).toMatchObject({ type: 'assistant' });
+    }
+    if (retirement === 'successor') {
+      streams[0].push({ type: 'result', session_id: 'claude-worker' });
+      // The real late-steer timeout releases this result without an input ACK.
+      expect((await iterator.next()).value).toMatchObject({ type: 'result' });
+      await owner.apply({} as never);
+      await owner.apply({} as never);
+    } else {
+      if (retirement === 'close') owner.query.close();
+      else streams[0].close();
+      expect((await iterator.next()).value).toMatchObject({ type: 'sdk_query_retired' });
+    }
+    expect(controller.signal.aborted).toBe(false);
+    const settled =
+      delivery === 'acknowledged'
+        ? { status: 'delivered', reason: null }
+        : { status: 'uncertain', reason: 'admission_uncertain' };
+    expect(await f.execute({ operation: 'lookup', requestId: sendInput.requestId })).toMatchObject(
+      settled,
+    );
+    if (retirement === 'successor') {
+      // An old replay in a replacement query cannot acknowledge the lost input.
+      streams[1].push({ type: 'user', uuid: input.uuid, message: input.message });
+      streams[1].push({ type: 'assistant', session_id: 'claude-worker' });
+      expect((await iterator.next()).value).toMatchObject({ type: 'sdk_query_retired' });
+      expect((await iterator.next()).value).toMatchObject({ type: 'assistant' });
+      expect(await f.execute(sendInput)).toMatchObject(settled);
+      expect(query).toHaveBeenCalledTimes(2);
+    }
+    owner.query.close();
+    await iterator.return?.();
+  },
+);
 
 it.each(['codex-worker', 'claude-worker'] as const)(
   'accepts a correlated reply from %s across verified operator logins through the full tool owner',

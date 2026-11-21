@@ -78,15 +78,16 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     });
     owners.session.abortController.signal.addEventListener(
       'abort',
-      () => this.#abandonUnacknowledged(),
+      () => this.#abandonUnacknowledged('session_abort'),
       { once: true },
     );
   }
 
   /** A steer released to stdin is queued until its replay ACK. If its owning
-   * session ends first, the outcome is unknown; never leave it looking queued. */
-  #abandonUnacknowledged() {
+   * query or session ends first, the outcome is unknown; never leave it queued. */
+  #abandonUnacknowledged(stage: 'session_abort' | 'query_retirement', query?: object) {
     for (const pending of this.#pending.values()) {
+      if (query && pending.query !== query) continue;
       const { messageId } = pending.message;
       try {
         const { message } = this.owners.events.agentCommunication.forHost(messageId);
@@ -99,13 +100,24 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
       } catch (error) {
         log.warn('Unacknowledged SDK peer input receipt not settled', {
           code: 'peer_receipt_settlement_failed',
-          stage: 'session_abort',
+          stage,
           messageId,
           causeType: error instanceof Error ? error.name : typeof error,
         });
       }
+      this.#pending.delete(messageId);
     }
-    this.#pending.clear();
+  }
+
+  /** Bind at queue insertion, including inputs not yet released to stdin. */
+  bindInputToQuery(input: SDKUserMessage, query: object): void {
+    const pending = this.#inputs.get(input);
+    if (pending) pending.query = query;
+  }
+
+  /** A successor never inherits its predecessor's outstanding replay ACKs. */
+  retireQuery(query: object): void {
+    this.#abandonUnacknowledged('query_retirement', query);
   }
 
   async steerUser(input: CodexSteerInput, authorize: () => void) {
@@ -402,6 +414,9 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     )
       return false;
     const pending = this.#pending.get(event.uuid);
+    // A live query may acknowledge only input submitted to that exact query.
+    // Retained receipts alone cannot turn a successor's replay into delivery.
+    if (query && (!queryAvailable || !pending || pending.query !== query)) return true;
     if (
       text !== agentMessagePrompt(retained.message) ||
       (pending && !pending.attempted) ||

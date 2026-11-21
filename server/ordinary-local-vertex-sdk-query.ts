@@ -325,7 +325,14 @@ export function createOrdinaryLocalVertexSdkQuery<
   peerMessages?():
     | (Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> &
         Partial<
-          Pick<SdkAgentMessageRuntime, 'cancelInput' | 'holdTurnForLateEcho' | 'awaitingLateEcho'>
+          Pick<
+            SdkAgentMessageRuntime,
+            | 'cancelInput'
+            | 'holdTurnForLateEcho'
+            | 'awaitingLateEcho'
+            | 'bindInputToQuery'
+            | 'retireQuery'
+          >
         >)
     | undefined;
   mcpServers?(state: SdkCallbackState): Options['mcpServers'];
@@ -547,6 +554,7 @@ export function createOrdinaryLocalVertexSdkQuery<
     closed = true;
     states.get(native)!.retired = true;
     states.get(native)!.callbacks.seal();
+    owners.peerMessages?.()?.retireQuery?.(states.get(native)!);
     input.close();
     runs.close();
     native.close();
@@ -624,6 +632,7 @@ export function createOrdinaryLocalVertexSdkQuery<
           }
           if (event.type === 'result') {
             state.completing = true;
+            owners.peerMessages?.()?.retireQuery?.(state);
             state.callbacks.seal();
             if (state.callbacks.needsSettlement)
               await state.callbacks.settle(owners.controller.signal);
@@ -649,6 +658,8 @@ export function createOrdinaryLocalVertexSdkQuery<
           sdkSessionId: owners.sdkSessionId,
           retired: state.retired,
         });
+      } finally {
+        owners.peerMessages?.()?.retireQuery?.(states.get(run)!);
       }
       // This native iterator has ended; the joined iterator can remain open
       // while waiting for another admitted query on the same SDK history.
@@ -719,6 +730,7 @@ export function createOrdinaryLocalVertexSdkQuery<
       return true;
     },
     push(message: SDKUserMessage) {
+      owners.peerMessages?.()?.bindInputToQuery?.(message, states.get(native)!);
       input.push(message);
     },
     isCommandInputEcho: (event: object) => commandInputEchoes.has(event),
@@ -744,6 +756,7 @@ export function createOrdinaryLocalVertexSdkQuery<
       await owners.authorize(owners.controller.signal, undefined, 'command_setup');
       const state = states.get(native)!;
       state.retired = true;
+      owners.peerMessages?.()?.retireQuery?.(state);
       input.close();
       native.close();
       if (owners.options.spawnClaudeCodeProcess) {

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1266-agent-trace-per-query';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1268-peer-query-retirement';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2396,7 +2396,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/adviser-task-scope.test.ts':
     '9584230a5f559996fa5949ba24a773dbb917f2647f8515ce4e22798abca41226',
   '../__tests__/agent-communication-cross-runtime.test.ts':
-    '2a5589a68236db68e7b272249e635c026e350ad503bd54db7e1bb3697044d8b2',
+    '6cc18a11e47e36bcf84fb07922b4188297f3c7a8176925f924f0cff63c6ce516',
   '../__tests__/agent-communication-diagnostics.test.ts':
     '6ac8334a42d9e829e459a50c97cebc99234ba5616af5134886b7cb9b0edd8743',
   '../__tests__/agent-communication-native.test.ts':
@@ -4265,7 +4265,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-sdk-process.ts':
     'fb9323a7fe3a55d6998dd70e0b6e16ff5f008ecb763bc8da9777b7f24514a30e',
   '../ordinary-local-vertex-sdk-query.ts':
-    'e537f85f15dd923381a7c8a9ae38cb58f915eafb60a0032413849d0e27f71fad',
+    'ad376e47776088bc0c4095efa0a6a42f684b8db66ea860a9858b8d11224e9cee',
   '../ordinary-local-workspace-owner.ts':
     'a3b3f0ffe8157de1a95f1bb490510baa5a7437750cf7f4a49713e514b827ec04',
   '../ordinary-openshell-codex-entry-owner.ts':
@@ -4430,7 +4430,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1be733fc3e54b3345b9f93183a05a0378ed503df2c0413b2d510c5f94e3dd8f1',
   '../sandboxed-command.ts': '77d82d8b4c8c7c975a944193e8a657fb19de73abeb2c8fd6385a8417350b020d',
   '../sdk-agent-message-runtime.ts':
-    'd94168cbfbd4eaade3247a0799da6728eeafa0fe29ac95a69fc742f023562d5d',
+    'cd08583a24eb93b8ef46473ff09d8e0fb120204dfec0dcae90d058106d8b50a6',
   '../sdk-authority-observation.ts':
     'a5be44c87dc13b4d8622b1ce0b880bbe0ca5172f8f8da19384ba99c3fb11898d',
   '../sdk-late-steer-hold.ts': '88117dc1e75988131bd7c3d76a07dce377e4461a6804c6343a46586afd2e850c',
