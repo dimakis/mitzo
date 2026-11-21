@@ -24,6 +24,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  window.dispatchEvent(new Event('mitzo:auth-lost'));
   vi.resetAllMocks();
   vi.useRealTimers();
 });
@@ -164,7 +165,7 @@ it('registers a PR paused and preserves the original request after an uncertain 
     if (init?.method === 'POST') return new Response('{}', { status: 409 });
     return new Response(JSON.stringify(data));
   });
-  render(<PrMonitorSection sessionId="chat" />);
+  const view = render(<PrMonitorSection sessionId="chat" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Add PR' }));
   await screen.findByRole('option', { name: 'GitHub read-only' });
   fireEvent.change(screen.getByLabelText('GitHub connection'), {
@@ -187,11 +188,36 @@ it('registers a PR paused and preserves the original request after an uncertain 
     expectedExecutionDigest: 'd'.repeat(64),
   });
   expect((screen.getByLabelText('Pull request URL') as HTMLInputElement).disabled).toBe(true);
+  view.unmount();
+  render(<PrMonitorSection sessionId="chat" />);
+  await screen.findByRole('button', { name: 'Retry same registration' });
   fireEvent.change(screen.getByLabelText('App passphrase'), { target: { value: 'offline' } });
   fireEvent.click(screen.getByRole('button', { name: 'Retry same registration' }));
   await waitFor(() => expect(registrations()).toHaveLength(2));
   expect(registrations()[0][1].body).toEqual(registrations()[1][1].body);
   expect(apiFetch.mock.calls.some(([path]) => path.includes('/pr-watch/'))).toBe(false);
+});
+
+it('retains an uncertain Watch request through closing details and retries only that exact scope', async () => {
+  const view = render(<PrMonitorSection sessionId="chat" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Review Watch' }));
+  apiFetch.mockImplementation(async (path, init) => {
+    if (path.endsWith('/reauthorize'))
+      return new Response(JSON.stringify({ csrf: 'proof', expiresAt: Date.now() + 60000 }));
+    if (init?.method === 'POST') return new Response('{}', { status: 409 });
+    return new Response(JSON.stringify(data));
+  });
+  fireEvent.change(screen.getByLabelText('App passphrase'), { target: { value: 'offline' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Allow read-only Watch' }));
+  await screen.findByText(/Watch change was not confirmed/);
+  const posts = () => apiFetch.mock.calls.filter(([path]) => path.includes('/pr-watch/'));
+  view.unmount();
+  render(<PrMonitorSection sessionId="chat" />);
+  await screen.findByRole('button', { name: 'Retry same Watch request' });
+  fireEvent.change(screen.getByLabelText('App passphrase'), { target: { value: 'offline' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Retry same Watch request' }));
+  await waitFor(() => expect(posts()).toHaveLength(2));
+  expect(posts()[1][1].body).toEqual(posts()[0][1].body);
 });
 
 it('requires a new review after the authority scope changes while the review is open', async () => {

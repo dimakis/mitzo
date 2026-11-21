@@ -3,28 +3,27 @@ import type { usePrMonitor } from '../hooks/usePrMonitor';
 import type { ManagedConnection } from '../types/connections';
 import { getConnections } from '../lib/connections-api';
 import { MotionPresence } from './MotionPresence';
+import { prMonitorRecovery, type PrRegistrationRequest } from '../lib/pr-monitor-recovery';
 
-type Registration = {
-  requestId: string;
-  connectionId: string;
-  connectionRevision: number;
-  owner: string;
-  name: string;
-  pr: number;
-  expectedExecutionDigest: string;
-};
 export function PrMonitorRegistration({
   monitor: m,
 }: {
   monitor: ReturnType<typeof usePrMonitor>;
 }) {
-  const [open, setOpen] = useState(false);
+  const [recovery] = useState(() => prMonitorRecovery(m.sessionId));
+  const [open, setOpen] = useState(!!recovery.registration);
   const [connections, setConnections] = useState<ManagedConnection[]>([]);
-  const [connectionId, setConnectionId] = useState('');
-  const [url, setUrl] = useState('');
+  const [connectionId, setConnectionId] = useState(recovery.registration?.connectionId ?? '');
+  const [url, setUrl] = useState(
+    recovery.registration
+      ? `https://github.com/${recovery.registration.owner}/${recovery.registration.name}/pull/${recovery.registration.pr}`
+      : '',
+  );
   const [passphrase, setPassphrase] = useState('');
   const [notice, setNotice] = useState('');
-  const [pending, setPending] = useState<Registration | null>(null);
+  const [pending, setPending] = useState<PrRegistrationRequest | null>(
+    recovery.registration ?? null,
+  );
   const generation = useRef(0);
   useEffect(
     () => () => {
@@ -53,6 +52,7 @@ export function PrMonitorRegistration({
   }
   async function register() {
     if ((!available && !pending) || m.busy || !passphrase) return;
+    const wasPending = !!pending;
     let input = pending;
     if (!input) {
       const match = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/([1-9][0-9]*)\/?$/.exec(
@@ -81,6 +81,7 @@ export function PrMonitorRegistration({
       };
       setPending(input);
     }
+    recovery.registration = input;
     const secret = passphrase;
     setPassphrase('');
     const outcome = await m.change('/pr-monitor', input, secret);
@@ -91,8 +92,12 @@ export function PrMonitorRegistration({
           ? 'Registration was not sent. Reauthorize and try again.'
           : `Registration was not confirmed. Refresh status and retry this same request (${input.requestId}) if needed.`,
     );
-    if (outcome === 'not_sent') setPending(null);
+    if (outcome === 'not_sent' && !wasPending) {
+      setPending(null);
+      delete recovery.registration;
+    }
     if (outcome === 'confirmed') {
+      delete recovery.registration;
       setPending(null);
       setOpen(false);
       setUrl('');
@@ -119,6 +124,11 @@ export function PrMonitorRegistration({
               onChange={(e) => setConnectionId(e.target.value)}
             >
               <option value="">Choose a connection</option>
+              {pending && !connections.some((c) => c.id === pending.connectionId) && (
+                <option value={pending.connectionId}>
+                  Retained connection {pending.connectionId}
+                </option>
+              )}
               {connections.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.label}

@@ -163,5 +163,14 @@ export function usePrMonitor(sessionId: string) {
       }
     }
   };
-  return { data, error, busy, refresh, change, now, stale: !checkedAt || now - checkedAt > 30000 };
+  return {
+    sessionId,
+    data,
+    error,
+    busy,
+    refresh,
+    change,
+    now,
+    stale: !checkedAt || now - checkedAt > 30000,
+  };
 }

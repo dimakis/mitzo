@@ -4,6 +4,7 @@ import { usePrMonitor } from '../hooks/usePrMonitor';
 import { MotionDetails } from './MotionDetails';
 import { MotionPresence } from './MotionPresence';
 import { PrMonitorRegistration } from './PrMonitorRegistration';
+import { prMonitorRecovery, type PrWatchRequest } from '../lib/pr-monitor-recovery';
 import '../styles/pr-monitor.css';
 
 type Monitor = ReturnType<typeof usePrMonitor>;
@@ -29,13 +30,18 @@ function PrMonitorRow({
   monitor: Monitor;
 }) {
   const s = p.subscription;
-  const [review, setReview] = useState(false);
+  const [recovery] = useState(() => prMonitorRecovery(m.sessionId));
+  const [pendingIssue, setPendingIssue] = useState<PrWatchRequest | null>(
+    recovery.watch.get(s.id) ?? null,
+  );
+  const [review, setReview] = useState(!!pendingIssue);
   const [reviewedBinding, setReviewedBinding] = useState('');
-  const [duration, setDuration] = useState(60);
+  const [duration, setDuration] = useState(pendingIssue?.durationMinutes ?? 60);
   const [passphrase, setPassphrase] = useState('');
   const [notice, setNotice] = useState('');
-  const [uncertainIssue, setUncertainIssue] = useState(false);
-  const [revoke, setRevoke] = useState<PrMonitorProjection['revocationPending']>(null);
+  const [revoke, setRevoke] = useState<PrMonitorProjection['revocationPending']>(
+    recovery.revoke.get(s.id) ?? null,
+  );
   const reasonId = useId();
   const scope = s.github.principalId
     ? {
@@ -54,8 +60,7 @@ function PrMonitorRow({
     !m.busy &&
     !p.revocationPending &&
     s.lifecycle !== 'merged' &&
-    s.lifecycle !== 'removed' &&
-    !uncertainIssue;
+    s.lifecycle !== 'removed';
   const binding = JSON.stringify([
     scope,
     s.revision,
@@ -82,29 +87,30 @@ function PrMonitorRow({
     (s.nextRefreshAt !== null && s.nextRefreshAt < m.now);
 
   async function issue() {
-    if (!canIssue || reviewChanged || !scope || !passphrase) return;
+    if (!canIssue || (!pendingIssue && reviewChanged) || !scope || !passphrase) return;
     const secret = passphrase;
     setPassphrase('');
-    const requestId = crypto.randomUUID();
-    const outcome = await m.change(
-      `/pr-watch/${s.id}`,
-      {
-        requestId,
-        expectedRevision: s.revision,
-        expectedAuthorityRevision: s.watch?.revision ?? 0,
-        durationMinutes: duration,
-        reviewedScope: scope,
-      },
-      secret,
-    );
+    const request = pendingIssue ?? {
+      requestId: crypto.randomUUID(),
+      expectedRevision: s.revision,
+      expectedAuthorityRevision: s.watch?.revision ?? 0,
+      durationMinutes: duration,
+      reviewedScope: scope,
+    };
+    recovery.watch.set(s.id, request);
+    setPendingIssue(request);
+    const outcome = await m.change(`/pr-watch/${s.id}`, request, secret);
     setNotice(
       outcome === 'confirmed'
         ? 'Watch consent saved. Status below is the retained observation.'
         : outcome === 'not_sent'
           ? 'Watch was not changed. Reauthorize and try again.'
-          : `Watch change was not confirmed. Request ${requestId}. Refresh and inspect authority before reviewing again.`,
+          : `Watch change was not confirmed. Request ${request.requestId}. Refresh status, then retry the same request if needed.`,
     );
-    setUncertainIssue(outcome === 'unconfirmed');
+    if (outcome === 'confirmed' || (outcome === 'not_sent' && !pendingIssue)) {
+      recovery.watch.delete(s.id);
+      setPendingIssue(null);
+    }
     if (outcome === 'confirmed') setReview(false);
   }
   async function stop() {
@@ -115,13 +121,17 @@ function PrMonitorRow({
       expectedAuthorityRevision: s.watch?.revision ?? 0,
     };
     setRevoke(request);
+    recovery.revoke.set(s.id, request);
     const ok = (await m.change(`/pr-watch/${s.id}/revoke`, request)) === 'confirmed';
     setNotice(
       ok
         ? 'Watch stopped.'
         : `Stop Watch was not confirmed. Refresh and retry the same request (${request.requestId}).`,
     );
-    if (ok) setRevoke(null);
+    if (ok) {
+      setRevoke(null);
+      recovery.revoke.delete(s.id);
+    }
   }
   return (
     <li className="pr-monitor-row">
@@ -168,7 +178,7 @@ function PrMonitorRow({
       <div className="pr-monitor-actions">
         <button
           type="button"
-          disabled={!canIssue}
+          disabled={!canIssue || !!pendingIssue}
           aria-describedby={reasonId}
           onClick={() => {
             setReviewedBinding(binding);
@@ -208,8 +218,17 @@ function PrMonitorRow({
       )}
       <MotionPresence open={review} kind="disclosure">
         <div className="pr-monitor-review">
-          {reviewChanged && (
+          {reviewChanged && !pendingIssue && (
             <p role="status">Access changed since this review. Cancel and review Watch again.</p>
+          )}
+          {pendingIssue && (
+            <p>
+              Retry only the original request {pendingIssue.requestId}, for GitHub principal{' '}
+              {pendingIssue.reviewedScope.githubPrincipalId}, connection{' '}
+              {pendingIssue.reviewedScope.connectionId} revision{' '}
+              {pendingIssue.reviewedScope.connectionRevision}. No new consent is inferred from
+              reconnect.
+            </p>
           )}
           <p>
             Allow background GitHub reads for {s.github.owner}/{s.github.name} #{s.github.pr} in
@@ -226,6 +245,7 @@ function PrMonitorRow({
             <select
               aria-label="Watch duration"
               value={duration}
+              disabled={!!pendingIssue}
               onChange={(e) => setDuration(Number(e.target.value))}
             >
               <option value={15}>15 minutes</option>
@@ -247,14 +267,14 @@ function PrMonitorRow({
           <div className="pr-monitor-actions">
             <button
               type="button"
-              disabled={!canIssue || reviewChanged || !passphrase}
+              disabled={!canIssue || (!pendingIssue && reviewChanged) || !passphrase}
               onClick={() => void issue()}
             >
-              Allow read-only Watch
+              {pendingIssue ? 'Retry same Watch request' : 'Allow read-only Watch'}
             </button>
             <button
               type="button"
-              disabled={m.busy}
+              disabled={m.busy || !!pendingIssue}
               onClick={() => {
                 setReview(false);
                 setPassphrase('');
