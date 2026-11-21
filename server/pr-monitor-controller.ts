@@ -116,7 +116,19 @@ export function createPrMonitorController(options: Options) {
   ) {
     signal.throwIfAborted();
     current();
-    const response = await options.read(endpoint, signal, current);
+    let abort = () => undefined;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      abort = () => {
+        reject(Error('read_aborted'));
+      };
+      signal.addEventListener('abort', abort, { once: true });
+    });
+    let response: GitHubReadResponse;
+    try {
+      response = await Promise.race([options.read(endpoint, signal, current), cancelled]);
+    } finally {
+      signal.removeEventListener('abort', abort);
+    }
     signal.throwIfAborted();
     current();
     if (endpoint === '/user' && response.status === 200) {
@@ -148,13 +160,15 @@ export function createPrMonitorController(options: Options) {
   async function register(auth: AuthSession, conversationId: string, raw: unknown) {
     const input = PrMonitorRegisterSchema.parse(raw);
     authorize(auth);
-    const execution = options.execution(conversationId);
+    const execution = structuredClone(options.execution(conversationId));
     if (digest(execution) !== input.expectedExecutionDigest) throw Error('execution_changed');
-    const original = selectedConnection(
-      input.connectionId,
-      String(input.connectionRevision),
-      `${input.owner}/${input.name}`,
-      execution.binding.account.accountId,
+    const original = structuredClone(
+      selectedConnection(
+        input.connectionId,
+        String(input.connectionRevision),
+        `${input.owner}/${input.name}`,
+        execution.binding.account.accountId,
+      ),
     );
     const hex = digest(['pr-registration-v1', conversationId, input.requestId]);
     const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;

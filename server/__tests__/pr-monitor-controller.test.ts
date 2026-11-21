@@ -16,7 +16,10 @@ const connectionId = '9c6bb0d4-081f-4f55-86f8-60c703452053';
 const head = 'a'.repeat(40),
   base = 'b'.repeat(40);
 const stores: EventStore[] = [];
-afterEach(() => stores.splice(0).forEach((store) => store.close()));
+afterEach(() => {
+  vi.useRealTimers();
+  stores.splice(0).forEach((store) => store.close());
+});
 async function fixture() {
   const store = new EventStore(':memory:');
   stores.push(store);
@@ -187,6 +190,35 @@ it('rejects caller execution replacement and host identity mismatch without crea
   );
   expect(f.store.prMonitor.list('ordinary:user', 'chat')).toEqual([]);
   await f.controller.close();
+});
+it('freezes the reviewed execution while registration reads are in flight', async () => {
+  const f = await fixture();
+  f.read.mockImplementationOnce(async () => {
+    f.execution.selectionRevision = 'changed-during-read';
+    return { status: 200, headers: {}, data: { id: 42, login: 'owner' } } as never;
+  });
+  await expect(f.controller.register(f.login, 'chat', f.input)).rejects.toThrow(
+    'execution_changed',
+  );
+  expect(f.store.prMonitor.list('ordinary:user', 'chat')).toEqual([]);
+  await f.controller.close();
+});
+it('drains cancelled registration even when transport ignores abort', async () => {
+  const f = await fixture();
+  vi.useFakeTimers();
+  f.read.mockImplementation(() => new Promise(() => undefined));
+  let error = '';
+  const pending = f.controller.register(f.login, 'chat', f.input).catch((e) => {
+    error = e.message;
+  });
+  await vi.advanceTimersByTimeAsync(20001);
+  // AbortSignal.timeout uses the native clock; close must also actively abort.
+  const closing = f.controller.close();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(error).toBe('read_aborted');
+  await pending;
+  await closing;
+  expect(f.store.prMonitor.list('ordinary:user', 'chat')).toEqual([]);
 });
 it('connects the real Access registration/consent routes to the existing scheduler without model delivery', async () => {
   const f = await fixture();
