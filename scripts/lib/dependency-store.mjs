@@ -14,7 +14,6 @@ import {
   realpath,
   rename,
   rm,
-  stat,
   writeFile,
   open,
 } from 'node:fs/promises';
@@ -164,7 +163,16 @@ async function permissions(root, rows, writable) {
 
 async function removeOwned(path) {
   if (!(await exists(path))) return;
-  await permissions(path, await inventory(path), true);
+  // Cleanup never follows links or re-hashes rejected content. In particular an
+  // unsafe symlink must not prevent removal of our own unpublished temporary.
+  async function writable(entry) {
+    const info = await lstat(entry);
+    if (info.isSymbolicLink()) return;
+    await chmod(entry, info.isDirectory() ? 0o755 : 0o644 | (info.mode & 0o111));
+    if (info.isDirectory())
+      for (const name of await readdir(entry)) await writable(join(entry, name));
+  }
+  await writable(path);
   await rm(path, { recursive: true });
 }
 

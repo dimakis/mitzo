@@ -143,6 +143,7 @@ it('rejects external links, corrupted contents and redirected session destinatio
   const f = await fixture();
   await symlink('/etc/passwd', join(f.cwd, 'node_modules/escape'));
   await assert.rejects(f.publish(), { code: 'unsafe_link' });
+  assert.ok(!(await readdir(f.store)).some((name) => name.startsWith('.pending-')));
   await rm(join(f.cwd, 'node_modules/escape'));
   const entry = await f.publish();
   const file = join(f.store, 'entries', entry.key, 'payload/node_modules/value');
