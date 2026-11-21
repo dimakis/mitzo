@@ -21,6 +21,12 @@ export interface SessionPromptPort {
   receipt(delivery: SessionPromptDelivery): 'absent' | 'accepted' | 'uncertain';
   close(): void;
 }
+/** Passive reads share the scheduler lifecycle but have no command admission port. */
+export interface PassiveObservationLifecycle {
+  reconcileDue(): Promise<void>;
+  stopConversation(id: string, reason: 'deleted' | 'stopped'): void | Promise<void>;
+  close(): Promise<void>;
+}
 export function sessionPromptReceipt(delivery: SessionPromptDelivery) {
   return {
     id: delivery.id,
@@ -39,11 +45,13 @@ export class SessionPromptService {
   private ticking?: Promise<void>;
   private clock?: ReturnType<typeof setInterval>;
   private closed = false;
+  private passiveDrain?: Promise<void>;
   private readonly controllers = new Map<string, AbortController>();
   private readonly inFlight = new Map<string, Promise<void>>();
   constructor(
     readonly store: SessionPromptStore,
     private readonly port: SessionPromptPort,
+    private readonly passive?: PassiveObservationLifecycle,
   ) {}
   private authorize(auth: AuthSession) {
     if (this.closed || !this.port.authorized(auth))
@@ -125,6 +133,19 @@ export class SessionPromptService {
   }
   private async run() {
     if (this.port.maintenanceHeld?.()) return;
+    await Promise.all([
+      this.runPrompts(),
+      this.passive
+        ?.reconcileDue()
+        .catch(() =>
+          log.warn('Passive observation reconciliation unavailable', {
+            stage: 'reconcile',
+            code: 'pr_observation_unavailable',
+          }),
+        ),
+    ]);
+  }
+  private async runPrompts() {
     // Reconcile retained uncertain delivery even after a timer has been paused.
     for (const delivery of this.store.deliveries(['dispatching', 'uncertain'])) {
       if (this.receipt(delivery) === 'accepted') this.store.finish(delivery.id, 'accepted', null);
@@ -150,6 +171,7 @@ export class SessionPromptService {
       );
   }
   async cancelSession(sessionId: string) {
+    await this.passive?.stopConversation(sessionId, 'deleted');
     this.store.cancelSession(sessionId);
     const pending: Promise<void>[] = [];
     for (const [id, completion] of this.inFlight) {
@@ -225,7 +247,15 @@ export class SessionPromptService {
     }
   }
   close() {
+    if (this.closed) return;
     this.closed = true;
+    this.passiveDrain = this.passive?.close();
+    void this.passiveDrain?.catch(() =>
+      log.warn('Passive observation drain failed', {
+        stage: 'close',
+        code: 'pr_observation_unavailable',
+      }),
+    );
     if (this.clock) clearInterval(this.clock);
     this.clock = undefined;
     for (const controller of this.controllers.values()) controller.abort();
@@ -234,5 +264,6 @@ export class SessionPromptService {
   async drain() {
     this.close();
     await this.ticking;
+    await this.passiveDrain;
   }
 }
