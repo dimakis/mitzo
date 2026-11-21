@@ -1,13 +1,12 @@
 import { z } from 'zod';
-import { AgentProfileSelectionSchema, CollaborationSnapshotSelectionSchema } from '@mitzo/protocol';
+import {
+  AgentProfileSelectionSchema,
+  CollaborationSnapshotSelectionSchema,
+  SpecialistAllowanceSchema,
+} from '@mitzo/protocol';
 
 const id = z.string().trim().min(1).max(200);
-export const ConsultationAllowanceSchema = z
-  .number()
-  .int()
-  .positive()
-  .max(Number.MAX_SAFE_INTEGER)
-  .nullable();
+export const ConsultationAllowanceSchema = SpecialistAllowanceSchema;
 export const SpecialistRouteInputSchema = z.strictObject({
   role: id,
   agent: AgentProfileSelectionSchema.optional(),
@@ -69,6 +68,7 @@ export const SpecialistPolicySchema = SpecialistPolicyInputSchema.extend({
   leadSessionId: id,
   authSessionId: id,
   revoked: z.boolean(),
+  allowanceRevision: z.number().int().nonnegative().optional(),
 });
 export type SpecialistPolicy = z.infer<typeof SpecialistPolicySchema>;
 export type SpecialistRoute = z.infer<typeof SpecialistRouteSchema>;

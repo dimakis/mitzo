@@ -135,6 +135,34 @@ it('revokes future work without erasing known activity or allowing a new login t
   expect(() => store.assertPolicy('lead', 'login', policy.policyId)).toThrow(/revoked/);
 });
 
+it('edits or removes an existing policy allowance without changing its original request or consumed receipts', () => {
+  const { store, policy } = fixture();
+  const boundary = { sequence: 1, messageId: null };
+  store.reserve('lead', 'login', policy.policyId, intent(), boundary);
+  store.reserve('lead', 'login', policy.policyId, intent(), boundary);
+  const edit = { requestId: randomUUID(), expectedRevision: 0, maxConsultations: null };
+  const updated = store.editAllowance('lead', 'login', policy.policyId, edit);
+  expect(updated.maxConsultations).toBeNull();
+  expect(store.editAllowance('lead', 'login', policy.policyId, edit)).toEqual(updated);
+  expect(() => store.editAllowance('lead', 'another-login', policy.policyId, edit)).toThrow(
+    /authorization/,
+  );
+  expect(() =>
+    store.editAllowance('lead', 'login', policy.policyId, { ...edit, requestId: randomUUID() }),
+  ).toThrow(/revision conflict/);
+  expect(store.reserve('lead', 'login', policy.policyId, intent(), boundary).attemptOrdinal).toBe(
+    2,
+  );
+  store.editAllowance('lead', 'login', policy.policyId, {
+    requestId: randomUUID(),
+    expectedRevision: 1,
+    maxConsultations: 1,
+  });
+  expect(() => store.reserve('lead', 'login', policy.policyId, intent(), boundary)).toThrow(
+    /budget/,
+  );
+});
+
 it('fences concurrent phase changes and keeps stopped and uncertain operations inspectable', () => {
   const { store, policy } = fixture();
   const first = store.reserve('lead', 'login', policy.policyId, intent(), {

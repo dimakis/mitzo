@@ -327,13 +327,15 @@ export class SpecialistConsultations {
       throw Error('Choose one shared conversation before consulting specialists');
     // Select the final group before saving. A replay or interrupted setup must
     // retain this identity even if the lead has since joined another group.
-    const policy = this.receipts.authorize(
-      a.leadSessionId,
-      a.auth.id,
-      selection,
-      groups?.collaborations[0]?.collaborationId,
-      authorizationInput,
-    );
+    const policy =
+      prior ??
+      this.receipts.authorize(
+        a.leadSessionId,
+        a.auth.id,
+        selection,
+        groups?.collaborations[0]?.collaborationId,
+        authorizationInput,
+      );
     if (!this.owners.events.getSessionCollaboration(policy.collaborationId))
       this.owners.events.collaborationConversation.begin(policy.collaborationId, {
         requestId: policy.requestId,
@@ -589,7 +591,8 @@ export class SpecialistConsultations {
     const assertCurrent = () => {
       signal.throwIfAborted();
       this.current(a);
-      this.receipts.assertPolicy(a.leadSessionId, a.auth.id, policy.policyId);
+      const latestPolicy = this.receipts.assertPolicy(a.leadSessionId, a.auth.id, policy.policyId);
+      this.receipts.assertAllowance(a.leadSessionId, latestPolicy, record.requestId);
       const settings = this.receipts.assertModelAllowance(
         a.leadSessionId,
         record.route,

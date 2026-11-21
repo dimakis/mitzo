@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { SpecialistModelPolicyStore } from './specialist-model-policy-store.js';
+import { SpecialistAllowanceEditSchema } from '@mitzo/protocol';
 import {
   SpecialistPolicyInputSchema,
   SpecialistPolicySchema,
@@ -28,6 +29,10 @@ export class SpecialistConsultationStore {
       );
       CREATE TABLE IF NOT EXISTS specialist_consultations (
         lead_id TEXT NOT NULL, request_id TEXT NOT NULL, policy_id TEXT NOT NULL, body TEXT NOT NULL,
+        PRIMARY KEY(lead_id, request_id)
+      );
+      CREATE TABLE IF NOT EXISTS specialist_allowance_edits (
+        lead_id TEXT NOT NULL, request_id TEXT NOT NULL, policy_id TEXT NOT NULL, input TEXT NOT NULL, result TEXT NOT NULL,
         PRIMARY KEY(lead_id, request_id)
       );
     `);
@@ -121,6 +126,41 @@ export class SpecialistConsultationStore {
       .run(JSON.stringify(policy), lead, policyId);
     return policy;
   }
+  editAllowance(lead: string, login: string, policyId: string, raw: unknown) {
+    const input = SpecialistAllowanceEditSchema.parse(raw);
+    return this.db
+      .transaction(() => {
+        const current = this.assertPolicy(lead, login, policyId);
+        const prior = this.db
+          .prepare(
+            'SELECT policy_id, input, result FROM specialist_allowance_edits WHERE lead_id=? AND request_id=?',
+          )
+          .get(lead, input.requestId) as
+          { policy_id: string; input: string; result: string } | undefined;
+        if (prior) {
+          if (prior.policy_id !== policyId || !isDeepStrictEqual(JSON.parse(prior.input), input))
+            throw Error('Consultation allowance request conflict');
+          return SpecialistPolicySchema.parse(JSON.parse(prior.result));
+        }
+        if ((current.allowanceRevision ?? 0) !== input.expectedRevision)
+          throw Error('Consultation allowance revision conflict');
+        const result = {
+          ...current,
+          maxConsultations: input.maxConsultations,
+          allowanceRevision: input.expectedRevision + 1,
+        };
+        this.db
+          .prepare(
+            'UPDATE specialist_consultation_policies SET body=? WHERE lead_id=? AND policy_id=?',
+          )
+          .run(JSON.stringify(result), lead, policyId);
+        this.db
+          .prepare('INSERT INTO specialist_allowance_edits VALUES(?,?,?,?,?)')
+          .run(lead, input.requestId, policyId, JSON.stringify(input), JSON.stringify(result));
+        return result;
+      })
+      .immediate();
+  }
   find(lead: string, requestId: string) {
     const row = this.db
       .prepare('SELECT body FROM specialist_consultations WHERE lead_id=? AND request_id=?')
@@ -203,13 +243,13 @@ export class SpecialistConsultationStore {
     }
     return settings;
   }
-  private assertAllowance(lead: string, policy: SpecialistPolicy) {
+  assertAllowance(lead: string, policy: SpecialistPolicy, excludeRequest = '') {
     const used = this.db
       .prepare(
         `SELECT COUNT(*) AS count FROM specialist_consultations
-      WHERE lead_id=? AND policy_id=? AND COALESCE(json_extract(body, '$.allowanceState'), 'charged') != 'released'`,
+      WHERE lead_id=? AND policy_id=? AND request_id != ? AND COALESCE(json_extract(body, '$.allowanceState'), 'charged') != 'released'`,
       )
-      .get(lead, policy.policyId) as { count: number };
+      .get(lead, policy.policyId, excludeRequest) as { count: number };
     if (policy.maxConsultations !== null && used.count >= policy.maxConsultations)
       throw Error('Consultation call budget exhausted');
   }
