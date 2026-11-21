@@ -10,7 +10,6 @@ import {
   chmod,
   rm,
   readdir,
-  utimes,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -200,10 +199,7 @@ it('retains the recently read entry and expires old entries without touching oth
   const f = await fixture();
   const first = await f.publish();
   await writeFile(join(f.cwd, 'package-lock.json'), '{"packages":{}}');
-  const second = await f.publish();
-  const old = new Date(Date.now() - 2 * 86400_000);
-  for (const key of [first.key, second.key])
-    await utimes(join(f.store, 'entries', key, 'access'), old, old);
+  await f.publish();
   assert.equal((await restoreDependencySet({ store: f.store, cwd: f.target })).status, 'hit');
   await pruneDependencyStore({ store: f.store, maxEntries: 1, usageRoots: [f.target] });
   assert.deepEqual(await readdir(join(f.store, 'entries')), [first.key]);

@@ -230,7 +230,6 @@ export async function publishDependencySet({
       const rows = await inventory(payload);
       const metadata = { schema: 1, key, runtime, parts, inventory: rows, createdAt: Date.now() };
       await writeFile(join(pending, 'entry.json'), JSON.stringify(metadata), { flag: 'wx' });
-      await writeFile(join(pending, 'access'), 'read-only hit marker\n', { flag: 'wx' });
       await permissions(pending, await inventory(pending), false);
       const destination = join(entries, key);
       if (await exists(destination)) {
@@ -274,6 +273,7 @@ export async function restoreDependencySet({ store = dependencyStoreRoot(), cwd 
     const entry = join(entries, key);
     let temporary;
     let primary;
+    let fallback;
     try {
       if (!(await lstat(entry)).isDirectory()) throw error('invalid_entry');
       const metadata = JSON.parse(await readFile(join(entry, 'entry.json'), 'utf8'));
@@ -343,18 +343,20 @@ export async function restoreDependencySet({ store = dependencyStoreRoot(), cwd 
         ['integrity_mismatch', 'unsafe_link', 'invalid_entry', 'ENOENT'].includes(cause.code) ||
         cause instanceof SyntaxError
       )
-        return {
+        return (fallback = {
           status: 'invalid',
           reason: cause.code === 'ENOENT' ? 'entry_removed' : (cause.code ?? 'invalid_entry'),
-        };
+        });
       throw cause;
     } finally {
       if (temporary) {
         try {
           await removeOwned(temporary);
         } catch (cause) {
-          if (primary) primary.cleanupCode = cause.code;
-          else throw cause;
+          if (primary) {
+            primary.cleanupCode = cause.code;
+            if (fallback) fallback.cleanupReason = 'cleanup_failed';
+          } else throw cause;
         }
       }
     }

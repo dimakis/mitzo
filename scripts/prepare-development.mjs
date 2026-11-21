@@ -69,12 +69,15 @@ function failure(phase, cause, message, effectStatus = 'not_started') {
     lockfile_mismatch: 'The manifest and pinned lockfile do not agree.',
     native_toolchain: 'Check the Python, make and C++ native build toolchain.',
   }[reason];
-  return new DevelopmentSetupError(
+  const result = new DevelopmentSetupError(
     phase,
     reason,
     `${message}${advice ? ` ${advice}` : ''}`,
     effectStatus,
   );
+  Object.defineProperty(result, 'cause', { value: cause });
+  if (cause?.cleanupCode) result.cleanupReason = 'cleanup_failed';
+  return result;
 }
 // The caller selects an admitted task root. Refuse pre-existing setup symlinks
 // outside it before creating descendants, rather than borrowing host caches.
@@ -230,8 +233,8 @@ export async function prepareDevelopment({
     const { engines } = JSON.parse(manifest);
     if (install && dependencyStore !== false) {
       phase = 'dependency_store';
+      effectStatus = 'may_have_changed';
       storeResult = await restoreDependencySet({ store: dependencyStore, cwd });
-      if (storeResult.status === 'hit') effectStatus = 'may_have_changed';
     }
     phase = 'environment';
     const tools = await directory(cwd, '.mitzo-devtools');

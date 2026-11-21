@@ -10,6 +10,7 @@ import {
   realpath,
   rm,
   writeFile,
+  symlink,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
@@ -172,4 +173,26 @@ it('a failed cache native probe falls back to the isolated install and reports t
   assert.equal(result.dependencyStore.status, 'rejected');
   assert.equal(result.dependencyStore.reason, 'native_probe_failed');
   assert.equal(f.calls.filter(({ args }) => args[0] === 'ci').length, 1);
+});
+
+it('reports a rejected cache destination as potentially changed and retains its internal cause', async () => {
+  const f = await fixture();
+  const first = await prepareDevelopment(f.options);
+  await publishDependencySet({
+    store: f.store,
+    cwd: f.cwd,
+    runtime: { platform: first.platform, arch: first.arch, abi: first.abi },
+    toolchain: relative(f.cwd, resolve(first.toolchainPath, '../..')),
+    verify: () => prepareDevelopment({ ...f.options, install: false }),
+  });
+  const target = join(f.root, 'session');
+  await f.source(target);
+  await symlink(f.cwd, join(target, 'node_modules'));
+  await assert.rejects(prepareDevelopment({ ...f.options, cwd: target }), (error) => {
+    assert.equal(error.phase, 'dependency_store');
+    assert.equal(error.effectStatus, 'may_have_changed');
+    assert.equal(error.cause?.code, 'redirected_directory');
+    assert.ok(!JSON.stringify(error).includes(f.root));
+    return true;
+  });
 });

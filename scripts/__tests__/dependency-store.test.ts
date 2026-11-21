@@ -14,5 +14,7 @@ it('passes the dependency-free offline store contract', async () => {
       join(import.meta.dirname, 'host-dependency-store.node-test.mjs'),
     ],
     { env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=1024' } },
-  );
+  ).catch((cause: Error & { stdout?: string }) => {
+    throw new Error(`Offline dependency-store tests failed:\n${cause.stdout ?? ''}`, { cause });
+  });
 }, 60_000);
