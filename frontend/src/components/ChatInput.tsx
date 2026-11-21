@@ -1553,6 +1553,7 @@ function ChatInputContent({
         running={running}
         scope={composerScope}
         awaitingApproval={awaitingApproval}
+        onRecipientsClick={responders ? chooseResponders : undefined}
         recipients={
           responders
             ? `To ${selectedResponderIds.map((id) => responders.members.find((m) => m.id === id)?.name ?? 'Unavailable agent').join(', ') || 'no agents'}`

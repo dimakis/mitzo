@@ -24,15 +24,24 @@ import '../styles/header-actions.css';
 import { ConversationRepositoryPicker } from './ConversationRepositoryPicker';
 import { QuickSettingsContext, type SettingsDestination } from '../lib/quick-settings-context';
 import { QuickSettingsField } from './QuickChatSettings';
+import { useConversationAgentsPanel } from '../lib/conversation-agents-panel';
+import { useRetainedAgentConfiguration } from '../hooks/useRetainedAgentConfiguration';
 
 export interface ConversationAgent {
   id: string;
   name: string;
   account?: string;
+  accountId?: string;
   model?: string;
   thinking?: string;
+  profile?: string;
+  mode?: string;
+  membership?: string;
+  configurationNote?: string;
+  diagnostic?: string;
   location?: string;
   state: string;
+  activityState?: string;
   /** Ordinary history destination only; never a runtime/control binding. */
   historySessionId?: string;
   policy?: { reads: boolean; replies: boolean };
@@ -73,6 +82,11 @@ export function ConversationAgents(props: {
   onDraftProfile?(id: string): void;
   unavailableReason?: string;
   renderPreview?(agent: ConversationAgent): ReactNode;
+  /** Lifecycle controls and receipts remain with their existing owners. */
+  renderAgentActions?(agent: ConversationAgent): ReactNode;
+  renderAgentResult?(agent: ConversationAgent): ReactNode;
+  onRefresh?(): void;
+  rosterError?: string;
   onPolicyChange?(id: string, policy: { reads: boolean; replies: boolean }): void;
   /** Confirmed policy state and explicit recovery controls from the existing owner. */
   policyFeedback?: ReactNode;
@@ -94,7 +108,8 @@ function ParticipantHeaderFrame({ compact, children }: { compact?: boolean; chil
   return compact ? children : <div className="conversation-participants-container">{children}</div>;
 }
 function ConversationAgentsBody({
-  agents,
+  scope,
+  agents: incomingAgents,
   messages,
   repository,
   compact,
@@ -107,6 +122,10 @@ function ConversationAgentsBody({
   onDraftProfile,
   unavailableReason,
   renderPreview,
+  renderAgentActions,
+  renderAgentResult,
+  onRefresh,
+  rosterError,
   onPolicyChange,
   policyFeedback,
   policyUnavailableReason,
@@ -116,6 +135,17 @@ function ConversationAgentsBody({
     'agents' | 'add' | 'review' | 'settings' | 'preview' | 'details'
   >('agents');
   const [open, setOpen] = useState(false);
+  const panel = useConversationAgentsPanel(scope);
+  const registerPanel = panel?.register;
+  const agents = useRetainedAgentConfiguration(registerPanel ?? scope, incomingAgents);
+  useLayoutEffect(
+    () =>
+      registerPanel?.(() => {
+        setView('agents');
+        setOpen(true);
+      }),
+    [registerPanel],
+  );
   const [setupPage, setSetupPage] = useState<SettingsDestination | null>(null);
   const setupFields = useRef<HTMLDivElement>(null);
   const previousSetupPage = useRef<SettingsDestination | null>(null);
@@ -126,7 +156,27 @@ function ConversationAgentsBody({
   }, [open]);
   const { ref: dialogMotionRef, present } = useMotionPresence(open, 'fade');
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const previewAgent = agents.find((agent) => agent.id === previewId);
+  const [inspectedAgent, setInspectedAgent] = useState<ConversationAgent>();
+  useEffect(() => {
+    setOpen(false);
+    setView('agents');
+    setPreviewId(null);
+    setInspectedAgent(undefined);
+  }, [registerPanel]);
+  const currentPreviewAgent = agents.find((agent) => agent.id === previewId);
+  const previewAgent =
+    currentPreviewAgent ??
+    (view === 'details' && inspectedAgent?.id === previewId ? inspectedAgent : undefined);
+  const detailsButtons = useRef(new Map<string, HTMLButtonElement>());
+  const addButton = useRef<HTMLButtonElement>(null);
+  const previousView = useRef(view);
+  useLayoutEffect(() => {
+    if (view === 'agents' && previousView.current === 'details')
+      (detailsButtons.current.get(previewId ?? '') ?? addButton.current)?.focus({
+        preventScroll: true,
+      });
+    previousView.current = view;
+  }, [view, previewId]);
   const [profileReason, setProfileReason] = useState<string>();
   const joining = useConversationJoiningReview(joiningOwner, () => {
     setOpen(false);
@@ -286,14 +336,24 @@ function ConversationAgentsBody({
                 {policyFeedback && (
                   <div className="conversation-policy-feedback">{policyFeedback}</div>
                 )}
+                {rosterError && (
+                  <div role="alert">
+                    <p>{rosterError}</p>
+                    {onRefresh && (
+                      <button type="button" className="home-secondary" onClick={onRefresh}>
+                        Refresh agent status
+                      </button>
+                    )}
+                  </div>
+                )}
                 {agents.length === 0 && <p role="status">Agent details are loading.</p>}
                 {agents.map((a) => (
-                  <article className="conversation-agent-record" key={a.id}>
+                  <article className="conversation-agent-record" key={a.id} data-agent-id={a.id}>
                     <div className="conversation-agent-heading">
                       <UiIcon name="bot" />
                       <div>
                         <strong>{a.name}</strong>
-                        <small>
+                        <small title={[a.account, a.model, a.thinking].filter(Boolean).join(' · ')}>
                           {[a.account, a.model, a.thinking].filter(Boolean).join(' · ') ||
                             'Settings unavailable'}
                         </small>
@@ -326,9 +386,27 @@ function ConversationAgentsBody({
                         </Link>
                       )}
                     </div>
-                    <p className="conversation-agent-state">
-                      {[a.location, a.state].filter(Boolean).join(' · ')}
+                    <p
+                      className="conversation-agent-state"
+                      title={[a.membership, a.location, a.state, a.diagnostic]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    >
+                      {[
+                        a.membership,
+                        a.location,
+                        a.state,
+                        a.diagnostic ? 'Needs attention · open Details' : undefined,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </p>
+                    {renderAgentActions && (
+                      <div className="conversation-agent-actions">{renderAgentActions(a)}</div>
+                    )}
+                    {renderAgentResult && (
+                      <div className="conversation-agent-result">{renderAgentResult(a)}</div>
+                    )}
                     <fieldset className="conversation-agent-policy">
                       <legend className="sr-only">Sharing for {a.name}</legend>
                       {addressedReadingOnly ? (
@@ -399,7 +477,12 @@ function ConversationAgentsBody({
                       type="button"
                       className="conversation-agents-row"
                       aria-label={`Details for ${a.name}`}
+                      ref={(button) => {
+                        if (button) detailsButtons.current.set(a.id, button);
+                        else detailsButtons.current.delete(a.id);
+                      }}
                       onClick={() => {
+                        setInspectedAgent(a);
                         setPreviewId(a.id);
                         setView('details');
                       }}
@@ -433,7 +516,15 @@ function ConversationAgentsBody({
             {view === 'details' &&
               (previewAgent ? (
                 <>
+                  {!currentPreviewAgent && (
+                    <p role="status">
+                      No longer in this roster. Last inspected details are retained; no live
+                      controls are available.
+                    </p>
+                  )}
                   <dl className="conversation-agent-facts">
+                    <dt>Profile</dt>
+                    <dd>{previewAgent.profile || 'Not reported'}</dd>
                     <dt>Account</dt>
                     <dd>{previewAgent.account || 'Not reported'}</dd>
                     <dt>Model</dt>
@@ -442,10 +533,29 @@ function ConversationAgentsBody({
                     <dd>{previewAgent.thinking || 'Not reported'}</dd>
                     <dt>Run on</dt>
                     <dd>{previewAgent.location || 'Not reported'}</dd>
-                    <dt>State</dt>
-                    <dd>{previewAgent.state}</dd>
+                    <dt>Mode</dt>
+                    <dd>{previewAgent.mode || 'Not reported'}</dd>
+                    <dt>Membership</dt>
+                    <dd>
+                      {currentPreviewAgent
+                        ? previewAgent.membership || 'Not reported'
+                        : 'Removed from roster'}
+                    </dd>
+                    <dt>Runtime activity</dt>
+                    <dd>{currentPreviewAgent ? previewAgent.state : 'Not observed'}</dd>
                   </dl>
-                  {onDraftProfile && (
+                  {previewAgent.configurationNote && (
+                    <p className="conversation-agents-explanation">
+                      {previewAgent.configurationNote}
+                    </p>
+                  )}
+                  {previewAgent.diagnostic && <p role="status">{previewAgent.diagnostic}</p>}
+                  {currentPreviewAgent && onRefresh && (
+                    <button type="button" className="home-secondary" onClick={onRefresh}>
+                      Refresh agent status
+                    </button>
+                  )}
+                  {currentPreviewAgent && onDraftProfile && (
                     <button
                       type="button"
                       className="conversation-agents-row"
@@ -750,6 +860,7 @@ function ConversationAgentsBody({
                   </button>
                   <button
                     type="button"
+                    ref={addButton}
                     className="conversation-agents-primary"
                     onClick={() => {
                       if (joining.join?.state === 'linked') {

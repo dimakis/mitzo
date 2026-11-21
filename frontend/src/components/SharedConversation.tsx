@@ -50,8 +50,8 @@ import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
 import { ChatArea, type ChatAreaProps } from './ChatArea';
-import { useSessionOverview } from '../hooks/useSessionOverview';
-import { sessionActivityLabel } from '../lib/session-activity';
+import { useConversationAgentRoster } from '../hooks/useConversationAgentRoster';
+import { ConversationAgentsPanelContext } from '../lib/conversation-agents-panel';
 import {
   SharedConversationComposerContext,
   type SharedConversationComposerRouting,
@@ -123,7 +123,37 @@ export function SharedConversationHost({
   ...options
 }: Parameters<typeof useSharedConversation>[0] & { children: ReactNode }) {
   const value = useSharedConversation(options);
-  return <Context.Provider value={value}>{children}</Context.Provider>;
+  const owner = useMemo(
+    () => ({ source: options.sourceConversationId, auth: options.authScope, api: options.api }),
+    [options.sourceConversationId, options.authScope, options.api],
+  );
+  const agents = useConversationAgentRoster(owner, value.presentation.projection, value.names);
+  const handle = useMemo(() => {
+    let opener: (() => void) | undefined;
+    return {
+      owner,
+      register(open: () => void) {
+        opener = open;
+        return () => {
+          if (opener === open) opener = undefined;
+        };
+      },
+      open() {
+        opener?.();
+      },
+    };
+  }, [owner]);
+  const panel = useMemo(
+    () => ({ ...handle, scope: options.sourceConversationId, active: value.active, agents }),
+    [handle, options.sourceConversationId, value.active, agents],
+  );
+  return (
+    <Context.Provider value={value}>
+      <ConversationAgentsPanelContext.Provider value={panel}>
+        {children}
+      </ConversationAgentsPanelContext.Provider>
+    </Context.Provider>
+  );
 }
 function useSharedConversation({
   sourceConversationId,
@@ -490,7 +520,7 @@ function useSharedConversation({
 
 export function SharedConversationAgents(props: ComponentProps<typeof ConversationAgents>) {
   const host = useContext(Context);
-  const { activities } = useSessionOverview();
+  const panel = useContext(ConversationAgentsPanelContext);
   const presentSourceName =
     host && host.sourceConversationId === props.scope ? host.presentSourceName : undefined;
   const sourceName = props.agents.find((agent) => agent.id === props.scope)?.name;
@@ -498,35 +528,34 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
     if (sourceName) presentSourceName?.(sourceName);
   }, [presentSourceName, sourceName]);
   if (!host || host.sourceConversationId !== props.scope) return <ConversationAgents {...props} />;
-  const { presentation, names } = host;
+  const { presentation } = host;
   const view = presentation.projection?.view;
-  const agents = view
-    ? view.participantSessionIds.map((id) => {
-        const existing = props.agents.find((a) => a.id === id);
-        const policy = view.policies.find((p) => p.sessionId === id);
-        const activity = activities.find((a) => a.sessionId === id);
-        return {
-          ...existing,
-          id,
-          historySessionId: id !== props.scope ? id : undefined,
-          name: existing?.name ?? names[id] ?? id,
-          state: view.unavailableParticipantSessionIds.includes(id)
-            ? 'Unavailable'
-            : activity
-              ? sessionActivityLabel(activity)
-              : id === props.scope
-                ? 'Current conversation'
-                : 'Joined',
-          policy: policy
-            ? { reads: policy.readsFutureDiscussion, replies: policy.repliesByDefault }
-            : undefined,
-        };
-      })
-    : props.agents;
+  const agents =
+    view && panel
+      ? panel.agents.map((agent) => {
+          const existing = props.agents.find((a) => a.id === agent.id);
+          return {
+            ...agent,
+            ...existing,
+            account: existing?.account ?? agent.account,
+            model: existing?.model ?? agent.model,
+            thinking: existing?.thinking ?? agent.thinking,
+            profile: existing?.profile ?? agent.profile,
+            mode: existing?.mode ?? agent.mode,
+            location: existing?.location ?? agent.location,
+            historySessionId: agent.id !== props.scope ? agent.id : undefined,
+            state: agent.state,
+            membership: agent.membership,
+            policy: agent.policy,
+          };
+        })
+      : props.agents;
   return (
     <ConversationAgents
       {...props}
       agents={agents}
+      onRefresh={host.retry}
+      rosterError={host.error ?? presentation.error ?? undefined}
       showParticipantNames={host.active || props.showParticipantNames}
       addressedReadingOnly={host.active}
       joiningOwner={host.joiningOwner}

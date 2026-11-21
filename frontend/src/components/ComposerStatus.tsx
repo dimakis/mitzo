@@ -20,6 +20,7 @@ import {
   SessionActivityDetails,
 } from './SessionActivityStatus';
 import { sessionActivityLabel } from '../lib/session-activity';
+import { useConversationAgentsPanel } from '../lib/conversation-agents-panel';
 import {
   ActiveContext,
   SinkContext,
@@ -85,13 +86,17 @@ export function ComposerStatusRail({
   awaitingApproval = false,
   sessionId,
   recipients,
+  onRecipientsClick,
 }: {
   running?: boolean;
   scope?: number;
   awaitingApproval?: boolean;
   sessionId?: string;
   recipients?: string;
+  onRecipientsClick?(): void;
 }) {
+  const panel = useConversationAgentsPanel();
+  const shared = panel?.active && panel.agents.length > 0 ? panel : null;
   const { activities, connected, lastKnownActivities = [] } = useSessionOverview();
   const reportedActivity = (connected ? activities : lastKnownActivities).find(
     (a) => a.sessionId === sessionId,
@@ -181,9 +186,30 @@ export function ComposerStatusRail({
             : 'Ready';
   const tone = issues.some((notice) => notice.tone === 'danger')
     ? 'danger'
-    : issues.length
+    : issues.length ||
+        shared?.agents.some((agent) => agent.diagnostic || agent.activityState === 'waiting')
       ? 'warning'
       : 'normal';
+  const roster = shared?.agents
+    .map((agent) => `${agent.name}: ${agent.state}${agent.diagnostic ? ' · needs attention' : ''}`)
+    .join('; ');
+  const count = shared
+    ? `${shared.agents.length} ${shared.agents.length === 1 ? 'agent' : 'agents'}`
+    : '';
+  const workingCount =
+    shared?.agents.filter(
+      (agent) => agent.activityState === 'working' || agent.activityState === 'init',
+    ).length ?? 0;
+  const attentionCount =
+    shared?.agents.filter((agent) => agent.diagnostic || agent.activityState === 'waiting')
+      .length ?? 0;
+  const compactRoster = [
+    count,
+    workingCount ? `${workingCount} working` : '',
+    attentionCount ? `${attentionCount} need attention` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <>
       <div
@@ -192,26 +218,64 @@ export function ComposerStatusRail({
         aria-label="Conversation status"
         data-tone={tone}
       >
-        {liveRunning && tone === 'normal' ? (
-          <ActivityBars />
+        {shared ? (
+          <button
+            type="button"
+            className="composer-status-agents"
+            aria-label={`Open Agents, ${roster}`}
+            aria-haspopup="dialog"
+            title={roster}
+            onClick={(event) => {
+              event.currentTarget.focus();
+              shared.open();
+            }}
+          >
+            <span className="composer-status-dot" aria-hidden="true" />
+            <span className="composer-status-summary" role={issues.length ? 'alert' : 'status'}>
+              {issues.length ? (
+                message
+              ) : (
+                <>
+                  <span className="composer-status-agent-names">{roster}</span>
+                  <span className="composer-status-agent-count">{compactRoster}</span>
+                </>
+              )}
+            </span>
+          </button>
         ) : (
-          <span className="composer-status-dot" aria-hidden="true" />
+          <>
+            {liveRunning && tone === 'normal' ? (
+              <ActivityBars />
+            ) : (
+              <span className="composer-status-dot" aria-hidden="true" />
+            )}
+            <span
+              className="composer-status-summary"
+              role={issues.length ? 'alert' : 'status'}
+              title={message}
+            >
+              {message}
+            </span>
+            {liveRunning && tone === 'normal' && activity?.turnStartedAt !== undefined && (
+              <SessionTurnElapsed startedAt={activity.turnStartedAt} />
+            )}
+          </>
         )}
-        <span
-          className="composer-status-summary"
-          role={issues.length ? 'alert' : 'status'}
-          title={message}
-        >
-          {message}
-        </span>
-        {liveRunning && tone === 'normal' && activity?.turnStartedAt !== undefined && (
-          <SessionTurnElapsed startedAt={activity.turnStartedAt} />
-        )}
-        {recipients && (
-          <span className="composer-status-recipients" title={recipients}>
-            {recipients}
-          </span>
-        )}
+        {recipients &&
+          (onRecipientsClick ? (
+            <button
+              type="button"
+              className="composer-status-recipients"
+              title={recipients}
+              onClick={onRecipientsClick}
+            >
+              {recipients}
+            </button>
+          ) : (
+            <span className="composer-status-recipients" title={recipients}>
+              {recipients}
+            </span>
+          ))}
         {queued > 0 && (
           <button
             type="button"

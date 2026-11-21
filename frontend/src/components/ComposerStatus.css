@@ -1,4 +1,6 @@
 .composer-status {
+  container-type: inline-size;
+  container-name: composer-status;
   display: flex;
   align-items: center;
   flex-shrink: 0;
@@ -8,6 +10,26 @@
   color: var(--color-muted);
   font-family: var(--font-ui);
   font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.composer-status .composer-status-agents {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: start;
+}
+.composer-status-agent-count {
+  display: none;
+}
+@container composer-status (max-width: 480px) {
+  .composer-status-agent-names {
+    display: none;
+  }
+  .composer-status-agent-count {
+    display: inline;
+  }
 }
 .composer-status-dot {
   width: var(--space-1h);
@@ -35,7 +57,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.composer-status-recipients {
+.composer-status .composer-status-recipients {
   flex: 1;
   min-width: 0;
   padding-inline-start: var(--space-2);
