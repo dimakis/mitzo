@@ -324,3 +324,23 @@ it('grants no claim under SQLITE_BUSY and rolls back both failure and revocation
   expect(f.a.prMonitor.pendingWatchRevocation(s.id)).toBeNull();
   expect(() => f.b.prMonitor.leases.assert(claim, 1000)).not.toThrow();
 });
+it('rolls failure publication back when its final claim fence expires', () => {
+  const f = fixture();
+  const claim = f.acquire();
+  const before = f.publish(claim);
+  let clocks = 0;
+  expect(() =>
+    f.b.prMonitor.fail({
+      operatorId: f.s.operatorId,
+      conversationId: f.s.conversationId,
+      subscriptionId: f.s.id,
+      expectedRevision: 1,
+      expectedSnapshotRevision: 1,
+      claim,
+      now: () => (++clocks < 3 ? 1000 : 1000 + PR_MONITOR_CLAIM_TTL_MS),
+      diagnostic: { code: 'incomplete', stage: 'read', nextRefreshAt: 61000 },
+    }),
+  ).toThrow('observation_claim_lost');
+  expect(f.view()).toEqual(before);
+  expect(f.acquire(f.b, 1001)).toBeNull();
+});
