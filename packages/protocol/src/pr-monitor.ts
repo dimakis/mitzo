@@ -20,6 +20,7 @@ export const PrMonitorSubscriptionSchema = z.strictObject({
   github: z.strictObject({
     connectionId: z.uuid(),
     identityRevision: reference,
+    principalId: reference.optional(),
     repositoryId: reference,
     owner: z
       .string()

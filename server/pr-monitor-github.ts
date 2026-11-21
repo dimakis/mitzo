@@ -4,7 +4,7 @@ import type { GitHubReadResponse } from './github-read-response.js';
 const number = z.number().int().positive(),
   sha = z.string().regex(/^[a-f0-9]{40}$/),
   reference = z.string().min(1).max(200);
-const pull = z.object({
+export const githubMonitorPullSchema = z.object({
   node_id: reference,
   number,
   title: z.string().max(1024),
@@ -64,6 +64,7 @@ export function createPrMonitorGitHubReader(options: {
     endpoint: string,
     signal: AbortSignal,
     assertCurrent: () => void,
+    request: PrMonitorReadRequest,
   ): Promise<GitHubReadResponse>;
   assertConnection(request: PrMonitorReadRequest): void;
   observeQuota(request: PrMonitorReadRequest, response: GitHubReadResponse): void;
@@ -78,7 +79,7 @@ export function createPrMonitorGitHubReader(options: {
       check();
       const release = additional ? request.reserveAdditional() : undefined;
       try {
-        const result = await options.transport(endpoint, request.signal, check);
+        const result = await options.transport(endpoint, request.signal, check, request);
         check();
         options.observeQuota(request, result);
         return result;
@@ -95,7 +96,7 @@ export function createPrMonitorGitHubReader(options: {
     if (request.resource === 'pr') {
       const response = await get(`${root}/pulls/${g.pr}`);
       if (response.status !== 200) return response;
-      const p = pull.parse(response.data);
+      const p = githubMonitorPullSchema.parse(response.data);
       return {
         ...response,
         data: {
