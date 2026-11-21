@@ -169,6 +169,13 @@ export class OrdinaryLocalVertexCommandOwner {
     );
     if (!transition.applied) throw Error('Original SDK stop escalation execution unavailable');
     const inputAcknowledged = !!this.#inputUuid;
+    // Escalation can arrive while dispatch still awaits settings preparation.
+    // An input proven never yielded is cancelled positively, as a pre-input
+    // Stop would be; leaving its claim uncertain would block the chat.
+    if (!this.#inputYielded && !inputAcknowledged) {
+      this.owners.store.completeOrdinaryLocalVertexCommand(active.commandId);
+      this.owners.store.failSendCommand(active.commandId, 'Cancelled before SDK dispatch');
+    }
     this.#failed = true;
     this.#paused = true;
     this.#active = undefined;

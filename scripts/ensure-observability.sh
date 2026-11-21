@@ -1,34 +1,69 @@
 #!/usr/bin/env bash
-# Ensure the observability stack (Jaeger + Loki + Grafana + MLflow) is running.
-# Called by the com.mitzo.podman-machine launchd agent after machine start,
-# and can be run manually: ./scripts/ensure-observability.sh
+# Start the dedicated host stack; never recreate the retained legacy Mitzo pod.
 set -euo pipefail
-
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PODMAN="${PODMAN:-$(command -v podman 2>/dev/null || echo /opt/homebrew/bin/podman)}"
-COMPOSE_FILE="$(dirname "$0")/../docker-compose.yml"
+SERVICES=(jaeger loki grafana mlflow)
+CHECK_ARG=""
+STOP_REQUESTED=0
+for arg in "$@"; do
+  case "$arg" in
+    --traces-only) SERVICES=(jaeger); CHECK_ARG=--traces-only;;
+    --stop) STOP_REQUESTED=1;;
+    *) echo "Usage: $0 [--traces-only] [--stop]" >&2; exit 2;;
+  esac
+done
+STATE="${MITZO_OBSERVABILITY_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/mitzo-observability}"
 
-# 1. Ensure the podman machine is running
-if ! "$PODMAN" machine inspect --format '{{.State}}' 2>/dev/null | grep -q "running"; then
-  echo "[ensure-observability] Starting podman machine..."
-  "$PODMAN" machine start 2>&1 || true
-  # Wait for the API socket to appear
-  for i in $(seq 1 30); do
-    "$PODMAN" info >/dev/null 2>&1 && break
-    sleep 1
-  done
+# Stop through the same engine, without creating storage or starting a stopped VM.
+if [ "$STOP_REQUESTED" -eq 1 ]; then
+  machine_state=$("$PODMAN" machine inspect --format '{{.State}}')
+  if ! printf '%s\n' "$machine_state" | grep -qi '^running$'; then
+    echo "Observability machine is not running; nothing to stop."
+    exit 0
+  fi
+  "$PODMAN" compose -p mitzo-observability -f "$ROOT/docker-compose.yml" stop "${SERVICES[@]}"
+  exit 0
 fi
 
-# 2. Bring up the compose stack
-echo "[ensure-observability] Starting observability containers..."
-"$PODMAN" compose -f "$COMPOSE_FILE" up -d 2>&1
+if ! "$PODMAN" machine inspect --format '{{.State}}' 2>/dev/null | grep -qi '^running$'; then
+  "$PODMAN" machine start
+fi
+"$PODMAN" info >/dev/null
 
-# 3. Verify — match both Compose v1 (mitzo_svc_1) and v2 (mitzo-svc-1) naming
-for svc in jaeger loki grafana mlflow; do
-  # Filter matches any container whose name contains the service name
-  container=$("$PODMAN" ps --filter "name=mitzo.*${svc}" --format '{{.Names}}' 2>/dev/null | head -1)
-  if [ -n "$container" ]; then
-    echo "[ensure-observability] $container: running"
-  else
-    echo "[ensure-observability] mitzo_${svc}: FAILED TO START" >&2
+# A populated legacy bind mount needs an explicit, data-preserving migration.
+for svc in "${SERVICES[@]}"; do
+  for legacy_name in "mitzo_${svc}_1" "mitzo-${svc}-1"; do
+    if "$PODMAN" container exists "$legacy_name"; then
+      legacy_state=$("$PODMAN" inspect --format '{{.State.Status}}' "$legacy_name")
+      if [ "$legacy_state" = running ] || ! "$PODMAN" volume exists "mitzo-${svc}-data"; then
+        echo "Legacy $svc requires a data-preserving migration. Follow docs/operations/observability.md." >&2
+        exit 1
+      fi
+    else
+      status=$?
+      if [ "$status" -ne 1 ]; then exit "$status"; fi
+    fi
+  done
+done
+
+for entry in jaeger:10001:10001 loki:10001:10001 grafana:472:0 mlflow:0:0; do
+  IFS=: read -r svc uid gid <<< "$entry"
+  if [ "${#SERVICES[@]}" -eq 1 ] && [ "$svc" != jaeger ]; then continue; fi
+  if ! "$PODMAN" volume exists "mitzo-${svc}-data"; then
+    "$PODMAN" volume create --uid "$uid" --gid "$gid" --label "com.mitzo.service=$svc" "mitzo-${svc}-data"
   fi
 done
+if ! "$PODMAN" network exists mitzo-observability; then
+  "$PODMAN" network create mitzo-observability
+fi
+CONFIG="$(node "$ROOT/scripts/observability-config.mjs" "$STATE")"
+# A dedicated project and no shared pod prevent cross-service replacement cascades.
+MITZO_OBSERVABILITY_CONFIG_DIR=./infra "$PODMAN" compose -p mitzo-observability -f "$CONFIG/docker-compose.yml" up -d "${SERVICES[@]}"
+
+# Readiness means working queries, not just live PIDs. Retry only during startup.
+for attempt in {1..15}; do
+  if node "$ROOT/scripts/observability-readback.mjs" ${CHECK_ARG:+"$CHECK_ARG"}; then exit 0; fi
+  if [ "$attempt" -lt 15 ]; then sleep 2; fi
+done
+exit 1

@@ -68,7 +68,8 @@ function buildProductionDestination(level: LogLevel): DestinationStream {
         propsToLabels: ['module'],
         batching: true,
         interval: 5,
-        silenceErrors: true,
+        // Remote delivery failure must remain visible in the host stderr log.
+        silenceErrors: false,
       },
       level,
     });

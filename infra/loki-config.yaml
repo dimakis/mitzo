@@ -12,6 +12,11 @@ common:
   replication_factor: 1
   path_prefix: /loki/data
 
+ingester:
+  wal:
+    enabled: true
+    flush_on_shutdown: true
+
 schema_config:
   configs:
     - from: "2024-01-01"
