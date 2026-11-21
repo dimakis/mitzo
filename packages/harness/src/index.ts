@@ -44,6 +44,8 @@ export {
   DEFAULT_TOOL_GUARD_POLICY,
   runGuardedTool,
   runBoundedToolCleanup,
+  runOutsideToolGuard,
+  ToolGuardRetiredError,
   ToolGuardTimeoutError,
   withToolGuardPhase,
 } from './tool-guard.js';

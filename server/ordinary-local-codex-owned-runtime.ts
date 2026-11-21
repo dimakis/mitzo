@@ -1587,7 +1587,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       if (
         retained.operatorAuthSessionId !== this.#authSessionId ||
         retained.message.recipientConversationId !== this.#reservation.conversationId ||
-        retained.message.status !== 'uncertain'
+        !this.owners.eventStore.agentCommunication.admissionInFlight(messageId)
       )
         throw unavailable();
       return retained.message;

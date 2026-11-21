@@ -34,6 +34,7 @@ import { holdResultForLateSteer } from './sdk-late-steer-hold.js';
 import { sdkPersistenceDiagnostic } from './sdk-persistence-diagnostics.js';
 import { createSdkRepositoryCallbacks } from './sdk-repository-callback.js';
 import type { SdkAuthorityCaller } from './sdk-authority-observation.js';
+import { createRuntimeOwnerContext } from './runtime-owner-context.js';
 const log = createLogger('owned-sdk-query');
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
  * completed query cannot abort its successor; stale hooks always refuse effects. */
@@ -325,7 +326,14 @@ export function createOrdinaryLocalVertexSdkQuery<
   peerMessages?():
     | (Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> &
         Partial<
-          Pick<SdkAgentMessageRuntime, 'cancelInput' | 'holdTurnForLateEcho' | 'awaitingLateEcho'>
+          Pick<
+            SdkAgentMessageRuntime,
+            | 'cancelInput'
+            | 'holdTurnForLateEcho'
+            | 'awaitingLateEcho'
+            | 'bindInputToQuery'
+            | 'retireQuery'
+          >
         >)
     | undefined;
   mcpServers?(state: SdkCallbackState): Options['mcpServers'];
@@ -530,7 +538,13 @@ export function createOrdinaryLocalVertexSdkQuery<
         : {}),
     };
     if (selection && hasHistory) delete options.sessionId;
-    const native = query({ prompt: prompt(input, () => native), options });
+    // A successor can be admitted from another session's tool call (a peer
+    // message); its callbacks must never run inside that caller's tool guard.
+    // Captured per native query: each successor gets the trace of the turn that
+    // admitted it, never the trace the runtime was created with.
+    const native: Query = createRuntimeOwnerContext()(() =>
+      query({ prompt: prompt(input, () => native), options }),
+    );
     states.set(native, state);
     return native;
   };
@@ -542,6 +556,7 @@ export function createOrdinaryLocalVertexSdkQuery<
     closed = true;
     states.get(native)!.retired = true;
     states.get(native)!.callbacks.seal();
+    owners.peerMessages?.()?.retireQuery?.(states.get(native)!);
     input.close();
     runs.close();
     native.close();
@@ -619,6 +634,7 @@ export function createOrdinaryLocalVertexSdkQuery<
           }
           if (event.type === 'result') {
             state.completing = true;
+            owners.peerMessages?.()?.retireQuery?.(state);
             state.callbacks.seal();
             if (state.callbacks.needsSettlement)
               await state.callbacks.settle(owners.controller.signal);
@@ -644,6 +660,11 @@ export function createOrdinaryLocalVertexSdkQuery<
           sdkSessionId: owners.sdkSessionId,
           retired: state.retired,
         });
+      } finally {
+        const state = states.get(run)!;
+        state.retired = true;
+        state.callbacks.seal();
+        owners.peerMessages?.()?.retireQuery?.(state);
       }
       // This native iterator has ended; the joined iterator can remain open
       // while waiting for another admitted query on the same SDK history.
@@ -714,6 +735,14 @@ export function createOrdinaryLocalVertexSdkQuery<
       return true;
     },
     push(message: SDKUserMessage) {
+      const state = states.get(native)!;
+      const peers = owners.peerMessages?.();
+      if (state.retired || state.completing) {
+        // A session can remain live after its native query ends. Positively
+        // refuse peer inputs here; no stdin owner remains to consume them.
+        if (peers?.beforeInput(message, false, state) === false) return;
+      }
+      peers?.bindInputToQuery?.(message, state);
       input.push(message);
     },
     isCommandInputEcho: (event: object) => commandInputEchoes.has(event),
@@ -739,6 +768,7 @@ export function createOrdinaryLocalVertexSdkQuery<
       await owners.authorize(owners.controller.signal, undefined, 'command_setup');
       const state = states.get(native)!;
       state.retired = true;
+      owners.peerMessages?.()?.retireQuery?.(state);
       input.close();
       native.close();
       if (owners.options.spawnClaudeCodeProcess) {

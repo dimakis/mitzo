@@ -1842,9 +1842,8 @@ it.each(
     );
     const runtime = agentMessageRuntime(sdkSession, f.auth.id)!;
     expect(runtime.state()).toBe('busy');
-    expect(await runtime.steer(peer, () => {}, sdkSession.abortController.signal)).toBe(
-      'uncertain',
-    );
+    // Held by the busy recipient's live query: queued until its exact replay ACK.
+    expect(await runtime.steer(peer, () => {}, sdkSession.abortController.signal)).toBe('queued');
     expect(await consumePeer!()).toMatchObject({ uuid: peer.messageId, priority: 'next' });
     await vi.waitFor(() =>
       expect(
@@ -1873,7 +1872,14 @@ it.each(
     connections.register('first-peer-tab', firstTab);
     connections.watch('first-peer-tab', f.reservation.conversationId);
     chat.setConnectionRegistry(connections);
+    // An in-flight claim stays pending; its unresolved settlement is the
+    // receipt change every watching tab must receive.
     chat.eventStore.agentCommunication.claim(outgoingPeer.messageId);
+    chat.eventStore.agentCommunication.settleAdmission(
+      outgoingPeer.messageId,
+      'uncertain',
+      'admission_uncertain',
+    );
     await vi.waitFor(() =>
       expect(firstTab.send).toHaveBeenCalledWith(
         peerCard('outgoing', outgoingPeer.messageId, 'uncertain'),

@@ -21,6 +21,16 @@ export class ToolGuardTimeoutError extends Error {
     this.name = 'ToolGuardTimeoutError';
   }
 }
+/** A callback reached a tool guard whose original call already settled. The
+ * stable code/stage let failure logs distinguish this from an effect failure. */
+export class ToolGuardRetiredError extends Error {
+  readonly code = 'tool_callback_retired';
+  readonly stage = 'tool_guard';
+  constructor() {
+    super('Tool callback already settled');
+    this.name = 'ToolGuardRetiredError';
+  }
+}
 interface GuardScope {
   signal: AbortSignal;
   assertCurrent(): void;
@@ -32,6 +42,13 @@ const currentGuard = new AsyncLocalStorage<GuardScope>();
 /** A late callback can observe its own retirement, never borrow another call's authority. */
 export function assertToolGuardCurrent(): void {
   currentGuard.getStore()?.assertCurrent();
+}
+
+/** Long-lived runtime resources (a native provider query and its callback
+ * transports) must never capture the tool call that happened to create them.
+ * Their later callbacks start their own root guards under their own owner. */
+export function runOutsideToolGuard<T>(work: () => T): T {
+  return currentGuard.exit(work);
 }
 
 /** Exclude human wait from execution time; each phase retains its cumulative budget. */
@@ -146,7 +163,7 @@ export async function runGuardedTool<T>(
       timer.unref?.();
     };
     const assertCurrent = () => {
-      if (closed) throw retirement ?? new Error('Tool callback already settled');
+      if (closed) throw retirement ?? new ToolGuardRetiredError();
       controller.signal.throwIfAborted();
       options.signal.throwIfAborted();
     };
