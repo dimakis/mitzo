@@ -89,6 +89,19 @@ it('reports missing and unattributed phase telemetry instead of a complete denom
   });
 });
 
+it('does not label absent check instrumentation as complete coverage', () => {
+  const f = fixture();
+  expect(
+    summarizePhaseA(f.spans.slice(0, 4), f.starts.slice(0, 4), f.commands).coverage,
+  ).toMatchObject({ started: 0, ended: 0, complete: false });
+});
+
+it.each([undefined, { code: 0 }])('refuses an unknown check outcome %j', (status) => {
+  const f = fixture();
+  f.spans[4].status = status;
+  expect(() => summarizePhaseA(f.spans, f.starts, f.commands)).toThrow();
+});
+
 it.each(['duplicate', 'missing-start', 'nonfinite', 'reversed'])(
   'refuses %s phase data',
   (fault) => {

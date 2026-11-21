@@ -69,6 +69,8 @@ export function summarizePhaseA(
       throw Error('Missing, duplicate or mismatched Phase A boundary');
     seen.add(id);
     interval(span);
+    if (span.status?.code !== 1 && span.status?.code !== 2)
+      throw Error('Unknown Phase A check outcome');
   }
   const commandTraces = new Set(commands.map((c) => c.traceId));
   const unattributed = started.filter((s) => !commandTraces.has(s.traceId)).length;
@@ -138,7 +140,7 @@ export function summarizePhaseA(
       ended: ended.length,
       unfinished: started.length - ended.length,
       unattributed,
-      complete: started.length === ended.length && unattributed === 0,
+      complete: started.length > 0 && started.length === ended.length && unattributed === 0,
     },
     concurrency: {
       sessions: 1,
