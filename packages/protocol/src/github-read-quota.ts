@@ -148,7 +148,7 @@ export class GitHubReadQuota {
         if (s.remaining - r.cost < Math.ceil(s.limit * 0.2)) throw Error('quota_delayed');
         const paced = Math.min(
           s.allocation,
-          10 +
+          16 +
             Math.floor(
               (s.allocation * Math.max(0, r.now - s.epochStart)) /
                 Math.max(1, s.resetAt - s.epochStart),

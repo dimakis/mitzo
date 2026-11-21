@@ -137,7 +137,7 @@ export class PrMonitorObserver {
         headSha?: string,
       ) => {
         assertCurrent();
-        if (++requests > 10) throw new ObservationFailure('incomplete', 60000);
+        if (++requests > 16) throw new ObservationFailure('incomplete', 60000);
         const request: PrMonitorReadRequest = {
           method: 'GET',
           resource,
@@ -151,7 +151,7 @@ export class PrMonitorObserver {
           assertCurrent,
           reserveAdditional: () => {
             assertCurrent();
-            if (++requests > 10) throw new ObservationFailure('incomplete', 60000);
+            if (++requests > 16) throw new ObservationFailure('incomplete', 60000);
             return this.options.reserve(request);
           },
         };
