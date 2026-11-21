@@ -19,9 +19,21 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createCredentialSdkServer, credentialSdkPermission } from '../credential-sdk-tools.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from '../agent-tool-selection.js';
 import { SdkAgentMessageRuntime } from '../sdk-agent-message-runtime.js';
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { AsyncQueue } from '../async-queue.js';
+import {
+  createOrdinaryLocalVertexSdkQuery,
+  SdkHookLifetime,
+} from '../ordinary-local-vertex-sdk-query.js';
+import * as nativeHistory from '../ordinary-local-vertex-native-history.js';
+import { lateSteerHold } from '../sdk-late-steer-hold.js';
 import { createInteractiveAuth } from '../interactive-auth-core.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
+
+vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
+  ...(await original<typeof import('@anthropic-ai/claude-agent-sdk')>()),
+  query: vi.fn(),
+}));
 
 const cleanups: Array<() => void> = [];
 const revocations = new EventStore(':memory:');
@@ -158,12 +170,166 @@ function fixture(
   };
 }
 
+/** Receipt states a transcript actually showed, in order. */
+function shownStatuses(events: EventStore, conversationId: string) {
+  return events
+    .getSessionEvents(conversationId)
+    .filter((event) => event.type === 'agent_message')
+    .map(
+      (event) =>
+        (event.payload as { projection: { message: { status: string } } }).projection.message
+          .status,
+    );
+}
+
 async function signedOperator() {
   const token = await login(process.env.AUTH_PASSPHRASE!);
   const auth = (await authenticateToken(token!))!;
   cleanups.push(() => revokeAuthSession(auth));
   return auth;
 }
+
+it.each(
+  (['successor', 'stream_end', 'close', 'during_admission'] as const).flatMap((retirement) =>
+    (['submitted', 'unsubmitted', 'acknowledged'] as const).map(
+      (delivery) => [retirement, delivery] as const,
+    ),
+  ),
+)(
+  'settles a real busy SDK send when its query retires through %s with %s input',
+  async (retirement, delivery) => {
+    const f = fixture();
+    const session = f.registry.get('operator:claude-worker')!;
+    const controller = session.abortController;
+    const streams: Array<AsyncQueue<Record<string, unknown>>> = [];
+    const prompts: Array<AsyncIterable<SDKUserMessage>> = [];
+    vi.mocked(query).mockClear();
+    vi.mocked(query).mockImplementation(({ prompt }) => {
+      const stream = new AsyncQueue<Record<string, unknown>>();
+      streams.push(stream);
+      prompts.push(prompt as AsyncIterable<SDKUserMessage>);
+      return {
+        close: () => stream.close(),
+        [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](),
+      } as never;
+    });
+    const history = vi.spyOn(nativeHistory, 'assertOrdinaryLocalVertexHistory').mockResolvedValue();
+    const timeout = lateSteerHold.echoTimeoutMs;
+    lateSteerHold.echoTimeoutMs = 5;
+    cleanups.push(() => {
+      history.mockRestore();
+      lateSteerHold.echoTimeoutMs = timeout;
+      controller.abort();
+    });
+    const owner = createOrdinaryLocalVertexSdkQuery<
+      AsyncIterable<Record<string, unknown>> & { close(): void }
+    >({
+      options: {},
+      input: new AsyncQueue(),
+      controller,
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'claude-worker',
+      cwd: process.cwd(),
+      authorize: async () => {},
+      authorizeSync() {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged() {},
+      onUnsent: vi.fn(),
+      peerMessages: () => runtime,
+    });
+    let input!: SDKUserMessage;
+    const runtime = new SdkAgentMessageRuntime({
+      events: f.events,
+      session,
+      identity: session.ordinaryRuntimeOwner!.identity,
+      operatorAuthSessionId: f.auth.id,
+      assertCurrent() {},
+      activeCommandId: () => 'original-recipient-command',
+      stopped: () => false,
+      push: (message) => {
+        input = message;
+        owner.push(message);
+      },
+      enqueue: vi.fn(),
+    });
+    cleanups.push(registerAgentMessageRuntime(session, runtime));
+    let releaseAdmission!: () => void;
+    let inputInserted!: () => void;
+    const inserted = new Promise<void>((resolve) => {
+      inputInserted = resolve;
+    });
+    const admission = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    if (retirement === 'during_admission') {
+      const steer = runtime.steer.bind(runtime);
+      vi.spyOn(runtime, 'steer').mockImplementation(async (...args) => {
+        const result = await steer(...args);
+        inputInserted();
+        await admission;
+        return result;
+      });
+    }
+    const sendInput = {
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'Keep this correction on its original query.',
+    };
+    const sending = f.execute(sendInput);
+    const iterator = owner.query[Symbol.asyncIterator]();
+    if (retirement === 'during_admission') await inserted;
+    else expect(await sending).toMatchObject({ status: 'queued', reason: null });
+    if (delivery !== 'unsubmitted')
+      expect((await prompts[0][Symbol.asyncIterator]().next()).value).toBe(input);
+    if (delivery === 'acknowledged') {
+      streams[0].push({ type: 'user', uuid: input.uuid, message: input.message });
+      streams[0].push({ type: 'assistant', session_id: 'claude-worker' });
+      expect((await iterator.next()).value).toMatchObject({ type: 'assistant' });
+    }
+    if (retirement === 'successor') {
+      streams[0].push({ type: 'result', session_id: 'claude-worker' });
+      // The real late-steer timeout releases this result without an input ACK.
+      expect((await iterator.next()).value).toMatchObject({ type: 'result' });
+      await owner.apply({} as never);
+      await owner.apply({} as never);
+    } else {
+      if (retirement === 'close' || retirement === 'during_admission') owner.query.close();
+      else streams[0].close();
+      expect((await iterator.next()).value).toMatchObject({ type: 'sdk_query_retired' });
+    }
+    expect(controller.signal.aborted).toBe(false);
+    const settled =
+      delivery === 'acknowledged'
+        ? { status: 'delivered', reason: null }
+        : { status: 'uncertain', reason: 'admission_uncertain' };
+    if (retirement === 'during_admission') {
+      releaseAdmission();
+      expect(await sending).toMatchObject(settled);
+      vi.mocked(runtime.steer).mockRestore();
+    }
+    expect(await f.execute({ operation: 'lookup', requestId: sendInput.requestId })).toMatchObject(
+      settled,
+    );
+    if (retirement === 'successor') {
+      // An old replay in a replacement query cannot acknowledge the lost input.
+      streams[1].push({ type: 'user', uuid: input.uuid, message: input.message });
+      streams[1].push({ type: 'assistant', session_id: 'claude-worker' });
+      expect((await iterator.next()).value).toMatchObject({ type: 'sdk_query_retired' });
+      expect((await iterator.next()).value).toMatchObject({ type: 'assistant' });
+      expect(await f.execute(sendInput)).toMatchObject(settled);
+      expect(query).toHaveBeenCalledTimes(2);
+    } else {
+      // An ended query stays retired even though its session has not aborted.
+      expect(
+        await f.execute({ ...sendInput, requestId: randomUUID(), text: 'After retirement' }),
+      ).toMatchObject({ status: 'failed', reason: 'before_provider_submission' });
+    }
+    owner.query.close();
+    await iterator.return?.();
+  },
+);
 
 it.each(['codex-worker', 'claude-worker'] as const)(
   'accepts a correlated reply from %s across verified operator logins through the full tool owner',
@@ -576,7 +742,16 @@ it.each([
       expect(target.steer).toHaveBeenCalledOnce();
       if (sdkAdapter) {
         const receipt = JSON.parse((result.content as Array<{ text: string }>)[0].text);
-        expect(receipt.status).toBe('uncertain');
+        // Held by the busy recipient's live query: queued until its exact ACK.
+        expect(receipt).toMatchObject({ status: 'queued', reason: null });
+        const lookup = await client.callTool({
+          name: 'AgentCommunication',
+          arguments: { operation: 'lookup', requestId: sendInput.requestId },
+        });
+        expect(JSON.parse((lookup.content as Array<{ text: string }>)[0].text)).toMatchObject({
+          messageId: receipt.messageId,
+          status: 'queued',
+        });
         expect(sdkInput).toMatchObject({ priority: 'next', uuid: receipt.messageId });
         expect(sdkAdapter.beforeInput(sdkInput!)).toBe(true);
         expect(
@@ -585,6 +760,8 @@ it.each([
         expect(f.events.agentCommunication.read('orchestrator', receipt.messageId).status).toBe(
           'delivered',
         );
+        // Neither transcript ever showed a terminal-looking uncertain receipt.
+        expect(shownStatuses(f.events, 'orchestrator')).toEqual(['pending', 'queued', 'delivered']);
       }
       const receipt = JSON.parse((result.content as Array<{ text: string }>)[0].text);
       for (const arguments_ of [
@@ -717,6 +894,85 @@ it.each(['busy', 'idle'] as const)(
     expect(f.approve).toHaveBeenCalledTimes(1);
   },
 );
+
+it('reports an idle Claude admission as pending while in flight, never uncertain before it queues', async () => {
+  const f = fixture();
+  const adapter = f.installClaude('idle');
+  let admit!: () => void;
+  const admitted = new Promise<void>((resolve) => {
+    admit = resolve;
+  });
+  let entered!: () => void;
+  const entering = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  adapter.enqueue.mockImplementation(async () => {
+    entered();
+    await admitted;
+    return 'queued';
+  });
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'claude-worker',
+    text: 'Ordinary admission takes a while.',
+  };
+  const sending = f.execute(input);
+  await entering;
+  expect(await f.execute({ operation: 'lookup', requestId: input.requestId })).toMatchObject({
+    status: 'pending',
+    reason: null,
+  });
+  admit();
+  expect(await sending).toMatchObject({ status: 'queued', reason: null });
+  expect(await f.execute({ operation: 'lookup', requestId: input.requestId })).toMatchObject({
+    status: 'queued',
+  });
+  expect(shownStatuses(f.events, 'orchestrator')).toEqual(['pending', 'queued']);
+  expect(adapter.enqueue).toHaveBeenCalledOnce();
+});
+
+it('never leaves a steer queued when its recipient ends before the admission records it', async () => {
+  const f = fixture();
+  const adapter = f.installClaude('busy');
+  // The real SDK adapter pushes into the live query, then the recipient ends
+  // before this admission resumes: its abort listener ran while still pending.
+  adapter.steer.mockImplementation(async () => {
+    adapter.session.abortController.abort();
+    return 'queued';
+  });
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'claude-worker',
+    text: 'Recipient ends mid-admission.',
+  };
+  await expect(f.execute(input)).resolves.toMatchObject({
+    status: 'uncertain',
+    reason: 'admission_uncertain',
+  });
+  expect(f.events.agentCommunication.findRequest('orchestrator', input.requestId)).toMatchObject({
+    status: 'uncertain',
+  });
+});
+
+it('settles an admission that ends without a delivery fact as uncertain', async () => {
+  const f = fixture();
+  const adapter = f.installClaude('idle');
+  adapter.enqueue.mockRejectedValue(Error('admission outcome lost'));
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'claude-worker',
+    text: 'Unknown admission outcome.',
+  };
+  expect(await f.execute(input)).toMatchObject({
+    status: 'uncertain',
+    reason: 'admission_uncertain',
+  });
+  expect(await f.execute(input)).toMatchObject({ status: 'uncertain' });
+  expect(adapter.enqueue).toHaveBeenCalledOnce();
+});
 
 it('refuses a stopped runtime without enqueueing or recovering it', async () => {
   const f = fixture();
