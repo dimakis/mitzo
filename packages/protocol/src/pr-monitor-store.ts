@@ -40,6 +40,7 @@ export class PrMonitorStore {
     db.exec(`CREATE TABLE IF NOT EXISTS pr_monitor_subscriptions (id TEXT PRIMARY KEY, operator_id TEXT NOT NULL, conversation_id TEXT NOT NULL, repository_id TEXT NOT NULL, pr_node_id TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(operator_id,conversation_id,repository_id,pr_node_id));
       CREATE TABLE IF NOT EXISTS pr_monitor_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS pr_monitor_authorities (id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(subscription_id,kind));
+      CREATE TABLE IF NOT EXISTS pr_monitor_revocations (subscription_id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS pr_monitor_conversation ON pr_monitor_subscriptions(operator_id,conversation_id);`);
   }
   create(requestId: string, input: PrMonitorSubscription): PrMonitorObservation {
@@ -143,7 +144,78 @@ export class PrMonitorStore {
     const events = boundedEvents(
       view.outbox ? view.outbox.eventIds.map((id) => byId.get(id)!) : [...view.events].reverse(),
     );
-    return { ...view, version: 1, events, hiddenEvents: view.events.length - events.length };
+    return {
+      ...view,
+      version: 1,
+      events,
+      hiddenEvents: view.events.length - events.length,
+      revocationPending: this.pendingWatchRevocation(id),
+    };
+  }
+  pendingWatchRevocation(id: string): PrMonitorProjection['revocationPending'] {
+    const saved = row(
+      this.db.prepare('SELECT data FROM pr_monitor_revocations WHERE subscription_id=?').get(id),
+    );
+    return saved
+      ? (JSON.parse(saved.data) as NonNullable<PrMonitorProjection['revocationPending']>)
+      : null;
+  }
+  /** Persist the fail-closed checkpoint separately before updating authority. A
+   * failed second write leaves this pause/intent available after process restart. */
+  beginWatchRevocation(input: {
+    requestId: string;
+    fingerprint: string;
+    operatorId: string;
+    conversationId: string;
+    subscriptionId: string;
+    expectedRevision: number;
+    expectedAuthorityRevision: number;
+    assertCurrent(): void;
+  }) {
+    this.db.transaction(() => {
+      input.assertCurrent();
+      const receipt = this.db
+        .prepare('SELECT fingerprint FROM pr_monitor_requests WHERE id=?')
+        .get(input.requestId) as { fingerprint: string } | undefined;
+      if (receipt) {
+        if (receipt.fingerprint !== input.fingerprint) throw Error('request_conflict');
+        return;
+      }
+      const previous = this.db
+        .prepare(
+          'SELECT request_id,fingerprint FROM pr_monitor_revocations WHERE subscription_id=?',
+        )
+        .get(input.subscriptionId) as { request_id: string; fingerprint: string } | undefined;
+      if (previous) {
+        if (previous.request_id !== input.requestId || previous.fingerprint !== input.fingerprint)
+          throw Error('revocation_pending');
+        return;
+      }
+      const view = this.read(input.operatorId, input.conversationId, input.subscriptionId);
+      const authority = this.authority(input.subscriptionId, 'pr-watch');
+      if (
+        view.subscription.revision !== input.expectedRevision ||
+        authority?.revision !== input.expectedAuthorityRevision
+      )
+        throw Error('revision_conflict');
+      const pending = {
+        requestId: input.requestId,
+        expectedRevision: input.expectedRevision,
+        expectedAuthorityRevision: input.expectedAuthorityRevision,
+      };
+      this.db
+        .prepare('INSERT INTO pr_monitor_revocations VALUES (?,?,?,?)')
+        .run(input.subscriptionId, input.requestId, input.fingerprint, JSON.stringify(pending));
+      view.subscription.lifecycle = 'paused';
+      view.subscription.nextRefreshAt = null;
+      view.subscription.eligibilityRevision++;
+      view.subscription.eligibilityDigest = prMonitorDigest([]);
+      view.outbox = null;
+      view.refreshState = 'blocked';
+      view.diagnostic = { code: 'authority_unavailable', stage: 'reconcile', nextRefreshAt: null };
+      input.assertCurrent();
+      this.save(view);
+    })();
   }
   /** Bounded oldest-attempt rotation; caller invokes from the existing scheduler. */
   due(now: number): PrMonitorSubscription[] {
@@ -222,6 +294,10 @@ export class PrMonitorStore {
       )
         throw Error('revision_conflict');
       const authority = PrMonitorAuthoritySchema.parse(input.change(previous));
+      const revocation =
+        input.kind === 'pr-watch' ? this.pendingWatchRevocation(input.subscriptionId) : null;
+      if (revocation && (authority.revokedAt === null || revocation.requestId !== input.requestId))
+        throw Error('revocation_pending');
       if (
         authority.subscriptionId !== input.subscriptionId ||
         authority.conversationId !== input.conversationId ||
@@ -257,6 +333,10 @@ export class PrMonitorStore {
       view.subscription.revision++;
       input.assertCurrent();
       this.save(view);
+      if (revocation)
+        this.db
+          .prepare('DELETE FROM pr_monitor_revocations WHERE subscription_id=?')
+          .run(input.subscriptionId);
       this.db
         .prepare('INSERT INTO pr_monitor_requests VALUES (?,?,?)')
         .run(input.requestId, input.fingerprint, JSON.stringify(authority));

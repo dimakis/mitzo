@@ -4,6 +4,10 @@ import { createInteractiveAuth } from '../interactive-auth-core.js';
 import { PrMonitorConsent } from '../pr-monitor-consent.js';
 import { SessionCapabilityGrants } from '../session-capability-grants.js';
 import { capabilityFixture } from './fixtures/session-capabilities.js';
+import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const id = '9c6bb0d4-081f-4f55-86f8-60c703452053';
 const s = () => ({
@@ -46,8 +50,8 @@ const s = () => ({
 });
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
-async function fixture() {
-  const store = new EventStore(':memory:');
+async function fixture(path = ':memory:') {
+  const store = new EventStore(path);
   stores.push(store);
   store.upsertSession({ sessionId: 'one' });
   store.prMonitor.create('create', s());
@@ -207,4 +211,63 @@ it('cannot renew a subscription removed by conversation deletion even with an ob
     }),
   ).toThrow('subscription_unavailable');
   expect(f.store.prMonitor.read('ordinary:user', 'one', id).subscription.lifecycle).toBe('removed');
+});
+it('retains a fail-closed revoke intent through a failed authority write and database restart', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pr-revoke-'));
+  const path = join(directory, 'events.db');
+  const f = await fixture(path);
+  const grant = f.issue();
+  const captured = f.consent.capture('one', id);
+  const injector = new Database(path);
+  injector.exec(
+    "CREATE TRIGGER fail_pr_revoke BEFORE UPDATE ON pr_monitor_authorities BEGIN SELECT RAISE(ABORT,'offline write failure'); END;",
+  );
+  const input = {
+    requestId: 'revoke-failure',
+    conversationId: 'one',
+    subscriptionId: id,
+    expectedRevision: 2,
+    expectedAuthorityRevision: grant.revision,
+  };
+  try {
+    expect(() => f.consent.revoke(f.login, input)).toThrow('offline write failure');
+    expect(() => captured()).toThrow('authority_unavailable');
+    expect(f.store.prMonitor.read('ordinary:user', 'one', id).subscription.lifecycle).toBe(
+      'paused',
+    );
+    injector.exec('DROP TRIGGER fail_pr_revoke');
+    injector.close();
+    f.store.close();
+    stores.splice(stores.indexOf(f.store), 1);
+    const restored = new EventStore(path);
+    stores.push(restored);
+    const restoredAuth = createInteractiveAuth({
+      passphrase: 'offline-test-passphrase',
+      secret: 'offline-secret-longer-than-thirty-two-characters',
+      maxAgeHours: 1,
+      cookieName: 'offline_auth',
+    });
+    restoredAuth.setRevocationStore(restored);
+    const renewedLogin = (await restoredAuth.authenticateToken(
+      (await restoredAuth.login('offline-test-passphrase'))!,
+    ))!;
+    const consent = new PrMonitorConsent({
+      ...f.ports,
+      store: restored.prMonitor,
+      hasPersistentRevocationAuthority: restoredAuth.hasPersistentRevocationAuthority,
+      isInteractive: restoredAuth.isAuthenticatedOperatorSessionId,
+      isLoginCurrent: (a) => a.expiresAt > Date.now() && !restoredAuth.isSessionRevoked(a),
+    });
+    expect(() => consent.capture('one', id)).toThrow('authority_unavailable');
+    expect(
+      restored.prMonitor.projection('ordinary:user', 'one', id).revocationPending,
+    ).toMatchObject({ requestId: input.requestId });
+    expect(consent.revoke(renewedLogin, input).revokedAt).not.toBeNull();
+    expect(restored.prMonitor.projection('ordinary:user', 'one', id).revocationPending).toBeNull();
+    restored.close();
+    stores.splice(stores.indexOf(restored), 1);
+  } finally {
+    if (injector.open) injector.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

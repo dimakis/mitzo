@@ -173,4 +173,9 @@ export type PrMonitorObservation = {
 export type PrMonitorProjection = PrMonitorObservation & {
   version: 1;
   hiddenEvents: number;
+  revocationPending: {
+    requestId: string;
+    expectedRevision: number;
+    expectedAuthorityRevision: number;
+  } | null;
 };
