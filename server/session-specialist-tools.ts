@@ -112,7 +112,7 @@ export function sessionSpecialistTools(
           );
           current();
           return decision.behavior === 'allow'
-            ? specialistApprovalResult(display, decision.updatedInput)
+            ? specialistApprovalResult(display, decision.updatedInput ?? display)
             : false;
         };
         let value: unknown;

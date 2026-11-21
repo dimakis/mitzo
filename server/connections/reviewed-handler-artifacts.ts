@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1271-symposium-model-policy';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1272-symposium-policy-types';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../specialist-model-policy-store.ts':
     '8399ca4cbdec2265e73cd8c24913b3ac0dd34872e408ddbb37ecc17aaf8ce1b6',
   '../specialist-model-policy-router.ts':
-    '73b6a5b17cccf0933a47c4f937898aab781f9620dfa8052c925bf88d17bad552',
+    'dec09d259f836bde28ba23cf7be190982064a977aa164dcded68288b9b8c2c26',
   '../__tests__/specialist-approval.test.ts':
     '0171ab626ae67ab98fc634e80c995a22e6e0a24bd4dbf9d8f1706837ace40bc4',
   '../__tests__/specialist-model-policy.test.ts':
@@ -3499,7 +3499,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-search-async.test.ts':
     'e4f69a8ce6389e7fa7f6c1b6e59c13ccb5f369fab0d89696bda3890759a3acc0',
   '../__tests__/session-specialist-tools.test.ts':
-    'db997fc273ed3e95faf32087c472bc40880fcbb5f3880afde0d9923ebbbb3fdf',
+    '951bc5d7f55dd583a815d1fe10ff6a41703e3dd7bdce6e8c3330b1038b144581',
   '../__tests__/session-transcript-reader.test.ts':
     'a23868af8f9317a6a5c2a3faacd27e8784b2f678f6b9ada7521018ef13c3400a',
   '../__tests__/shared-authority-proof.test.ts':
@@ -4604,7 +4604,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'f0ae3f23b02c89b2b6014b01389992ee77ac79f1c8ca38210289be4bfcc453c9',
   '../session-runtime-error.ts': '35e1f05bfca7eb99562a84e63076961cfe3300503279db0673e2b612733e405c',
   '../session-specialist-tools.ts':
-    '97cedd79d722350a0849813a046940b02ca07b9cb960592830584d61dddfdaab',
+    'f999311962b1667d638dabd12c21202c2e7cbb524ee8e59778c3cf9d4e2225fe',
   '../session-transcript-reader.ts':
     'ead3dcc1c868fd6b731ca06ec65238f90b882842a3a1b51dbd7ba200d1432ee4',
   '../shared-authority-proof.ts':

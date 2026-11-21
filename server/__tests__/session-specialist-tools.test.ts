@@ -9,6 +9,7 @@ import { revokeAuthSession } from '../auth.js';
 import { callbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
 
 const fixture = vi.hoisted(() => ({
+  omitUpdatedInput: false,
   approve: vi.fn(async (_display: unknown) => true),
   consult: vi.fn(async (_authority: unknown, _policyId: string, _input: unknown) => ({
     status: 'running',
@@ -46,7 +47,9 @@ vi.mock('../permission-handler.js', () => ({
       allowSessionGrant: false,
     });
     const approved = await fixture.approve(display);
-    return approved ? { behavior: 'allow', updatedInput: display } : { behavior: 'deny' };
+    return approved
+      ? { behavior: 'allow', ...(fixture.omitUpdatedInput ? {} : { updatedInput: display }) }
+      : { behavior: 'deny' };
   },
 }));
 const cleanup: Array<() => void> = [];
@@ -56,6 +59,7 @@ afterEach(() => {
     .reverse()
     .forEach((close) => close());
   vi.clearAllMocks();
+  fixture.omitUpdatedInput = false;
 });
 function tools() {
   const registry = new SessionRegistry();
@@ -93,55 +97,59 @@ it('exposes consultation on ordinary native, API and Claude lead routes', () => 
     expect.arrayContaining(['local-api', 'codex-owned-local', 'claude-sdk']),
   );
 });
-it('requires exact policy approval, then invokes consultation under the verified lead authority', async () => {
-  const { tool } = tools();
-  expect(
-    (
-      await tool.execute(
-        'SymposiumConsult',
-        {
-          operation: 'authorize',
-          requestId: randomUUID(),
-          repository: 'owner/repo',
-          connectionId: 'connection',
-          routes: [
-            {
-              role: 'planner',
-              accountId: 'account',
-              model: 'model',
-              reasoningEffort: null,
-              runOn: 'local',
-              targetId: 'target',
-            },
-          ],
-        },
-        signal(),
-        call,
-      )
-    )?.isError,
-  ).toBe(false);
-  expect(fixture.approve).toHaveBeenCalledOnce();
-  expect(
-    (
-      await tool.execute(
-        'SymposiumConsult',
-        {
-          operation: 'consult',
-          requestId: randomUUID(),
-          policyId: randomUUID(),
-          role: 'planner',
-          assignment: 'Plan',
-        },
-        signal(),
-        call,
-      )
-    )?.isError,
-  ).toBe(false);
-  expect(fixture.consult.mock.calls[0][0]).toMatchObject({
-    leadSessionId: 'lead',
-    operatorConnectionId: 'viewer',
-  });
-});
+it.each([false, true])(
+  'requires exact policy approval, then invokes consultation under the verified lead authority (omitted updatedInput: %s)',
+  async (omitUpdatedInput) => {
+    fixture.omitUpdatedInput = omitUpdatedInput;
+    const { tool } = tools();
+    expect(
+      (
+        await tool.execute(
+          'SymposiumConsult',
+          {
+            operation: 'authorize',
+            requestId: randomUUID(),
+            repository: 'owner/repo',
+            connectionId: 'connection',
+            routes: [
+              {
+                role: 'planner',
+                accountId: 'account',
+                model: 'model',
+                reasoningEffort: null,
+                runOn: 'local',
+                targetId: 'target',
+              },
+            ],
+          },
+          signal(),
+          call,
+        )
+      )?.isError,
+    ).toBe(false);
+    expect(fixture.approve).toHaveBeenCalledOnce();
+    expect(
+      (
+        await tool.execute(
+          'SymposiumConsult',
+          {
+            operation: 'consult',
+            requestId: randomUUID(),
+            policyId: randomUUID(),
+            role: 'planner',
+            assignment: 'Plan',
+          },
+          signal(),
+          call,
+        )
+      )?.isError,
+    ).toBe(false);
+    expect(fixture.consult.mock.calls[0][0]).toMatchObject({
+      leadSessionId: 'lead',
+      operatorConnectionId: 'viewer',
+    });
+  },
+);
 it('returns actionable missing authorization inputs without poisoning subsequent SDK turns', async () => {
   const { tool } = tools();
   const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });

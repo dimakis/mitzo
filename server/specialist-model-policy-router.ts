@@ -82,7 +82,7 @@ export function createSpecialistModelPolicyRouter(events: EventStore) {
       return failure(error, res);
     }
   });
-  router.put('/:sessionId', requireSameOriginJson, (req, res) => {
+  router.put<{ sessionId: string }>('/:sessionId', requireSameOriginJson, (req, res) => {
     const input = inputSchema.safeParse(req.body);
     if (!input.success)
       return res.status(400).json({
@@ -101,24 +101,30 @@ export function createSpecialistModelPolicyRouter(events: EventStore) {
       return failure(error, res);
     }
   });
-  router.put('/:sessionId/allowances/:policyId', requireSameOriginJson, (req, res) => {
-    const input = SpecialistAllowanceEditSchema.safeParse(req.body);
-    if (!input.success || !z.uuid().safeParse(req.params.policyId).success)
-      return res.status(400).json({ error: 'Use a positive consultation allowance or unlimited.' });
-    try {
-      return res.json(
-        allowanceSummary(
-          getSpecialistConsultations().receipts.editAllowance(
-            req.params.sessionId,
-            recentAuthorizationSession(res)!.id,
-            req.params.policyId,
-            input.data,
+  router.put<{ sessionId: string; policyId: string }>(
+    '/:sessionId/allowances/:policyId',
+    requireSameOriginJson,
+    (req, res) => {
+      const input = SpecialistAllowanceEditSchema.safeParse(req.body);
+      if (!input.success || !z.uuid().safeParse(req.params.policyId).success)
+        return res
+          .status(400)
+          .json({ error: 'Use a positive consultation allowance or unlimited.' });
+      try {
+        return res.json(
+          allowanceSummary(
+            getSpecialistConsultations().receipts.editAllowance(
+              req.params.sessionId,
+              recentAuthorizationSession(res)!.id,
+              req.params.policyId,
+              input.data,
+            ),
           ),
-        ),
-      );
-    } catch (error) {
-      return failure(error, res);
-    }
-  });
+        );
+      } catch (error) {
+        return failure(error, res);
+      }
+    },
+  );
   return router;
 }
