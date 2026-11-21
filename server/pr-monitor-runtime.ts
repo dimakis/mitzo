@@ -3,6 +3,7 @@ import type { EventStore } from './event-store.js';
 import { PrMonitorConsent } from './pr-monitor-consent.js';
 import { PrMonitorObserver } from './pr-monitor-observer.js';
 import { createPrMonitorGitHubReader } from './pr-monitor-github.js';
+import type { PrMonitorAuthorPolicy } from './pr-monitor-author-policy.js';
 
 /** Explicit controller composition. The existing prompt scheduler owns tick and
  * drain; the connection owner must supply an attested authenticated transport.
@@ -11,7 +12,7 @@ export function createPrMonitorObservationRuntime(options: {
   eventStore: EventStore;
   consent: Omit<ConstructorParameters<typeof PrMonitorConsent>[0], 'store'>;
   transport: Parameters<typeof createPrMonitorGitHubReader>[0]['transport'];
-  eligibleAuthors: readonly string[];
+  eligibleAuthors: PrMonitorAuthorPolicy;
 }) {
   const consent = new PrMonitorConsent({ ...options.consent, store: options.eventStore.prMonitor });
   const quota = options.eventStore.githubReadQuota;

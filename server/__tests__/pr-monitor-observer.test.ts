@@ -330,6 +330,41 @@ it('bounds pagination and preserves explicit partial state', async () => {
   expect(f.read.mock.calls.length).toBeLessThanOrEqual(10);
   expect(f.view().diagnostic?.code).toBe('incomplete');
 });
+it('retains the exact issue comment reference for the latest eligible Centaur report', async () => {
+  const f = fixture();
+  await f.observe();
+  f.read.mockImplementation(async (r) => ({
+    status: 200,
+    data:
+      r.resource === 'pr'
+        ? pr
+        : {
+            items:
+              r.resource === 'reviews'
+                ? [
+                    {
+                      id: '42',
+                      source: 'comment',
+                      headSha: head,
+                      author: 'TRUSTED',
+                      revision: '2026-11-21T13:00:00Z',
+                      state: 'changes_requested',
+                      findings: [
+                        { id: 'centaur-report', revision: '1', blocking: true, resolved: false },
+                      ],
+                    },
+                  ]
+                : [],
+            hasNext: false,
+          },
+  }));
+  await f.observe();
+  const v = f.view();
+  expect(v.outbox?.eventIds).toHaveLength(1);
+  expect(v.events[0].references).toEqual([
+    { kind: 'comment', id: '42', url: 'https://github.com/owner/repo/pull/1#issuecomment-42' },
+  ]);
+});
 it.each(['merged', 'closed'] as const)(
   'retains terminal %s and stops due polling',
   async (state) => {

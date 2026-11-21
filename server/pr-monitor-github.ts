@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { parsePrMonitorCentaur } from './pr-monitor-centaur.js';
+import { prMonitorAuthors, type PrMonitorAuthorPolicy } from './pr-monitor-author-policy.js';
 import type { PrMonitorReadPort, PrMonitorReadRequest } from './pr-monitor-observer.js';
 import type { GitHubReadResponse } from './github-read-response.js';
 const number = z.number().int().positive(),
@@ -43,7 +45,13 @@ const review = z.object({
   state: z.enum(['CHANGES_REQUESTED', 'APPROVED', 'DISMISSED', 'COMMENTED', 'PENDING']),
   submitted_at: z.string().nullable(),
   user: z.object({ login: reference }),
-  body: z.string().max(16384).nullable(),
+  body: z.string().nullable(),
+});
+const comment = z.object({
+  id: number,
+  updated_at: z.iso.datetime(),
+  user: z.object({ login: reference }),
+  body: z.string(),
 });
 const report = z.strictObject({
   version: z.literal(1),
@@ -68,7 +76,7 @@ export function createPrMonitorGitHubReader(options: {
   ): Promise<GitHubReadResponse>;
   assertConnection(request: PrMonitorReadRequest): void;
   observeQuota(request: PrMonitorReadRequest, response: GitHubReadResponse): void;
-  eligibleAuthors?: readonly string[];
+  eligibleAuthors?: PrMonitorAuthorPolicy;
 }): PrMonitorReadPort {
   return async (request) => {
     const check = () => {
@@ -196,18 +204,27 @@ export function createPrMonitorGitHubReader(options: {
     if (response.status !== 200) return response;
     const reviews = z.array(review).max(100).parse(response.data),
       items = [];
+    const authors = prMonitorAuthors(options.eligibleAuthors ?? [], request.subscription);
     for (const r of reviews) {
       if (r.state === 'PENDING') continue;
       let findings: z.infer<typeof report>['findings'] = [];
+      let state = r.state.toLowerCase();
       if (
-        r.state === 'CHANGES_REQUESTED' &&
         r.commit_id === request.headSha &&
-        (options.eligibleAuthors ?? []).includes(r.user.login)
+        authors.has(r.user.login.toLowerCase()) &&
+        r.state !== 'DISMISSED'
       ) {
         try {
-          const parsed = report.parse(JSON.parse(r.body ?? ''));
-          if (parsed.headSha !== r.commit_id) throw Error('mismatch');
-          findings = parsed.findings;
+          const centaur = parsePrMonitorCentaur(r.body ?? '');
+          if (centaur) {
+            if (centaur.headSha !== r.commit_id) continue;
+            findings = centaur.findings;
+            state = centaur.state;
+          } else if (r.state === 'CHANGES_REQUESTED') {
+            const parsed = report.parse(JSON.parse(r.body ?? ''));
+            if (parsed.headSha !== r.commit_id) throw Error('mismatch');
+            findings = parsed.findings;
+          }
         } catch {
           throw Error('incomplete');
         }
@@ -215,13 +232,39 @@ export function createPrMonitorGitHubReader(options: {
       if (!r.submitted_at) throw Error('incomplete');
       items.push({
         id: String(r.id),
+        source: 'review',
         headSha: r.commit_id,
         author: r.user.login,
         revision: r.submitted_at,
-        state: r.state.toLowerCase(),
+        state,
         findings,
       });
     }
-    return { ...response, data: { items, hasNext: reviews.length === 100 } };
+    const commentsResponse = await get(
+      `${root}/issues/${g.pr}/comments?per_page=100&page=${request.page}`,
+    );
+    if (commentsResponse.status !== 200) return commentsResponse;
+    const comments = z.array(comment).max(100).parse(commentsResponse.data);
+    for (const c of comments) {
+      if (!authors.has(c.user.login.toLowerCase())) continue;
+      const marker = /^<!-- centaur:sha:([a-f0-9]{40}) -->/.exec(c.body)?.[1];
+      if (marker !== request.headSha) continue;
+      const parsed = parsePrMonitorCentaur(c.body);
+      if (!parsed) continue;
+      items.push({
+        id: String(c.id),
+        source: 'comment',
+        headSha: parsed.headSha!,
+        author: c.user.login,
+        revision: c.updated_at,
+        state: parsed.state,
+        findings: parsed.findings,
+      });
+    }
+    if (items.length > 100) throw Error('incomplete');
+    return {
+      ...response,
+      data: { items, hasNext: reviews.length === 100 || comments.length === 100 },
+    };
   };
 }

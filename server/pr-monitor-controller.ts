@@ -8,6 +8,7 @@ import type { Connection } from './connections-store.js';
 import type { GitHubReadResponse } from './github-read-response.js';
 import { githubMonitorPullSchema } from './pr-monitor-github.js';
 import { createPrMonitorObservationRuntime } from './pr-monitor-runtime.js';
+import type { PrMonitorAuthorPolicy } from './pr-monitor-author-policy.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const PrMonitorRegisterSchema = z.strictObject({
@@ -45,7 +46,7 @@ type Options = {
     signal: AbortSignal,
     assertCurrent: () => void,
   ): Promise<GitHubReadResponse>;
-  eligibleAuthors: readonly string[];
+  eligibleAuthors: PrMonitorAuthorPolicy;
 };
 /** Application-owned registration/observation only. No browser attachment, model
  * process or command is created to reconcile a retained explicit Watch. */

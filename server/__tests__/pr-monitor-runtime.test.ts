@@ -67,7 +67,7 @@ it('composes durable Watch, authenticated reads, real quota admission and event 
     data:
       endpoint === '/user'
         ? { id: 42 }
-        : endpoint.includes('/reviews')
+        : endpoint.includes('/reviews') || endpoint.includes('/comments')
           ? []
           : endpoint.includes('/actions')
             ? { total_count: 0, workflow_runs: [] }
@@ -113,9 +113,9 @@ it('composes durable Watch, authenticated reads, real quota admission and event 
   expect(view.refreshState).toBe('current');
   expect(view.snapshot?.headSha).toBe(head);
   expect(view.counters.modelTurns).toBe(0);
-  expect(transport).toHaveBeenCalledTimes(8);
-  expect(store.githubReadQuota.inspect('github:42').charged).toBe(8);
+  expect(transport).toHaveBeenCalledTimes(9);
+  expect(store.githubReadQuota.inspect('github:42').charged).toBe(9);
   await runtime.close();
   await runtime.reconcileDue();
-  expect(transport).toHaveBeenCalledTimes(8);
+  expect(transport).toHaveBeenCalledTimes(9);
 });

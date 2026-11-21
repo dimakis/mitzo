@@ -64,7 +64,7 @@ export function createApplicationPrMonitor(options: {
   connections(): { store: ConnectionStore } | null;
   auth: ControllerOptions['auth'];
   read: ControllerOptions['read'];
-  eligibleAuthors: readonly string[];
+  eligibleAuthors: ControllerOptions['eligibleAuthors'];
 }) {
   return createPrMonitorController({
     ...options,

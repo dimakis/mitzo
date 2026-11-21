@@ -93,7 +93,7 @@ export const PrMonitorAuthoritySchema = z
   });
 export type PrMonitorAuthority = z.infer<typeof PrMonitorAuthoritySchema>;
 export const PrMonitorReferenceSchema = z.strictObject({
-  kind: z.enum(['job', 'check', 'review']),
+  kind: z.enum(['job', 'check', 'review', 'comment']),
   id: reference,
   url: z
     .url()
@@ -101,7 +101,11 @@ export const PrMonitorReferenceSchema = z.strictObject({
     .refine((value) => {
       const u = new URL(value);
       return (
-        u.origin === 'https://github.com' && !u.username && !u.password && !u.search && !u.hash
+        u.origin === 'https://github.com' &&
+        !u.username &&
+        !u.password &&
+        !u.search &&
+        (!u.hash || /^#issuecomment-[1-9][0-9]*$/.test(u.hash))
       );
     }),
 });

@@ -3911,6 +3911,7 @@ mountObservedRouter(
   }),
 );
 
+const prMonitorReviewer = process.env.CENTAUR_REVIEWER_LOGIN?.trim();
 export const prMonitorController = createApplicationPrMonitor({
   eventStore,
   registry,
@@ -3922,9 +3923,7 @@ export const prMonitorController = createApplicationPrMonitor({
     isInteractive: isAuthenticatedOperatorSessionId,
   },
   read: executeTrustedGitHubReadResponse,
-  eligibleAuthors: process.env.CENTAUR_REVIEWER_LOGIN?.trim()
-    ? [process.env.CENTAUR_REVIEWER_LOGIN.trim()]
-    : [],
+  eligibleAuthors: (subscription) => [prMonitorReviewer || subscription.github.owner],
 });
 const sessionCapabilityGrants = new SessionCapabilityGrants(
   registry,

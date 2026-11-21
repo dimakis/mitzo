@@ -68,7 +68,7 @@ async function fixture() {
       data:
         endpoint === '/user'
           ? { id: 42, login: 'owner' }
-          : endpoint.includes('/reviews')
+          : endpoint.includes('/reviews') || endpoint.includes('/comments')
             ? []
             : endpoint.includes('/actions')
               ? { total_count: 0, workflow_runs: [] }
