@@ -30,7 +30,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../context-measurement-control.ts':
     '84675c4f36c776cf6fca2b6379cb1d63db80bc49212742197674a36f38e41da6',
   '../__tests__/context-measurement.test.ts':
-    '1e22b5ac54c566bdb7c2e5ed668d62ee5db9f6b3a48bd69428bd04f85006152b',
+    '5e99e6c48c7f22ed925c327f79a61a1773e5d6a19d1ef7431e5a718b20c48d20',
   '../__tests__/chat-sdk-query-adapter.test.ts':
     '9601a0147184fd2adb2a2d430cca1e6bc79b8eb96c85e0ef058dc419957747d9',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',

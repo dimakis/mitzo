@@ -50,6 +50,9 @@ are not added to occupancy again. Owner/cancellation checks now run immediately
 after authorization awaits, including before returning a normalized snapshot.
 The focused regression rerun passed **70 tests in 5 files**, together with focused
 strict TypeScript, ESLint, formatting and refreshed source-artifact verification.
+Centaur baseline review `6007096666` independently identified the lifecycle race
+as `CEN-C9E8F4BBD574`. Two further full-mode microtask regressions cover retirement
+after each authorization returns; the updated 28-case contract suite passes.
 
 Not qualified: real SDK CLI control execution, summary/full latency or cost,
 model-specific context limits, ordinary OpenShell event transport, ordinary

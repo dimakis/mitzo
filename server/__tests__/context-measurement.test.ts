@@ -317,6 +317,31 @@ describe('bounded Claude context inspection', () => {
       expect(f.query.getContextUsage).not.toHaveBeenCalled();
     },
   );
+  it.each([1, 2])(
+    'rejects retirement after full authorization %s resolves',
+    async (retireAfter) => {
+      const f = fixture();
+      let calls = 0;
+      const result = await inspectClaudeContext({
+        current: f.current,
+        signal: new AbortController().signal,
+        detail: 'full',
+        authorizeFull: async () => {
+          if (++calls === retireAfter) {
+            // Run after authorize() checks ownership, before work() resumes its await.
+            queueMicrotask(() =>
+              queueMicrotask(() => {
+                f.owner.active = false;
+              }),
+            );
+          }
+          return true;
+        },
+      });
+      expect(result).toEqual({ status: 'unavailable', reason: 'scope_changed' });
+      expect(f.query.getContextUsage).toHaveBeenCalledTimes(retireAfter - 1);
+    },
+  );
   it.each(['retired', 'binding', 'query'] as const)(
     'discards a late response after %s changes',
     async (change) => {
