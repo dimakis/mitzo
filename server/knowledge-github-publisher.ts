@@ -90,7 +90,7 @@ export function finalKnowledgeApproval(
     latest.state !== 'DISMISSED' &&
     new RegExp(
       `^<!-- centaur:sha:${head} -->\\s*## Centaur Review\\s*` +
-        'LGTM — no issues found\\.\\s*### Convergence\\s*' +
+        '(?:LGTM — no issues found\\.|Found \\*\\*\\d+\\*\\* issue\\(s\\)(?: \\(\\d+ warning\\))?\\.)\\s*### Convergence\\s*' +
         '\\*\\*Recommendation:\\*\\* `merge`[^\\n]*\\n',
     ).test(body) &&
     body.split('**Recommendation:**').length === 2 &&
