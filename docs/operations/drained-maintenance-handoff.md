@@ -175,6 +175,32 @@ fail through the HTTP server entry point before app imports, routes, timers or r
 the marker or evidence to make startup pass. A completed handoff remains valid
 historical evidence on later accepted releases; it grants no new delivery authority.
 
+On macOS the bootstrap also verifies the persistent APFS volume UUID, inode
+and creation time of both databases. New adoptions save these in a private
+`$plan.database-identity.json` record bound to the original plan and seal. Keep
+this record with the original evidence. The startup marker pins its fingerprint
+and retains its prior bytes as `required-handoff.json.v1`. Startup refuses a
+missing pinned record, even if macOS reissues the legacy device number.
+
+For a completed legacy handoff without this record, a host operator can migrate
+it from a reviewed, accepted release. Use retained host evidence to verify the
+original volumes and files. Take the plan fingerprint from the retained
+`required-handoff.json` and obtain the original volume UUIDs independently of
+the failing checkout:
+
+```sh
+node scripts/deployment-maintenance-bootstrap.mjs --migrate-completed-identity \
+  "$plan_sha256" "$events_volume_uuid" "$native_volume_uuid"
+node scripts/deployment-maintenance-bootstrap.mjs
+```
+
+The command uses the same database paths as startup. Both inodes must match the
+sealed plan, both files must predate its seal, and the original completed
+operation and quarantine must verify. The command publishes the private
+identity record exclusively and updates the startup marker. It preserves the
+previous marker bytes, the sealed records and database rows. If the original filesystem provenance is uncertain, retain the outage and
+evidence for review.
+
 Start the accepted target only after adoption and Telos transfer succeed. New
 ordinary admission/FIFO remains held. Set the ordinary deployment CLI state path
 to the private `$plan.resume.json`, then use `health` and `resume`. The maintenance

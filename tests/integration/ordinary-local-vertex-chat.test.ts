@@ -1094,25 +1094,32 @@ it.each(
           ]),
         );
         expect(names).not.toContain('ListSessions');
-        for (const [name, input] of [
+        const calls = [
           ['AgentCommunication', { operation: 'list', offset: 0 }],
           ['SearchPastSessions', { query: 'information fixture' }],
           ['ReadPastSession', { conversationId: 'information-fixture' }],
           ['AgentReadTasks', { action: 'list' }],
-        ] as const) {
-          expect(
-            await options.canUseTool!('mcp__mitzo-connections__' + name, input, {
-              signal: new AbortController().signal,
-              toolUseID: `${commandId}-${name}`,
-            }),
-          ).toMatchObject({ behavior: 'allow' });
-          const result = await client.callTool({ name, arguments: input });
-          expect(result.isError, JSON.stringify(result)).not.toBe(true);
-          if (name === 'ReadPastSession')
-            expect(JSON.stringify(result.content)).toContain('Public information fixture');
-          if (name === 'SearchPastSessions')
-            expect(JSON.stringify(result.content)).toContain('information-fixture');
-        }
+        ] as const;
+        // These reads share one acknowledged input, but each has its own
+        // authorization and result. Drain all callbacks before closing the client.
+        const outcomes = await Promise.allSettled(
+          calls.map(async ([name, input]) => {
+            expect(
+              await options.canUseTool!('mcp__mitzo-connections__' + name, input, {
+                signal: new AbortController().signal,
+                toolUseID: `${commandId}-${name}`,
+              }),
+            ).toMatchObject({ behavior: 'allow' });
+            const result = await client.callTool({ name, arguments: input });
+            expect(result.isError, JSON.stringify(result)).not.toBe(true);
+            if (name === 'ReadPastSession')
+              expect(JSON.stringify(result.content)).toContain('Public information fixture');
+            if (name === 'SearchPastSessions')
+              expect(JSON.stringify(result.content)).toContain('information-fixture');
+          }),
+        );
+        const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+        if (failure) throw failure.reason;
         informationCalls.push(commandId);
       } finally {
         await client.close();
