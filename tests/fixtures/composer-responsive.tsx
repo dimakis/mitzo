@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
+import { UiIcon } from '../../frontend/src/components/UiIcon';
 import type { UseVoiceReturn } from '../../frontend/src/hooks/useVoice';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
@@ -85,7 +86,7 @@ function Surface() {
           }
           collaboration={
             <button type="button" className="chat-input-btn" aria-label="Agents">
-              Agents
+              <UiIcon name="agents" />
             </button>
           }
         />

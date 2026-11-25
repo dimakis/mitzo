@@ -94,7 +94,7 @@ The candidate now restores main's ChatInput/ComposerTools structure, so the
 ordinary composer is unchanged and the earlier secondary overflow (and its Centaur
 findings about overflow anchoring and height) no longer exists. A
 `data-symposium` toolbar marker and `SymposiumComposer.css` order the existing
-controls into two rows below a 34rem composer width. The responsive spec was
+controls into two rows at composer widths up to 520px (where the existing tools already use the More popover). The responsive spec was
 rewritten for 280/320/390/768px. It checks that every control is a direct 44px
 icon (not inside More), that there is no overlap, that the layout has exactly two
 rows at 280-390px, that the primary actions share a row, and that positions stay

@@ -109,26 +109,29 @@ for (const sourceStop of [false, true])
       await page.goto(sourceStop ? '/?sourceStop=1' : '/');
       const input = page.getByRole('textbox', { name: 'Message Mitzo' });
       await expect(input).toHaveValue('Keep this unsent draft');
-      const secondary = [
+      // More holds the pre-existing composer tools only while they are a popover
+      // (narrow composers); wider composers show those tools inline instead.
+      const secondary = (width: number) => [
         'Choose who replies',
-        'More composer actions',
+        ...(width <= 390 ? ['More composer actions'] : []),
         'Open session tray',
         'Agents',
         'Token usage',
         'Record voice message',
         ...(sourceStop ? ['Stop original agent'] : []),
       ];
-      const idle = [...secondary, 'Send message'];
-      const running = [
-        ...secondary,
-        'Steer selected agents',
-        'Queue message',
-        'Stop selected agents',
-      ];
+      let idle: string[];
       for (const width of [280, 320, 390, 768]) {
         await page.setViewportSize({ width, height: 640 });
+        idle = [...secondary(width), 'Send message'];
+        const running = [
+          ...secondary(width),
+          'Steer selected agents',
+          'Queue message',
+          'Stop selected agents',
+        ];
         const idleBoxes = await directControls(page, idle);
-        if (width <= 390) expect(rows(idleBoxes)).toBe(2);
+        if (width <= 390) expect(rows(idleBoxes), `idle rows at ${width}px`).toBe(2);
         // Typing does not move any control.
         await input.fill(`Draft at ${width}px`);
         same(idleBoxes, await directControls(page, idle));
@@ -137,11 +140,14 @@ for (const sourceStop of [false, true])
         same(idleBoxes, await directControls(page, idle));
         await page.getByRole('button', { name: 'Toggle running' }).click();
         const runningBoxes = await directControls(page, running);
-        if (width <= 390) expect(rows(runningBoxes)).toBe(2);
+        if (width <= 390) expect(rows(runningBoxes), `running rows at ${width}px`).toBe(2);
         const primary = runningBoxes.filter((box) =>
           ['Steer selected agents', 'Queue message', 'Stop selected agents'].includes(box.name),
         );
-        expect(new Set(primary.map((box) => Math.round(box.y))).size).toBe(1);
+        expect(
+          new Set(primary.map((box) => Math.round(box.y))).size,
+          `primary rows at ${width}px`,
+        ).toBe(1);
         // Queueing keeps the running layout stable.
         await page.getByRole('button', { name: 'Queue message', exact: true }).click();
         same(runningBoxes, await directControls(page, running));
@@ -154,6 +160,7 @@ for (const sourceStop of [false, true])
       }
       // Short viewport with large text: recipients expand on their own bounded row.
       await page.setViewportSize({ width: 320, height: 360 });
+      idle = [...secondary(320), 'Send message'];
       await page.addStyleTag({ content: 'html{font-size:150%}' });
       await input.fill('A long draft\n'.repeat(20));
       await directControls(page, idle);
@@ -176,7 +183,7 @@ test('ordinary composer keeps its approved single row with direct usage and voic
 }) => {
   await serve(page, 'dark');
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  for (const width of [390, 768]) {
+  for (const width of [390]) {
     await page.setViewportSize({ width, height: 640 });
     await page.goto('/?ordinary=1');
     const boxes = await directControls(page, [

@@ -62,11 +62,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-sdk-query-adapter.test.ts':
     '9601a0147184fd2adb2a2d430cca1e6bc79b8eb96c85e0ef058dc419957747d9',
   '../../frontend/src/components/SymposiumComposer.css':
-    '61d2021bccb8ba6a35df28f61f87946dac2423a264d7f3628fa2c5596728bb6f',
+    '59c686c3e52d1f5cb5c56ec7241801fb08fca911c607678438e7bcc9e46d7be1',
   '../../tests/fixtures/composer-responsive.tsx':
-    'f37ca128d2dc4e20c8fb98108d01297367eff933ce47382464bc6403e8e38333',
+    'f11043b10b6685e3b4b1c34a4f8ab3721668e9f6ec6cd29badddacea5190c11e',
   '../../tests/offline/composer-responsive.spec.ts':
-    'ef17bc903c6adde554bd6cb106a83b99e85ca4ae3127826d0a227f9c11a43268',
+    '78e1cb5e5b054929cea6eeedb545e376f9ce704727d237a0b4fc005d6ff8d2ec',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',

@@ -17,7 +17,7 @@
    keeps its approved single-row layout; these rules only apply with
    [data-symposium]. Row membership is fixed per state, so typing, queueing and
    sending do not move controls between rows. */
-@container (max-width: 34rem) {
+@container (max-width: 520px) {
   .chat-input--compact .composer-toolbar[data-symposium] {
     display: flex;
     flex-wrap: wrap;
