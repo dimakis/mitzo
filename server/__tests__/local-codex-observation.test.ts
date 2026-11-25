@@ -16,6 +16,7 @@ import { mkdtempSync, realpathSync, mkdirSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tracer } from '../tracing.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
 
 const diagnosticLog = vi.hoisted(() => ({ warn: vi.fn(), info: vi.fn() }));
 vi.mock('../logger.js', () => ({
@@ -31,6 +32,39 @@ const exporter = new InMemorySpanExporter();
 const provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
 provider.register();
 afterAll(() => provider.shutdown());
+
+it.each(['bootstrap', 'host_tool_execution'] as const)(
+  'retains sanitized cause and the original diagnostic reference for a failed %s phase',
+  async (phase) => {
+    exporter.reset();
+    diagnosticLog.warn.mockClear();
+    const cause = Object.assign(new TypeError('SECRET /private/account'), { code: 'EIO' });
+    const failure = new SessionRuntimeError('runtime_unavailable', { cause });
+    await expect(
+      observeLocalCodexPhase(phase, async () => {
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+    const span = exporter.getFinishedSpans().find((item) => item.name === `local_codex.${phase}`)!;
+    expect(span.attributes).toMatchObject({
+      'runtime.cause_type': 'TypeError',
+      'runtime.cause_code': 'EIO',
+      'runtime.diagnostic_id': failure.diagnosticId,
+    });
+    expect(diagnosticLog.warn).toHaveBeenCalledWith(
+      'Local Codex phase completed',
+      expect.objectContaining({
+        phase,
+        causeType: 'TypeError',
+        causeCode: 'EIO',
+        diagnosticId: failure.diagnosticId,
+      }),
+    );
+    expect(
+      JSON.stringify([span.attributes, span.events, diagnosticLog.warn.mock.calls]),
+    ).not.toMatch(/SECRET|private\/account/);
+  },
+);
 
 it.each(['span', 'logger'] as const)(
   'preserves successful artifacts and original failures when %s finalization throws',

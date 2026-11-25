@@ -25,6 +25,15 @@ export async function recordApplicationMessagingRuntime(
   const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
   const closeClients = new Set<() => void>();
   const heldTurns = new Set<number>();
+  const turnOwners = new Map<
+    number,
+    {
+      threadId: string;
+      turnId: string;
+      lifecycle: NonNullable<Parameters<typeof CodexAppServerClient.launchIsolated>[2]>;
+    }
+  >();
+  let loseNextSteer = false;
   const streamTurns = new Map<number, (text: string) => void>();
   const pendingTurns = new Map<
     number,
@@ -130,10 +139,25 @@ export async function recordApplicationMessagingRuntime(
           // turn may complete/fail concurrently and is settled separately.
           return {};
         }
+        if (method === 'turn/steer') {
+          if (
+            !retainedTurn ||
+            params.threadId !== threadId ||
+            params.expectedTurnId !== retainedTurn.id ||
+            retainedTurn.status !== 'inProgress'
+          )
+            throw Error('Wrong synthetic native steering target');
+          if (loseNextSteer) {
+            loseNextSteer = false;
+            throw Error('Synthetic steering acknowledgement lost');
+          }
+          return { turnId: retainedTurn.id };
+        }
         if (method === 'turn/start') {
           const turnNumber = requests.filter((r) => r.method === 'turn/start').length;
           const turnId = `private-native-turn-${turnNumber}`;
           retainedTurn = { id: turnId, status: 'inProgress' };
+          turnOwners.set(turnNumber, { threadId, turnId, lifecycle: lifecycle! });
           streamTurns.set(turnNumber, (text) =>
             lifecycle!.onNotification('item/agentMessage/delta', {
               threadId,
@@ -196,6 +220,29 @@ export async function recordApplicationMessagingRuntime(
     });
   return {
     requests,
+    loseNextSteer: () => {
+      loseNextSteer = true;
+    },
+    closeTurnTransport: (turnNumber: number, cause: Error) => {
+      const owner = turnOwners.get(turnNumber);
+      if (!owner) throw Error('Synthetic turn owner unavailable');
+      owner.lifecycle.onClose(cause);
+    },
+    requestTool: (turnNumber: number, tool: string, input: Record<string, unknown>) => {
+      const owner = turnOwners.get(turnNumber);
+      if (!owner) throw Error('Synthetic turn owner unavailable');
+      return owner.lifecycle.onRequest(
+        'item/tool/call',
+        {
+          threadId: owner.threadId,
+          turnId: owner.turnId,
+          callId: crypto.randomUUID(),
+          tool,
+          arguments: input,
+        },
+        new AbortController().signal,
+      );
+    },
     holdTurn: (turnNumber: number) => heldTurns.add(turnNumber),
     streamTurn: (turnNumber: number, text: string) => {
       const emit = streamTurns.get(turnNumber);

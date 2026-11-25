@@ -371,26 +371,29 @@ export function createApplicationJourney(
     expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
     const library = (await import('../../agent-library-runtime.js')).getAgentLibrary();
     const profileId = `acceptance-reviewer-${participant.accountId}`;
-    library.saveDraft('user', {
-      profileId,
-      expectedVersion: 0,
-      expectedRevision: 0,
-      idempotencyKey: `draft-${profileId}`,
-      definition: {
-        name: 'Reviewer',
-        descriptor: 'Assistant',
-        role: 'agent',
-        instructions: 'Review the selected source.',
-        expectedOutput: 'Findings',
-        acceptanceCriteria: ['Cite evidence'],
-        modelPolicyRole: 'agent',
-      },
-    });
-    const published = library.publish('user', {
-      profileId,
-      expectedVersion: 1,
-      idempotencyKey: `publish-${profileId}`,
-    });
+    if (!library.version('user', profileId, 1))
+      library.saveDraft('user', {
+        profileId,
+        expectedVersion: 0,
+        expectedRevision: 0,
+        idempotencyKey: `draft-${profileId}`,
+        definition: {
+          name: 'Reviewer',
+          descriptor: 'Assistant',
+          role: 'agent',
+          instructions: 'Review the selected source.',
+          expectedOutput: 'Findings',
+          acceptanceCriteria: ['Cite evidence'],
+          modelPolicyRole: 'agent',
+        },
+      });
+    const published =
+      library.version('user', profileId, 1) ??
+      library.publish('user', {
+        profileId,
+        expectedVersion: 1,
+        idempotencyKey: `publish-${profileId}`,
+      });
     const auth = await (
       await import('../../auth.js')
     ).authenticateToken(decodeURIComponent(state.cookie.slice('cc_auth='.length)));
