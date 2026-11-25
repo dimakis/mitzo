@@ -19,6 +19,24 @@ function fakeQuery(messages: unknown[]) {
 }
 
 describe('adaptSdkQuery', () => {
+  it.each(['summary', 'full'] as const)(
+    'forwards explicit context %s detail with the native receiver',
+    async (detail) => {
+      const raw = fakeQuery([]);
+      const getContextUsage = vi.fn(function (
+        this: { state: string },
+        options: { detail?: 'summary' | 'full' },
+      ) {
+        expect(this.state).toBe('bound-to-source');
+        return Promise.resolve({ fixture: true, detail: options.detail });
+      });
+      Object.assign(raw, { getContextUsage });
+      const adapted = adaptSdkQuery(raw) as unknown as Pick<Query, 'getContextUsage'>;
+      await expect(adapted.getContextUsage({ detail })).resolves.toEqual({ fixture: true, detail });
+      expect(getContextUsage).toHaveBeenCalledExactlyOnceWith({ detail });
+    },
+  );
+
   it('validates async messages and preserves bound SDK methods', async () => {
     const raw = fakeQuery([{ type: 'assistant', content: 'hello' }]);
     const adapted = adaptSdkQuery(raw);
