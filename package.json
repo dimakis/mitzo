@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "setup:dev": "node scripts/prepare-development.mjs",
+    "setup:dev:host": "node scripts/prepare-development-host.mjs",
     "dev": "bash scripts/dev.sh",
     "dev:ui-preview": "vite frontend --port 3102 --host 127.0.0.1",
     "dev:server": "tsx watch server/index.ts",
