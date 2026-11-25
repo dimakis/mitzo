@@ -111,11 +111,17 @@ The required dependency merge retains inspector head
 changes comprise six server/validation/registry files. The snapshot contract,
 inspector implementation and browser fixtures are unchanged.
 
-Coordinated with the #1431 owner, the runtime registry advances from
-`v1.0.1274-context-snapshot-lifecycle-and-turn-attribution` to
-`v1.0.1275-context-snapshot-inspector`. All parent registrations are retained;
-only the four changed UI source fingerprints (design contract, ChatInput,
-ConversationContextUsage and TokenBar) are refreshed.
+The runtime registry keeps main's `reviewedConnectionsRuntimeImplementationRevision`
+(this UI change does not alter runtime semantics). All parent registrations are
+retained; only the changed source fingerprints are refreshed.
+
+Later landing fixes (lane A, 2026-11-25): the offline fixture memoizes
+`cancelRecording` like `useVoice`, so starting a recording is not cancelled by
+ChatInput's identity-change cleanup; a full refresh moves focus to the dialog's
+result region before its consent section unmounts, so Escape closes only the
+dialog and focus returns to "Inspect context" (previously failed in every
+browser project); and the CI browser failure reporter emits GitHub `::error`
+annotations so failures are readable without raw job logs.
 
 Verification on the combined tree:
 
