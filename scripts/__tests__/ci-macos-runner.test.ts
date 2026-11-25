@@ -65,7 +65,7 @@ it.each(['false', '', '1', 'yes'])('ignores a non-true operator variable: %j', (
   ).toBe('macos-26');
 });
 
-it.each(macosJobs)('%s uses the operator runner for same-repository PRs and main', (job) => {
+it.each(macosJobs)('%s uses the operator runner only for same-repository PRs', (job) => {
   expect(
     runnerFor(job, {
       variable: 'true',
@@ -73,9 +73,13 @@ it.each(macosJobs)('%s uses the operator runner for same-repository PRs and main
       headRepository: 'dimakis/mitzo',
     }),
   ).toEqual(selfHosted);
-  expect(runnerFor(job, { variable: 'true', eventName: 'push', ref: 'refs/heads/main' })).toEqual(
-    selfHosted,
+});
+
+it.each(macosJobs)('%s keeps post-merge main runs on clean hosted macOS when enabled', (job) => {
+  expect(runnerFor(job, { variable: 'true', eventName: 'push', ref: 'refs/heads/main' })).toBe(
+    'macos-26',
   );
+  expect(String(workflow.jobs[job]['runs-on'])).not.toMatch(/push|refs\/heads\/main/);
 });
 
 it.each(macosJobs)('%s never sends a fork PR to the operator runner', (job) => {

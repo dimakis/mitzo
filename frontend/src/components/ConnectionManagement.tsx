@@ -24,6 +24,9 @@ import type {
   ConnectionTemplate,
   ManagedConnection,
 } from '../types/connections';
+import type { PendingConnectionChange } from '../lib/connection-change-authorization';
+/** The gate keeps the tapped change when it opens identity confirmation. */
+type RequireReauthorization = (request?: PendingConnectionChange | true) => boolean;
 
 function CapabilityGrants({
   connection,
@@ -41,7 +44,7 @@ function CapabilityGrants({
   refreshEpoch: number;
   csrf: string;
   busy: string | null;
-  requireReauthorization: () => boolean;
+  requireReauthorization: RequireReauthorization;
   onAction: (name: string, action: () => Promise<unknown>, success: string) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
@@ -232,6 +235,8 @@ export function ConnectionCard({
   rotateOpen,
   rotationCredentials,
   requireReauthorization,
+  pendingChange,
+  onConfirmIdentity,
   onRotateOpen,
   onRotationCredentials,
   onRotateClose,
@@ -248,7 +253,9 @@ export function ConnectionCard({
   audit?: ConnectionAuditEntry[];
   rotateOpen: boolean;
   rotationCredentials: Record<string, string>;
-  requireReauthorization: () => boolean;
+  requireReauthorization: RequireReauthorization;
+  pendingChange?: PendingConnectionChange | null;
+  onConfirmIdentity?: () => void;
   onRotateOpen: () => void;
   onRotationCredentials: (next: Record<string, string>) => void;
   onRotateClose: () => void;
@@ -297,33 +304,58 @@ export function ConnectionCard({
         </details>
         <fieldset className="connections-profiles">
           <legend>AI accounts with access</legend>
-          {accounts.map((id) => (
-            <label className="connections-profile-option" key={id}>
-              <input
-                type="checkbox"
-                checked={connection.desiredAccountIds.includes(id)}
-                disabled={busy !== null}
-                onChange={() => {
-                  if (!requireReauthorization()) return;
-                  const next = connection.desiredAccountIds.includes(id)
-                    ? connection.desiredAccountIds.filter((value) => value !== id)
-                    : [...connection.desiredAccountIds, id];
-                  void onAction(
-                    `assign:${connection.id}`,
-                    () =>
-                      updateAssignments({
-                        id: connection.id,
-                        revision: connection.revision,
-                        accountIds: next,
-                        csrf,
-                      }),
-                    'Assignments updated for new conversations.',
-                  );
-                }}
-              />{' '}
-              {id}
-            </label>
-          ))}
+          {accounts.map((id) => {
+            const assigned = connection.desiredAccountIds.includes(id);
+            const accountIds = assigned
+              ? connection.desiredAccountIds.filter((value) => value !== id)
+              : [...connection.desiredAccountIds, id];
+            const save = (nextCsrf: string) =>
+              updateAssignments({
+                id: connection.id,
+                revision: connection.revision,
+                accountIds,
+                csrf: nextCsrf,
+              });
+            return (
+              <label className="connections-profile-option" key={id}>
+                <input
+                  type="checkbox"
+                  checked={assigned}
+                  disabled={busy !== null}
+                  onChange={() => {
+                    // The gate retains this exact change when identity is needed,
+                    // so it is applied after confirmation without a second tap.
+                    const request: PendingConnectionChange = {
+                      connectionId: connection.id,
+                      description: `${assigned ? 'Remove' : 'Add'} ${id} for ${connection.label}`,
+                      success: 'Assignments updated for new conversations.',
+                      apply: save,
+                    };
+                    if (!requireReauthorization(request)) return;
+                    void onAction(
+                      `assign:${connection.id}`,
+                      () => save(csrf),
+                      'Assignments updated for new conversations.',
+                    );
+                  }}
+                />{' '}
+                {id}
+              </label>
+            );
+          })}
+          {pendingChange && (
+            <p className="connections-notice" role="status">
+              {pendingChange.description}.{' '}
+              {onConfirmIdentity ? (
+                <button type="button" className="workspace-text-link" onClick={onConfirmIdentity}>
+                  Confirm your identity
+                </button>
+              ) : (
+                'Confirm your identity'
+              )}{' '}
+              and it will be applied automatically.
+            </p>
+          )}
         </fieldset>
         <CapabilityGrants
           connection={connection}

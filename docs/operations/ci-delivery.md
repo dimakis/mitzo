@@ -310,8 +310,10 @@ The narrow native-helper workflows retain their existing independent triggers.
 The `native`, `ordinary-journey` and `ordinary-joined` jobs stay on `macos-26`
 by default. They use the operator's runner (`[self-hosted, macOS, ARM64,
 mitzo-ci]`) only when the repository variable `MITZO_MACOS_SELF_HOSTED` is
-`true` **and** the run is a push to main or a PR whose head repository is this
-repository. Fork PRs always use hosted macOS.
+`true` **and** the run is a PR whose head repository is this repository. Fork
+PRs always use hosted macOS. Post-merge main runs also always use hosted
+`macos-26`, so the check after each merge stays clean and reproducible,
+independent of the operator machine's state.
 
 That workflow guard is defense in depth, not the security boundary: a
 `pull_request` run executes the PR's own workflow file, so a fork could edit
