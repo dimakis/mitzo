@@ -1,6 +1,10 @@
 import { expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
-import { observeWorkConversation, telosWorkContext } from '../telos-work-observation.js';
+import {
+  observeWorkConversation,
+  sessionRuntimeIdentity,
+  telosWorkContext,
+} from '../telos-work-observation.js';
 import { TelosWorkViewSchema, type SessionRuntimeBinding } from '@mitzo/protocol';
 
 it.each([
@@ -52,6 +56,19 @@ it.each([
         supported: false,
         reason: 'worker_setup_required',
       });
+      const meta = events.getSession('worker');
+      const navigation = vi.spyOn(events, 'getOrdinaryContributorContextEvents');
+      const initialAdmission = vi.spyOn(events, 'getOrdinaryInitialCommandId');
+      const latestAdmission = vi.spyOn(events, 'getLatestOrdinaryCommandAdmission');
+      expect(sessionRuntimeIdentity(events, meta)).toEqual({
+        agentName: 'Architect',
+        engine,
+        executionLocation: location,
+        runtimeUnavailable: false,
+      });
+      expect(navigation).not.toHaveBeenCalled();
+      expect(initialAdmission).not.toHaveBeenCalled();
+      expect(latestAdmission).not.toHaveBeenCalled();
     } finally {
       events.close();
     }
