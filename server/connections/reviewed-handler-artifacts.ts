@@ -1726,7 +1726,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-browser-container.test.ts':
     '20a46f5c88be16d39dbd859b3059eab7d8d405306d601c8c92642559ddc46a0d',
   '../../scripts/__tests__/ci-browser-failure-reporter.test.ts':
-    '730da0151f559054652bcf9e34db39da29153044d53ee35ecef927088ecee544',
+    'cc322e5fe6d6ea53fd2b773d98c0e0a6536b3686973ec7c53a24b71dc7712792',
   '../../scripts/__tests__/ci-browser-partition-workflow.test.ts':
     '0b6cd5bb21eae1ce9a9e27465572d3fd5581dec9e09147620c1d47cada89f58f',
   '../../scripts/__tests__/ci-browser-partition.test.ts':
@@ -1804,7 +1804,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-browser-durations.json':
     '196676e4d8a743c8e9567fc164ad1923df72de5625ad528295a93d27dc189cae',
   '../../scripts/ci-browser-failure-reporter.mjs':
-    'b22313559453a57bb106403e09c3c0f2ff1648a1045ad0293404cbc1c173f7e6',
+    '661846be172a0a740e314b5320419ec4d4507414468da434cdd0c94bd67bec27',
   '../../scripts/ci-browser-partition.mjs':
     'f75ab9817d023bbcf1139e074b0edec99f45c561b15aa296658f8e34383aaa8d',
   '../../scripts/ci-browser-run.mjs':
