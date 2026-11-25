@@ -159,7 +159,7 @@ function finalReport(records, head, reviewer) {
     last.state !== 'DISMISSED' &&
     (last.commit_id === undefined || last.commit_id === head) &&
     new RegExp(
-      `^<!-- centaur:sha:${head} -->\\s*## Centaur Review\\s*LGTM — no issues found\\.\\s*### Convergence\\s*\\*\\*Recommendation:\\*\\* \x60merge\x60[^\\n]*\\n`,
+      `^<!-- centaur:sha:${head} -->\\s*## Centaur Review\\s*(?:LGTM — no issues found\\.|Found \\*\\*\\d+\\*\\* issue\\(s\\)(?: \\(\\d+ warning\\))?\\.)\\s*### Convergence\\s*\\*\\*Recommendation:\\*\\* \x60merge\x60[^\\n]*\\n`,
     ).test(body) &&
     [
       '**Recommendation:**',
