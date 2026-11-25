@@ -180,6 +180,10 @@ import type {
 } from './types.js';
 import { AccountBindingSchema } from './account-binding.js';
 import type { SessionRuntimeBinding } from './session-runtime-binding.js';
+import {
+  RESTARTED_SDK_COMMAND_ERRORS,
+  type RestartedOrdinarySdkCommand,
+} from './restart-settlement.js';
 import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
 import type {
   SymposiumAdmissionRecord,
@@ -244,26 +248,13 @@ export type SymposiumSeatTerminalCreateReceiptV1 = z.infer<
   typeof SymposiumSeatTerminalCreateReceiptV1Schema
 >;
 
-/** A Claude SDK command a server restart left unconfirmed, and its settled outcome. */
-export interface RestartedOrdinarySdkCommand {
-  sessionId: string;
-  commandId: string;
-  outcome: 'delivered' | 'not_delivered' | 'unknown';
-}
+export type { RestartedOrdinarySdkCommand } from './restart-settlement.js';
 /** A top-level tool call whose result was never recorded. */
 export interface UnsettledToolCall {
   toolUseId: string;
   toolName: string;
   input?: string;
 }
-const RESTARTED_SDK_COMMAND_ERRORS: Record<RestartedOrdinarySdkCommand['outcome'], string | null> =
-  {
-    delivered: null,
-    not_delivered:
-      'Mitzo restarted before this message reached the agent. Nothing was sent; send it again if you still need it.',
-    unknown:
-      'Mitzo restarted while this message was being delivered, so the agent may not have received it. Check its reply before sending it again.',
-  };
 
 export interface SymposiumSeatSandboxRecord {
   artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;

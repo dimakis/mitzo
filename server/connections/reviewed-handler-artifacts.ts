@@ -23,10 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/src/restart-settlement.ts':
+    '19b314d18d130066709fa6e89e825f4a9377aee72d881829c6ab4298792fee71',
   '../__tests__/claude-cli-restart-resume-offline.test.ts':
     '6d036d15be2e409f2e5addc207cab41304303b8e3dea5fba4d64f26347529356',
   '../__tests__/claude-restart-interrupted-turn.test.ts':
-    'd5acb021cc475c75f66f17f006433c7cc7cb3b4f710453b6c818629e69c0a6d6',
+    '4c839055ecd9cb10a089075af0e178288459830b0c8c57ba359d94d101a6b4c7',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -1543,11 +1545,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/deployment-store.ts':
     '06980f353fa11edc16a5e8f75fb8de4b4679853b979d71a1e3d819f76007e04a',
   '../../packages/protocol/src/event-store.ts':
-    '5e1487b5724cd3c9c0a46f7e429f897d1818fb2a8dd46fa1fb5380c5cd09a146',
+    '937d5bc0dfab6f8fe6d099b1b47c982ade100e7b185d11131fac276d5c8c8fcf',
   '../../packages/protocol/src/execution-ledger.ts':
     '1399fe4c7ffcebea20fa4374083d0e14b90aba619f3b3349439882ba01851b88',
   '../../packages/protocol/src/index.ts':
-    'ca50c9fc0c7ecab2ba938db6c8233df100b887b919bed1c950dd36155b6a3ee3',
+    '37979b3023cc0be69ec0ecb0c12a2ec74521bf707a755d4274750e9ab14edcbf',
   '../../packages/protocol/src/local-codex-first-command.ts':
     'dce160cff162ec58adac0e98208b93b8f332bc822654914ddf85220084405b4e',
   '../../packages/protocol/src/local-vertex-command.ts':
@@ -4391,7 +4393,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../protected-sdk-command.ts': '9b77fcbe62a8fb900f7ec548220345e50a6c56ebb194c1a748aaaf590812c39a',
   '../provider-failure.ts': '0655ed00d881906318380ec0c90d62f1457b5257747eb765d05658199443805f',
   '../public-github-read.ts': '380ba8bca75f969abb505e14231e2b7ddb8f20dd7a03f7594835dc53c4b71a5b',
-  '../public-replay-error.ts': 'f259c0724784f96d7553750a6ca0d5812ef69d934f123b47eeaa863dd530aefe',
+  '../public-replay-error.ts': '69465ce7be2747e5e41131bdbf83fddf7f7f43b8147ab51711c90fa5bd2d4b31',
   '../public-web-fetch.ts': 'df8b576dd1ca06be5a038b4a137d88a939cabb48a09528d4d761d669caeb10f4',
   '../published-host-knowledge.ts':
     '86e2d852fe6904e90d07ffbf2908ab59d82c7f10a1eda92dd6af3be47a78b52f',

@@ -228,11 +228,13 @@ const restoredText = (f: Awaited<ReturnType<typeof claudeChat>>['f'], sessionId:
     .flatMap((message) => message.blocks.map((block) => ('content' in block ? block.content : '')))
     .join('\n');
 
-it('shows restart command notices in restored history beside the saved message', async () => {
+it('attaches a restart notice to an already echoed message in restored history', async () => {
   const { f, create, sessionId } = await claudeChat(async () => {
     throw Error('server terminated during cold start');
   });
   await expect(create(f.request.clientMsgId).admit(f.request)).rejects.toThrow();
+  // A command echoed before the restart (e.g. a later message in a chat whose
+  // CLI had already initialized). The first command's echo is covered below.
   if (!f.events.hasUserMessage(sessionId, f.request.clientMsgId))
     f.events.append(sessionId, 'user_message', {
       v: 2,
@@ -255,23 +257,46 @@ it('shows restart command notices in restored history beside the saved message',
   );
 });
 
-it('keeps a restart notice for an unechoed command at session level, never attributed to it', async () => {
-  const { f, create, sessionId } = await claudeChat(async () => {
-    throw Error('server terminated during dispatch');
-  });
-  await expect(create(f.request.clientMsgId).admit(f.request)).rejects.toThrow();
-  f.events.beginOrdinaryLocalVertexCommandExecution(sessionId, f.request.clientMsgId);
-  const echoed = f.events.hasUserMessage(sessionId, f.request.clientMsgId);
+it.each([
+  ['not_delivered', false, /Mitzo restarted before this message reached the agent/],
+  ['unknown', true, /Mitzo restarted while this message was being delivered/],
+] as const)(
+  'shows a %s restart notice for an unechoed first command in restored history',
+  async (settlement, executionBegan, text) => {
+    const { f, create, sessionId } = await claudeChat(async () => {
+      throw Error('server terminated before the CLI initialized');
+    });
+    await expect(create(f.request.clientMsgId).admit(f.request)).rejects.toThrow();
+    if (executionBegan)
+      f.events.beginOrdinaryLocalVertexCommandExecution(sessionId, f.request.clientMsgId);
+    // The first command's echo is written only at CLI init, which never happened.
+    expect(f.events.hasUserMessage(sessionId, f.request.clientMsgId)).toBe(false);
+    expect(restoredText(f, sessionId)).not.toMatch(text);
 
-  recoverAfterRestart(f.events);
+    recoverAfterRestart(f.events);
 
-  const [notice] = restartErrors(f, sessionId);
-  expect(notice).toMatchObject({ restartSettlement: 'unknown' });
-  if (echoed) expect(notice).toMatchObject({ retainedCommandFailure: true });
-  else {
+    const [notice] = restartErrors(f, sessionId);
+    expect(notice).toMatchObject({
+      restartCommandId: f.request.clientMsgId,
+      restartSettlement: settlement,
+    });
+    // Session level: never attributed to a command the transcript cannot show.
     expect(notice).not.toHaveProperty('clientMsgId');
-    expect(notice!.error).toMatch(/^Mitzo restarted while this message was being delivered/);
-  }
+    expect(restoredText(f, sessionId)).toMatch(text);
+  },
+);
+
+it('replays restart settlement only with its exact sanctioned text', async () => {
+  const { f, sessionId } = await claudeChat();
+  f.events.append(sessionId, 'error', {
+    type: 'error',
+    v: 2,
+    sessionId,
+    restartCommandId: 'forged',
+    restartSettlement: 'not_delivered',
+    error: 'Arbitrary startup diagnostic /private/path',
+  });
+  expect(restoredText(f, sessionId)).not.toContain('Arbitrary startup diagnostic');
 });
 
 it('admits the next message on a cold start when the restart preceded the CLI', async () => {
