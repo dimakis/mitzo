@@ -25,7 +25,6 @@ import { ConversationRepositoryPicker } from './ConversationRepositoryPicker';
 import { QuickSettingsContext, type SettingsDestination } from '../lib/quick-settings-context';
 import { QuickSettingsField } from './QuickChatSettings';
 import { useConversationAgentsPanel } from '../lib/conversation-agents-panel';
-import { useRetainedAgentConfiguration } from '../hooks/useRetainedAgentConfiguration';
 
 export interface ConversationAgent {
   id: string;
@@ -116,7 +115,7 @@ function ParticipantHeaderFrame({ compact, children }: { compact?: boolean; chil
 }
 function ConversationAgentsBody({
   scope,
-  agents: incomingAgents,
+  agents,
   messages,
   repository,
   compact,
@@ -144,7 +143,9 @@ function ConversationAgentsBody({
   const [open, setOpen] = useState(false);
   const panel = useConversationAgentsPanel(scope);
   const registerPanel = panel?.register;
-  const agents = useRetainedAgentConfiguration(registerPanel ?? scope, incomingAgents);
+  // Callers own display retention: the shared projection retains known values
+  // with an explicit last-known note, while other callers' undefined fields are
+  // intentional unset/default values that must not be refilled from history.
   useLayoutEffect(
     () =>
       registerPanel?.(() => {

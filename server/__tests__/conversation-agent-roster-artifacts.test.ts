@@ -11,7 +11,6 @@ it('pins the shared roster display, retention and existing panel owner', async (
     '../../frontend/src/lib/conversation-agent-roster.ts',
     '../../frontend/src/lib/conversation-agents-panel.ts',
     '../../frontend/src/hooks/useConversationAgentRoster.ts',
-    '../../frontend/src/hooks/useRetainedAgentConfiguration.ts',
     '../../frontend/src/components/SharedConversation.tsx',
     '../../frontend/src/components/ConversationAgents.tsx',
     '../../frontend/src/components/ConversationAgents.css',

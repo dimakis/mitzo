@@ -6,6 +6,8 @@ export interface ConversationAgentsPanel {
   scope: string;
   active: boolean;
   agents: ConversationAgent[];
+  /** True only while a mounted Agents panel has registered its opener. */
+  canOpen: boolean;
   register(open: () => void): () => void;
   open(): void;
 }

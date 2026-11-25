@@ -128,14 +128,20 @@ export function SharedConversationHost({
     [options.sourceConversationId, options.authScope, options.api],
   );
   const agents = useConversationAgentRoster(owner, value.presentation.projection, value.names);
+  // Rendered state, so the status rail offers Open Agents only while the
+  // header panel is mounted (it is not while controls are blocked).
+  const [canOpen, setCanOpen] = useState(false);
   const handle = useMemo(() => {
     let opener: (() => void) | undefined;
     return {
       owner,
       register(open: () => void) {
         opener = open;
+        setCanOpen(true);
         return () => {
-          if (opener === open) opener = undefined;
+          if (opener !== open) return;
+          opener = undefined;
+          setCanOpen(false);
         };
       },
       open() {
@@ -144,8 +150,14 @@ export function SharedConversationHost({
     };
   }, [owner]);
   const panel = useMemo(
-    () => ({ ...handle, scope: options.sourceConversationId, active: value.active, agents }),
-    [handle, options.sourceConversationId, value.active, agents],
+    () => ({
+      ...handle,
+      scope: options.sourceConversationId,
+      active: value.active,
+      agents,
+      canOpen,
+    }),
+    [handle, options.sourceConversationId, value.active, agents, canOpen],
   );
   return (
     <Context.Provider value={value}>

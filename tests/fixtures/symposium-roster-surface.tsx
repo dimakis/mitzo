@@ -35,13 +35,17 @@ function Surface() {
       activityState: 'working',
       policy: { reads: false, replies: index === 0 },
     }));
+  const [canOpen, setCanOpen] = useState(false);
   const handle = useMemo(() => {
     let opener: (() => void) | undefined;
     return {
       register(open: () => void) {
         opener = open;
+        setCanOpen(true);
         return () => {
-          if (opener === open) opener = undefined;
+          if (opener !== open) return;
+          opener = undefined;
+          setCanOpen(false);
         };
       },
       open() {
@@ -52,7 +56,7 @@ function Surface() {
   return (
     <main className="home-content">
       <ConversationAgentsPanelContext.Provider
-        value={{ ...handle, scope: 'fixture', active: true, agents }}
+        value={{ ...handle, scope: 'fixture', active: true, agents, canOpen }}
       >
         <ConversationAgents
           scope="fixture"

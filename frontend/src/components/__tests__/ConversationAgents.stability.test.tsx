@@ -54,8 +54,11 @@ it('keeps the same focused row through streaming status updates and returns from
   );
   fireEvent.click(details);
   const dialog = screen.getByRole('dialog', { name: 'Reviewer' });
-  expect(within(dialog).getByText('Default Mitzo · revision 1')).toBeTruthy();
-  expect(within(dialog).getByText('agent')).toBeTruthy();
+  // Outside the shared projection, an undefined field is an intentional
+  // unset/default value: Details must not refill it from an earlier render.
+  expect(within(dialog).queryByText('Default Mitzo · revision 1')).toBeNull();
+  expect(within(dialog).queryByText('agent')).toBeNull();
+  expect(within(dialog).queryByText(/Last known configuration/)).toBeNull();
   expect(within(dialog).getByText('Member')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Back to Agents' }));
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Details for Reviewer' }));

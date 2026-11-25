@@ -217,50 +217,48 @@ export function ComposerStatusRail({
         role="region"
         aria-label="Conversation status"
         data-tone={tone}
+        data-shared={shared ? 'true' : undefined}
       >
-        {shared ? (
-          <button
-            type="button"
-            className="composer-status-agents"
-            aria-label={`Open Agents, ${roster}`}
-            aria-haspopup="dialog"
-            title={roster}
-            onClick={(event) => {
-              event.currentTarget.focus();
-              shared.open();
-            }}
-          >
-            <span className="composer-status-dot" aria-hidden="true" />
-            <span className="composer-status-summary" role={issues.length ? 'alert' : 'status'}>
-              {issues.length ? (
-                message
-              ) : (
-                <>
-                  <span className="composer-status-agent-names">{roster}</span>
-                  <span className="composer-status-agent-count">{compactRoster}</span>
-                </>
-              )}
-            </span>
-          </button>
+        {/* The conversation's own send/turn status stays visible in shared mode.
+            Only this message is a live region; the streaming roster is not. */}
+        {liveRunning && tone === 'normal' ? (
+          <ActivityBars />
         ) : (
-          <>
-            {liveRunning && tone === 'normal' ? (
-              <ActivityBars />
-            ) : (
-              <span className="composer-status-dot" aria-hidden="true" />
-            )}
-            <span
-              className="composer-status-summary"
-              role={issues.length ? 'alert' : 'status'}
-              title={message}
-            >
-              {message}
-            </span>
-            {liveRunning && tone === 'normal' && activity?.turnStartedAt !== undefined && (
-              <SessionTurnElapsed startedAt={activity.turnStartedAt} />
-            )}
-          </>
+          <span className="composer-status-dot" aria-hidden="true" />
         )}
+        <span
+          className="composer-status-summary"
+          role={issues.length ? 'alert' : 'status'}
+          title={message}
+        >
+          {message}
+        </span>
+        {liveRunning && tone === 'normal' && activity?.turnStartedAt !== undefined && (
+          <SessionTurnElapsed startedAt={activity.turnStartedAt} />
+        )}
+        {shared &&
+          (shared.canOpen ? (
+            <button
+              type="button"
+              className="composer-status-agents"
+              aria-label={`Open Agents, ${compactRoster}`}
+              aria-haspopup="dialog"
+              title={roster}
+              onClick={(event) => {
+                event.currentTarget.focus();
+                shared.open();
+              }}
+            >
+              <span className="composer-status-agent-names">{roster}</span>
+              <span className="composer-status-agent-count">{compactRoster}</span>
+            </button>
+          ) : (
+            // No mounted Agents panel can open: show the summary, not a dead control.
+            <span className="composer-status-agents" title={roster}>
+              <span className="composer-status-agent-names">{roster}</span>
+              <span className="composer-status-agent-count">{compactRoster}</span>
+            </span>
+          ))}
         {recipients &&
           (onRecipientsClick ? (
             <button

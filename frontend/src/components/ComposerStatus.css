@@ -20,6 +20,17 @@
   min-width: 0;
   text-align: start;
 }
+.composer-status[data-shared='true'] .composer-status-summary {
+  flex: 0 1 auto;
+  max-width: 45%;
+}
+.composer-status-agent-names,
+.composer-status-agent-count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .composer-status-agent-count {
   display: none;
 }
