@@ -2097,7 +2097,11 @@ async function _runQueryLoopInner(
                 status === 'stopped' ? 'cancelled' : (status as 'completed' | 'failed'),
                 taskId,
                 undefined,
-                typeof msg.summary === 'string' ? msg.summary.slice(0, 16_000) : undefined,
+                // Only a completed task's summary is its result. Failed and stopped
+                // notification summaries are provider diagnostics and stay private.
+                status === 'completed' && typeof msg.summary === 'string'
+                  ? msg.summary.slice(0, 16_000)
+                  : undefined,
               );
               log.info('subagent task finished', { clientId, taskId, toolUseId, status });
             } else if (taskId && !toolUseId) {

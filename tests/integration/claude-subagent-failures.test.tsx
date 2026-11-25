@@ -206,7 +206,8 @@ describe('Claude task outcomes through adapter, client, replay and inline UI', (
   it.each([
     ['failed', 'failed', 'Failed'],
     ['stopped', 'cancelled', 'Cancelled'],
-    ['completed', 'completed', 'Complete'],
+    // Verified background tasks show the documented "Completed" status.
+    ['completed', 'completed', 'Completed'],
   ])('%s preserves output and its distinct outcome', async (sdkStatus, status, label) => {
     const { state, replay, session } = await run([
       ...parentEvents(),

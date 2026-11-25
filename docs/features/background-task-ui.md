@@ -43,7 +43,9 @@ The existing `SubagentCard` under `ToolPill` shows a Background task description
 Running, Completed, Failed, Cancelled or Status unavailable, retained output and
 safe diagnostics. Output is inert text, limited to the latest 16,000 displayed
 characters with a truncation notice and keyboard-scrollable area. Summary and
-earlier output remain available together. Duplicate events cannot append output
+earlier output remain available together. Only a completed task's notification
+summary is forwarded as its result; failed and stopped notification summaries
+are provider diagnostics and stay private, as before. Duplicate events cannot append output
 twice; stale snapshots and cold hydration cannot reopen a terminal execution.
 
 `stopReason: process_restart` is an additive **consumer contract** accepted only

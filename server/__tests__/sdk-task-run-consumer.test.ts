@@ -245,10 +245,11 @@ it.each([
       };
       expect(second?.subagent?.backgroundTask).toEqual(backgroundTask);
       expect(liveSecond?.subagent?.backgroundTask).toEqual(backgroundTask);
-      if (secondReceiptArrives) {
-        expect(second?.subagent?.summary).toBe('Second result');
-        expect(liveSecond?.subagent?.summary).toBe('Second result');
-      }
+      // Only a completed result is displayed. A failed notification summary is a
+      // provider diagnostic and stays private (see claude-subagent-failures).
+      const summary = secondStatus === 'completed' ? 'Second result' : undefined;
+      expect(second?.subagent?.summary).toBe(summary);
+      expect(liveSecond?.subagent?.summary).toBe(summary);
       const first = restored
         .flatMap((message) => message.blocks)
         .find((block) => block.toolId === 'spawn-first');
