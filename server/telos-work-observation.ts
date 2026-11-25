@@ -1,9 +1,18 @@
 import type { EventStore } from './event-store.js';
-import type { Session, TelosWorkView } from '@mitzo/protocol';
+import type { Session, SessionMeta, TelosWorkView } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
 import { sessionConversationNavigation } from './session-list-metadata.js';
 import type { TelosWorkStore } from './telos-work-store.js';
+
+function readRuntimeIdentity(events: EventStore, conversationId: string) {
+  const binding = events.getSessionRuntimeBinding(conversationId);
+  return {
+    engine: binding?.harness.implementation,
+    executionLocation: binding?.execution.location,
+    runtimeUnavailable: !binding,
+  };
+}
 
 /** Read-only observations. A retained routing choice is never runtime readiness,
  * command authority, or proof that a provider accepted a turn. */
@@ -33,13 +42,11 @@ export function observeWorkConversation(
     accountLabel: meta.accountBinding?.accountLabel,
   };
   try {
-    const binding = events.getSessionRuntimeBinding(conversationId);
+    const runtime = readRuntimeIdentity(events, conversationId);
     const admission = events.getLatestOrdinaryCommandAdmission(conversationId);
     return {
       ...identity,
-      engine: binding?.harness.implementation,
-      executionLocation: binding?.execution.location,
-      runtimeUnavailable: !binding,
+      ...runtime,
       runtimeState: isLive
         ? isLive(conversationId)
           ? ('live' as const)
@@ -71,16 +78,21 @@ export function observeWorkConversation(
 
 export function sessionRuntimeIdentity(
   events: EventStore,
-  conversationId: string,
+  meta: SessionMeta | null,
 ): Pick<Session, 'agentName' | 'engine' | 'executionLocation' | 'runtimeUnavailable'> {
-  const observation = observeWorkConversation(events, conversationId);
-  return {
-    agentName: 'agentName' in observation ? observation.agentName : undefined,
-    engine: 'engine' in observation ? observation.engine : undefined,
-    executionLocation:
-      'executionLocation' in observation ? observation.executionLocation : undefined,
-    runtimeUnavailable: 'runtimeUnavailable' in observation ? observation.runtimeUnavailable : true,
-  };
+  if (!meta || meta.isHidden) return { runtimeUnavailable: true };
+  const agentName = meta.agentProfile?.definition.name ?? meta.agentName ?? undefined;
+  try {
+    return { agentName, ...readRuntimeIdentity(events, meta.sessionId) };
+  } catch (cause) {
+    createLogger('telos-work-observation').warn('Session runtime identity unavailable', {
+      stage: 'session_runtime_identity',
+      code: 'session_runtime_identity_unavailable',
+      conversationId: meta.sessionId,
+      ...sessionMetadataDiagnostic(cause),
+    });
+    return { agentName, runtimeUnavailable: true };
+  }
 }
 
 export function observeWorkAssignment(
