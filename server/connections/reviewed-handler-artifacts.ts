@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1271-async-source-capture';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1272-async-source-capture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2937,7 +2937,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-worktree-performance.test.ts':
     '4ef478018a3e84fe634172688422982ee394b9be9eecf1a3963a5879162374ea',
   '../__tests__/local-repository-capture-responsive.test.ts':
-    '9dfb39c638e0ab3ff976ee2d94e96f7a04ed86f47abb3081c57aab7ccea96e9a',
+    'e1de3e18ad275fca1511eac2bd0bc1c1a8b1db09e96ba276f4c55af6f5062ce5',
   '../__tests__/local-session-removal.test.ts':
     '4199618a0e26453d58b7dd9b186925c39d7b3eb3221b1b768b2dc708e31fa3c3',
   '../__tests__/mcp-startup-observation.test.ts':

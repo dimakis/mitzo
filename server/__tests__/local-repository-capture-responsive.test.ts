@@ -89,13 +89,13 @@ function fixture(delay = 1000, exitCode = 0) {
   `,
   );
   probe.repo = repo;
-  const binding: AccountBinding = {
+  const binding = {
     accountId: 'offline',
     accountLabel: 'Offline',
-    provider: 'openai',
+    provider: 'openai' as const,
     model: 'offline',
     profileRevision: 'one',
-  };
+  } satisfies AccountBinding;
   const runtime: SessionRuntimeBindingV2 = {
     version: 2,
     account: { accountId: 'offline', provider: 'openai', profileRevision: 'one' },
