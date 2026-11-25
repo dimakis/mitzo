@@ -4,6 +4,7 @@ import {
   assertOrdinarySilentPreparationAuthority,
 } from './ordinary-repository-preparation-authority.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
+import type { Connection } from './connections-store.js';
 import { existsSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { loadRepoConfig } from './repo-config.js';
@@ -90,12 +91,82 @@ function localRepositoryWorkspacesEnabled() {
     (harness) => process.env[`MITZO_ORDINARY_LOCAL_${harness}_ENABLED`] === '1',
   );
 }
-export function repositoryWorkspaceCatalog(binding: AccountBinding, runOn?: 'local' | 'openshell') {
-  if (runOn === 'local')
+export type RepositoryWorkspaceSourceReason =
+  | 'repository_workspaces_disabled'
+  | 'repository_connection_unavailable'
+  | 'repository_connection_unverified'
+  | 'repository_scope_not_assigned'
+  | 'repository_scope_ambiguous';
+type ManagedRepositorySource = { connectionId: string; label: string; repository: string };
+type LocalRepositorySource = {
+  repositoryId: string;
+  connectionId: 'local';
+  repository: string;
+  label: string;
+};
+
+/** Reviewed repository names from a connection's public configuration. */
+function configuredRepositoriesOf(connection: Connection): string[] {
+  const value = connection.publicConfig.allowedRepositories;
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+/** Repository sources offered to one account: active, identity-verified,
+ * account-scoped, and only where the repository resolves to one connection. */
+function githubRepositorySources(connections: readonly Connection[], accountId: string) {
+  return connections.flatMap((connection) => {
+    if (
+      connection.templateId !== 'github-readonly' ||
+      connection.status !== 'active' ||
+      !connection.desiredAccountIds.includes(accountId) ||
+      !connection.identity
+    )
+      return [];
+    return [...new Set(configuredRepositoriesOf(connection).map((value) => value.toLowerCase()))]
+      .filter(
+        (repository) =>
+          githubRepositoryConnections(connections, accountId, repository).length === 1,
+      )
+      .map((repository) => ({ connectionId: connection.id, label: connection.label, repository }));
+  });
+}
+/** Name the reason an account has no source. The eligibility predicate above
+ * decides what is offered, so the refusal cannot disagree with the fact. */
+function repositorySourceReason(
+  connections: readonly Connection[],
+  accountId: string,
+): RepositoryWorkspaceSourceReason {
+  const active = connections.filter(
+    (connection) =>
+      connection.templateId === 'github-readonly' &&
+      connection.status === 'active' &&
+      Array.isArray(connection.publicConfig.allowedRepositories),
+  );
+  if (!active.length) return 'repository_connection_unavailable';
+  const assigned = active.filter((connection) => connection.desiredAccountIds.includes(accountId));
+  if (!assigned.length) return 'repository_scope_not_assigned';
+  const verified = assigned.filter((connection) => connection.identity);
+  if (!verified.length) return 'repository_connection_unverified';
+  return verified.some((connection) => configuredRepositoriesOf(connection).length > 0)
+    ? 'repository_scope_ambiguous'
+    : 'repository_connection_unavailable';
+}
+/** Catalog facts plus an optional named reason, so a missing source is explicit. */
+export function repositoryWorkspaceSourceInventory(
+  binding: AccountBinding,
+  runOn?: 'local' | 'openshell',
+): {
+  available: boolean;
+  repositories: ManagedRepositorySource[] | LocalRepositorySource[];
+  reason?: RepositoryWorkspaceSourceReason;
+} {
+  if (runOn === 'local') {
+    const enabled = localRepositoryWorkspacesEnabled();
     return {
-      location: 'local',
-      available: localRepositoryWorkspacesEnabled(),
-      repositories: localRepositoryWorkspacesEnabled()
+      available: enabled,
+      repositories: enabled
         ? Object.entries(configuredLocalRepositories())
             .filter(([id]) => /^[A-Za-z0-9._-]+$/.test(id))
             .map(([repositoryId, path]) => ({
@@ -105,33 +176,33 @@ export function repositoryWorkspaceCatalog(binding: AccountBinding, runOn?: 'loc
               label: basename(path),
             }))
         : [],
+      ...(enabled ? {} : { reason: 'repository_workspaces_disabled' as const }),
     };
-  if (!repositoryWorkspacesEnabled()) return { available: false, repositories: [] };
+  }
+  if (!repositoryWorkspacesEnabled())
+    return {
+      available: false,
+      repositories: [],
+      reason: 'repository_workspaces_disabled',
+    };
   const runtime = getConnectionsRuntime();
   const connections = runtime?.store.list('operator') ?? [];
-  const repositories = connections.flatMap((connection) => {
-    if (
-      connection.templateId !== 'github-readonly' ||
-      connection.status !== 'active' ||
-      !connection.desiredAccountIds.includes(binding.accountId) ||
-      !connection.identity ||
-      !Array.isArray(connection.publicConfig.allowedRepositories)
-    )
-      return [];
-    return [
-      ...new Set(
-        connection.publicConfig.allowedRepositories
-          .filter((value): value is string => typeof value === 'string')
-          .map((value) => value.toLowerCase()),
-      ),
-    ]
-      .filter(
-        (repository) =>
-          githubRepositoryConnections(connections, binding.accountId, repository).length === 1,
-      )
-      .map((repository) => ({ connectionId: connection.id, label: connection.label, repository }));
-  });
-  return { available: true, repositories };
+  const repositories = githubRepositorySources(connections, binding.accountId);
+  return repositories.length
+    ? { available: true, repositories }
+    : {
+        available: true,
+        repositories: [],
+        reason: repositorySourceReason(connections, binding.accountId),
+      };
+}
+export function repositoryWorkspaceCatalog(binding: AccountBinding, runOn?: 'local' | 'openshell') {
+  if (runOn === 'local') {
+    const { available, repositories } = repositoryWorkspaceSourceInventory(binding, 'local');
+    return { location: 'local' as const, available, repositories };
+  }
+  const { available, repositories } = repositoryWorkspaceSourceInventory(binding);
+  return { available, repositories };
 }
 /** Lazy, explicit enrollment: importing the app performs no source acquisition or metadata writes. */
 function workspaceOwner(readOnly = false, ordinary = false, local = false) {

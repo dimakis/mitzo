@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-21",
+  "sourceSnapshot": "7289eae",
+  "readerBaseline": "e7fd648",
+  "elapsedMs": 35192.393417,
+  "ready": true,
+  "clone": "apfs",
+  "node": "v24.22.3",
+  "npm": "11.18.0",
+  "abi": "137",
+  "installSubprocesses": 0,
+  "verificationSubprocesses": ["--version", "-p", "ls", "-e"],
+  "independentCloneWrites": true,
+  "workspaceLinks": ["client", "harness", "protocol", "sqlite-file-owner"],
+  "sandboxWriteDenied": true,
+  "canonicalStoreSeeded": false,
+  "liveModelCalls": 0,
+  "limitation": "Full-size measurement precedes final cleanup and failure-reporting changes; focused offline tests qualify those changes. CI, Centaur landing review and runtime adoption remain separate."
+}

@@ -62,12 +62,14 @@ export class CodexSessionEvents {
     private threadId: string,
     private model: string,
     private emit: (event: ObjectValue) => void,
-    options: {
+    private options: {
       freshThread?: boolean;
       /** Owned provenance binds every item observation to one immutable turn and kind. */
       requireExactTurnIdentity?: boolean;
       /** Trusted generated visible text identity; never thinking or tool messages. */
       onTextMessageStarted?: (messageId: string, providerTurnId: string) => void;
+      onContextUsage?: (params: ObjectValue) => void;
+      onContextCompaction?: (params: ObjectValue) => void;
     } = {},
   ) {
     this.usage = new CodexTurnUsage(options.freshThread);
@@ -168,6 +170,7 @@ export class CodexSessionEvents {
       ...(!started ? { compact_result: 'success' } : {}),
       ...(privateId ? { compaction_id: privateId } : {}),
     });
+    if (!this.turnFinished) this.options.onContextCompaction?.(params);
   }
   notification(method: string, params: ObjectValue, providerFailure?: ProviderFailure) {
     if (params.threadId !== this.threadId) return;
@@ -176,6 +179,13 @@ export class CodexSessionEvents {
       method === 'contextCompaction' ||
       ((method === 'item/started' || method === 'item/completed') &&
         object(params.item).type === 'contextCompaction');
+    if (
+      isCompactionNotification &&
+      this.activeTurnId &&
+      params.turnId !== undefined &&
+      params.turnId !== this.activeTurnId
+    )
+      return;
     if (!isCompactionNotification) {
       this.lastAnonymousCompaction = undefined;
       this.lastCompactionId = undefined;
@@ -361,7 +371,10 @@ export class CodexSessionEvents {
       if (this.activeTurnId && params.turnId !== this.activeTurnId) return;
       this.usage.update(params);
       const usage = observedCodexUsage(params);
-      if (usage) this.emit({ type: 'provider_usage', model: this.model, ...usage });
+      if (usage) {
+        this.emit({ type: 'provider_usage', model: this.model, ...usage });
+        if (!this.turnFinished) this.options.onContextUsage?.(params);
+      }
       return;
     }
     if (

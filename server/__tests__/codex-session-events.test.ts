@@ -7,6 +7,43 @@ import {
 import { normalizeMcpToolResult } from '../codex-tool-result.js';
 import { toolFailure } from '@mitzo/protocol';
 
+it('forwards validated usage to the snapshot observer without changing legacy accounting', () => {
+  const emitted = vi.fn(),
+    onContextUsage = vi.fn();
+  const mapper = new CodexSessionEvents('app', 'thread', 'model', emitted, { onContextUsage });
+  mapper.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+  const breakdown = {
+    inputTokens: 10,
+    cachedInputTokens: 2,
+    outputTokens: 3,
+    reasoningOutputTokens: 1,
+    totalTokens: 13,
+  };
+  const params = {
+    threadId: 'thread',
+    turnId: 'turn',
+    tokenUsage: { total: breakdown, last: breakdown },
+  };
+  mapper.notification('thread/tokenUsage/updated', { ...params, threadId: 'other' });
+  mapper.notification('thread/tokenUsage/updated', { ...params, turnId: 'other' });
+  mapper.notification('thread/tokenUsage/updated', {
+    ...params,
+    tokenUsage: { total: breakdown, last: { ...breakdown, totalTokens: 99 } },
+  });
+  expect(onContextUsage).not.toHaveBeenCalled();
+  mapper.notification('thread/tokenUsage/updated', params);
+  expect(onContextUsage).toHaveBeenCalledExactlyOnceWith(params);
+  expect(emitted).toHaveBeenCalledWith(
+    expect.objectContaining({ type: 'provider_usage', agentContext: 13, sessionTotal: 13 }),
+  );
+  mapper.notification('turn/completed', {
+    threadId: 'thread',
+    turn: { id: 'turn', status: 'completed' },
+  });
+  mapper.notification('thread/tokenUsage/updated', params);
+  expect(onContextUsage).toHaveBeenCalledTimes(1);
+});
+
 it('retains file approval expiry through file completion and the terminal notice', () => {
   const events: Record<string, unknown>[] = [];
   const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
