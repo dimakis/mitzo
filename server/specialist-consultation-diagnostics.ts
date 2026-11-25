@@ -68,7 +68,7 @@ export function specialistDiagnostic(cause: unknown) {
       'Bounded specialists cannot recruit other specialists. Return the request to the accountable lead.',
     ],
     [
-      /^Repository source is not configured for this specialist account$/,
+      /^Repository source is not configured for this specialist account(?: \([a-z_]+\))?$/,
       'repository_source_unassigned',
       'The selected repository and connection are not assigned to this specialist account. Pick a repository listed for that accountId in catalog, or ask the operator to assign the connection to the account in Connections.',
     ],
