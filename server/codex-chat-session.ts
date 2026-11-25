@@ -4775,23 +4775,29 @@ async function openCodexChatBound(
       runtimeOptions,
     ),
   );
-  const runtime: CodexConversation = new CodexConversation(runtimeOptions);
+  // Install the adapter before construction: context-bearing (Telos role) owners
+  // copy their options in the constructor, so a later assignment would be lost.
+  // The adapter reads the runtime lazily once it exists.
+  const constructed: { runtime?: CodexConversation } = {};
   const contextSnapshots = contextSnapshotLifecycles.get(options.registry);
   if (options.ownedLocal && contextSnapshots) {
     runtimeOptions.contextSnapshots = createCodexContextSnapshotAdapter({
       session: options.session,
       lifecycle: contextSnapshots,
-      current: () => runtime.getContextSnapshotScope(),
+      current: () => constructed.runtime?.getContextSnapshotScope(),
       assertCurrent: () => {
         assertHostCurrentSync();
         if (
-          runtimes.get(options.session) !== runtime ||
+          !constructed.runtime ||
+          runtimes.get(options.session) !== constructed.runtime ||
           options.registry.findBySessionId(options.conversationId)?.session !== options.session
         )
           throw Error('Original Codex context owner unavailable');
       },
     });
   }
+  const runtime: CodexConversation = new CodexConversation(runtimeOptions);
+  constructed.runtime = runtime;
   function close() {
     if (closed) return;
     try {

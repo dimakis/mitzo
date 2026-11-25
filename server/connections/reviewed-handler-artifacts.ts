@@ -2570,7 +2570,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-selected-tools.test.ts':
     '84fb2d8174e2ac7c69554c66a03cee713a360edd2eddf23b54ebc4d1cb839c29',
   '../__tests__/codex-chat-session.test.ts':
-    'ae9dc234779fbe0a427427f965e48aaf6b4038c844f77fa281282dcfd2d087db',
+    'dbda0d11b8e1592a73b589c32b222e5db3ef55991eea34a32ffb6e1bae2b4f00',
   '../__tests__/codex-conversation-rpc-cleanup.integration.test.ts':
     '25267beedb7c3a0e08eaa7c78b68e2c8adb595fd9cabe1c1b0691115283da6e9',
   '../__tests__/codex-conversation-store-statements.test.ts':
@@ -3828,7 +3828,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1fcdffe7e7eacbb2d9d3c8cf5b457c48771d5f0832d93cf8d866cd71cdb0212f',
   '../codex-approved-search.ts': 'eaec7066315ae88f4f72e0af04f2bc1a37f916385e7eecb4abe708097b0f5a01',
   '../codex-borrowed-search.ts': '9614d2109b5ee0d65d641ca6e743d3c22a3cd8d70c48178d1a0bdfefcbcf35e1',
-  '../codex-chat-session.ts': '2401983c659c2f442dd8b587889cb4519a126bc8260c45be2b61e1a5bb494abb',
+  '../codex-chat-session.ts': 'd0dfd119dfeff2aab0abbe432acdf415bae681a171fb04b27c58095ea456d420',
   '../codex-conversation-store.ts':
     '5bd2d75dbf12ea377f86db0ef5360004bc1da27493fa3c38cd772c445b798ff6',
   '../codex-conversation.ts': '61179b39846f3e03f7330c476aa7fcd03811c9ee15a08535f23f48f6559a2b5d',

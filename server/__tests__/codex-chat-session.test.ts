@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   recordAgentContextAdoption: vi.fn(),
   privateDirectory: '/tmp',
   contextScope: undefined as import('@mitzo/protocol').ContextSnapshotScope | undefined,
+  constructedContextSnapshots: undefined as unknown,
   conversationOptions: undefined as
     (Record<string, unknown> & { systemPrompt?: string }) | undefined,
   useTls: false,
@@ -117,9 +118,11 @@ vi.mock('../codex-conversation-store.js', async (original) => ({
 }));
 vi.mock('../codex-conversation.js', () => ({
   CodexConversation: class {
-    constructor(options: { onClosed: () => void }) {
+    constructor(options: { onClosed: () => void; contextSnapshots?: unknown }) {
       mocks.turnDispatchCount = 0;
       mocks.conversationOptions = options;
+      // Context-bearing owners copy options at construction; record what they saw.
+      mocks.constructedContextSnapshots = options.contextSnapshots;
       mocks.close.mockImplementation(options.onClosed);
     }
     recoverSavedQueue = vi.fn();
@@ -534,8 +537,9 @@ async function verifyOwnedContextSnapshots() {
   let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
     query = await openCodexChat(opts);
-    const port = mocks.conversationOptions!
-      .contextSnapshots as import('../codex-context-snapshot.js').CodexContextSnapshotEvents;
+    const port =
+      mocks.constructedContextSnapshots as import('../codex-context-snapshot.js').CodexContextSnapshotEvents;
+    expect(port).toBeDefined();
     port.turnStarted();
     const breakdown = {
       inputTokens: 10,
