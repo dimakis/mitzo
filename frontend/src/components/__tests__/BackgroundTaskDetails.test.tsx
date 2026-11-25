@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { SubagentCard } from '../SubagentCard';
 import { BackgroundTaskStopController } from '../../lib/background-task-stop';
 
@@ -104,20 +105,40 @@ it.each([{ sessionId: 'other' }, { runId: 'other' }, { processGeneration: 'repla
   },
 );
 
-it('cannot turn current generation-less producer receipts into Stop authority', () => {
+it('keeps generation-less producer receipts as ordinary nested Agent subagents', () => {
+  // Claude chats disable background tasks, so every Agent subagent has a task
+  // receipt without a process generation. It is not a background task and
+  // grants no Stop authority.
   const control = new BackgroundTaskStopController(execution, { stop: vi.fn(), read: vi.fn() });
-  render(
-    <SubagentCard
-      subagent={{
-        ...task,
-        backgroundTask: { ...task.backgroundTask, processGeneration: undefined },
-      }}
-      sessionId="chat"
-      taskControl={control}
-    />,
+  const { container } = render(
+    <MemoryRouter>
+      <SubagentCard
+        subagent={{
+          ...task,
+          backgroundTask: { ...task.backgroundTask, processGeneration: undefined },
+          blocks: [
+            ...task.blocks,
+            {
+              blockId: 'tool',
+              blockType: 'tool_use' as const,
+              content: '',
+              toolName: 'Read',
+              toolId: 'read-1',
+            },
+          ],
+        }}
+        sessionId="chat"
+        taskControl={control}
+      />
+    </MemoryRouter>,
   );
-  fireEvent.click(screen.getByRole('button', { name: /Background task/ }));
-  expect((screen.getByRole('button', { name: 'Stop task' }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
+  expect(screen.queryByText('Background task')).toBeNull();
+  expect(screen.getByText('Inspect sources')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /^Agent/ }));
+  expect(screen.queryByRole('button', { name: 'Stop task' })).toBeNull();
+  expect(screen.queryByLabelText('Task output')).toBeNull();
+  // The nested tool and text rendering is retained.
+  expect(container.querySelectorAll('.tool-pill').length).toBeGreaterThan(1);
+  expect(screen.getByText(/latest output/)).toBeTruthy();
+  expect(container.querySelector('script')).toBeNull();
 });

@@ -422,6 +422,8 @@ async function _runQueryLoopInner(
   let nativeStreamMessageId: string | null = null;
   let retractionWarningSent = false;
   const parentMessageByChild = new Map<string, string>();
+  // Child messages carry no parentToolId; resolve their parent tool for task identity.
+  const parentToolByChild = new Map<string, string>();
   const uncorrelatedChildren = new Set<string>();
   const agentToolIds = new Set<string>();
   const startedSubagents = new Set<string>();
@@ -447,10 +449,12 @@ async function _runQueryLoopInner(
     const parentBlockId = toolIdToBlockId.get(toolId);
     if (!parentBlockId || !agentToolIds.has(toolId)) return;
     const run = taskRuns.get(taskId);
-    if (startedSubagents.has(toolId) && (!run || taskObservations.has(parentBlockId))) return;
+    // Keyed by tool ID: block IDs restart at every parent message, so a later
+    // turn's Agent can reuse an earlier task's block ID.
+    if (startedSubagents.has(toolId) && (!run || taskObservations.has(toolId))) return;
     startedSubagents.add(toolId);
     if (run?.toolId === toolId)
-      taskObservations.set(parentBlockId, {
+      taskObservations.set(toolId, {
         taskId,
         ...(run.runId ? { runId: run.runId } : {}),
         ...(run.description ? { description: run.description } : {}),
@@ -459,6 +463,7 @@ async function _runQueryLoopInner(
       activeSubagents.get(toolId)?.subagentMessageId ??
       (run?.toolId === toolId && run.runId ? `task-${taskId}-run-${run.runId}` : `task-${taskId}`);
     taskChildIds.set(toolId, childId);
+    parentToolByChild.set(childId, toolId);
     const parentMessageId = toolIdToMessageId.get(toolId);
     if (parentMessageId) parentMessageByChild.set(childId, parentMessageId);
     emit(
@@ -742,7 +747,13 @@ async function _runQueryLoopInner(
   /** Wrapper that auto-injects store + sessionId + connRegistry into sendOrBuffer */
   function emit(data: Record<string, unknown>, eventSessionId = resolvedSessionId) {
     if (String(data.type).startsWith('subagent_') && typeof data.parentBlockId === 'string') {
-      const backgroundTask = taskObservations.get(data.parentBlockId);
+      const parentToolId =
+        typeof data.parentToolId === 'string'
+          ? data.parentToolId
+          : typeof data.subagentMessageId === 'string'
+            ? parentToolByChild.get(data.subagentMessageId)
+            : undefined;
+      const backgroundTask = parentToolId ? taskObservations.get(parentToolId) : undefined;
       if (backgroundTask) data = { ...data, backgroundTask };
       const messageId =
         typeof data.parentToolId === 'string'
@@ -1346,6 +1357,7 @@ async function _runQueryLoopInner(
               if (parentBlockId && agentToolIds.has(parentToolUseId)) {
                 const parentMessageId = toolIdToMessageId.get(parentToolUseId);
                 if (parentMessageId) parentMessageByChild.set(subagentMessageId, parentMessageId);
+                parentToolByChild.set(subagentMessageId, parentToolUseId);
                 const existing = activeSubagents.get(parentToolUseId);
 
                 if (existing) {

@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1274-background-task-ui';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1272-verified-dependency-store';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1941,7 +1942,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/claude-multi-device.test.ts':
     'd6f82934f5bca23a0e9bbd30212561f687e1b79fc1d485e7f61cd2dcda5f4f53',
   '../../tests/integration/claude-subagent-failures.test.tsx':
-    '0b2ed3ebbf96f7053b4f8da42b9d55214b1838a8265390e9a5a00aa2cd065925',
+    '01882b153dbcdeb5629963cef2d210052ab9c547ccd1168348bbb346a4f7eaaa',
   '../../tests/integration/native-subagent-visibility.test.tsx':
     '75cf48bc38aa942998df4e0ae0a409cf991a205c8bc7c7d60d8d9df5bbde6bdd',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
@@ -4400,7 +4401,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
-  '../query-loop.ts': '885457ac3b79e9c48a5dfe4ffb64ba95323fa31135d93069388a8d2be44ce3ce',
+  '../query-loop.ts': 'c15bac44379c0168330d420e59ac0534d2f319e3561681dd287d09380d2ff7e6',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',

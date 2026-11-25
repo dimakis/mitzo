@@ -27,7 +27,12 @@ export function SubagentCard({ subagent, description, sessionId, taskControl }: 
   const status =
     subagent.status ?? ('running' in subagent && subagent.running ? 'running' : 'completed');
   const isRunning = status === 'running';
-  const task = subagent.backgroundTask;
+  // Claude chats run with background tasks disabled, so ordinary Agent subagents
+  // also carry task receipts. Only a process-generation witness is positive
+  // evidence of a separately owned background execution; everything else keeps
+  // the ordinary nested Agent presentation.
+  const task = subagent.backgroundTask?.processGeneration ? subagent.backgroundTask : undefined;
+  const taskDescription = description || subagent.backgroundTask?.description;
   const label =
     status === 'failed'
       ? 'Failed'
@@ -39,9 +44,9 @@ export function SubagentCard({ subagent, description, sessionId, taskControl }: 
           ? 'Status unavailable'
           : 'Complete';
   const summary = isRunning
-    ? description || 'Working...'
+    ? taskDescription || 'Working...'
     : status === 'completed'
-      ? subagent.summary || description || label
+      ? subagent.summary || taskDescription || label
       : label;
   const usage = 'usage' in subagent ? subagent.usage : undefined;
   const done = !isRunning;
@@ -69,7 +74,7 @@ export function SubagentCard({ subagent, description, sessionId, taskControl }: 
         />
         <span className="tool-pill-name">{task ? 'Background task' : 'Agent'}</span>
         <span className="tool-pill-input">
-          {task ? task.description || description || 'Background work' : summary}
+          {task ? taskDescription || 'Background work' : summary}
         </span>
         {toolCount > 0 && <span className="tool-pill-badge">{toolCount}</span>}
         {usage && <span className="tool-pill-tokens">{formatTokens(usage)}</span>}

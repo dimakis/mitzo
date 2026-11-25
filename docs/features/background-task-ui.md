@@ -39,7 +39,16 @@ between turns; they are not interpreted as process authority. Consumers compare
 task/run provenance inside the existing parent-message/block scope and use durable
 sequence numbers for replay ordering, never opaque run-ID ordering.
 
-The existing `SubagentCard` under `ToolPill` shows a Background task description,
+Claude chats run with `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, so ordinary Agent
+subagents also produce task receipts. The background presentation below therefore
+requires positive evidence of a separately owned execution: a process-generation
+witness, which the current producer does not emit. Receipts without it keep the
+ordinary nested Agent rendering (thinking, tools, markdown and artifact links),
+adding only the task description, with no Stop control. Task observations are
+keyed by the parent tool ID, not the per-turn block ID, so a later turn that
+reuses a block ID cannot take over an earlier task's identity or late outcome.
+
+With that evidence, the existing `SubagentCard` under `ToolPill` shows a Background task description,
 Running, Completed, Failed, Cancelled or Status unavailable, retained output and
 safe diagnostics. Output is inert text, limited to the latest 16,000 displayed
 characters with a truncation notice and keyboard-scrollable area. Summary and
@@ -141,7 +150,10 @@ asset builds. Compile/source preflight failed because eight registered source
 fingerprints had not been regenerated; dependent browser/test jobs were skipped.
 The preparation fix retains every existing registration, regenerates those eight
 fingerprints, registers the extracted task observation and Stop consumer modules,
-and advances the runtime revision to `v1.0.1271-background-task-ui`.
+and advanced the runtime revision to `v1.0.1271-background-task-ui` at that time.
+Later integrations with main took main's runtime revision (currently
+`v1.0.1272-verified-dependency-store`) and regenerated only this change's
+fingerprints; `server/connections/reviewed-handler-artifacts.ts` is authoritative.
 `npm run check:source-artifacts` and all four source/compile-preflight regression
 tests pass locally. Fresh CI and exact-head Centaur review remain required;
 the earlier green job named `centaur` had no published final review report.
