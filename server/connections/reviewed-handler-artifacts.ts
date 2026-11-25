@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1272-verified-dependency-store';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1273-async-source-capture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2937,6 +2936,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '21e3d764392027039872d0f66c0954bc5be9b843587fdc70ee6642442f2e3c66',
   '../__tests__/local-repository-worktree-performance.test.ts':
     '5589625a6d17b1b8141807a54a29410441afc216a5991c4566c87c9051b34a16',
+  '../__tests__/local-repository-capture-resolver-abort.test.ts':
+    '9e6ebc211d04ed0516207772e6d16439fef43d571533466e0448bb286af8e8bf',
   '../__tests__/local-repository-capture-responsive.test.ts':
     '0b66547da68b7ff70409cda7f04447aca7a6e798244b87b7747374db21ea4fb4',
   '../__tests__/local-session-removal.test.ts':
@@ -4119,7 +4120,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-skill-source.ts':
     '494e3fb159976afc6a1face61b02444b571bb86b3bedcc56ec7943639041a727',
   '../local-repository-worktree.ts':
-    '931eba3f234b92b57de284378d09f8aae34a8bb9c1595aae2b6c2b186f24a5d8',
+    '71bf9e4865487db36a5980a746a0224030119602197c62c05352aa57a928e24d',
   '../local-session-removal.ts': '6ac2695a89153024b6898601d62a45731ff49993a2d0b604e1f58962388a1d16',
   '../logger-transport.ts': '835c336a641ceef7d2a5d368cd435aec33660c4b64f256055bea5dde671153d8',
   '../logger.ts': '3ce8ce6fde43006d7fd0b6c2b1cded74d12b606aa24179e973bbc2138c091ac0',

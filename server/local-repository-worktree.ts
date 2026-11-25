@@ -37,11 +37,7 @@ const git = (cwd: string, ...args: string[]) =>
  * abort callback alone does not establish that its child has been collected. */
 async function captureGit(cwd: string, signal: AbortSignal, ...args: string[]): Promise<string> {
   signal.throwIfAborted();
-  // Resolve the selected developer Git without blocking the event loop. A bare
-  // `git` on macOS re-enters the xcrun shim on every spawn, which is slow or
-  // fails in the fenced child environment (no HOME/TMPDIR).
-  const executable = await readOnlyGitExecutableAsync();
-  signal.throwIfAborted();
+  // The per-probe deadline also covers executable resolution.
   const deadline = new AbortController();
   const timeout = setTimeout(
     () =>
@@ -49,6 +45,38 @@ async function captureGit(cwd: string, signal: AbortSignal, ...args: string[]): 
     gitOptions.timeout,
   );
   const combined = AbortSignal.any([signal, deadline.signal]);
+  try {
+    // Resolve the selected developer Git without blocking the event loop. A bare
+    // `git` on macOS re-enters the xcrun shim on every spawn, which is slow or
+    // fails in the fenced child environment (no HOME/TMPDIR). Stop or the
+    // deadline settles immediately; the shared lookup still fills the cache.
+    const executable = await new Promise<string>((resolve, reject) => {
+      const abort = () => reject(combined.reason);
+      combined.addEventListener('abort', abort, { once: true });
+      readOnlyGitExecutableAsync().then(
+        (path) => {
+          combined.removeEventListener('abort', abort);
+          resolve(path);
+        },
+        (error: unknown) => {
+          combined.removeEventListener('abort', abort);
+          reject(error);
+        },
+      );
+    });
+    combined.throwIfAborted();
+    return await spawnCaptureGit(executable, cwd, args, combined);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function spawnCaptureGit(
+  executable: string,
+  cwd: string,
+  args: string[],
+  combined: AbortSignal,
+): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     let failure: unknown;
     let output = '';
@@ -76,7 +104,7 @@ async function captureGit(cwd: string, signal: AbortSignal, ...args: string[]): 
       else if (combined.aborted) reject(combined.reason);
       else resolve(output.trim());
     });
-  }).finally(() => clearTimeout(timeout));
+  });
 }
 function directory(path: string) {
   if (!isAbsolute(path) || resolve(path) !== path || realpathSync(path) !== path)
