@@ -51,14 +51,19 @@ export function createContextSnapshotRouter(
       return res.status(403).json({ error: 'Explicit context inspection intent required' });
     const auth = recentAuthorizationSession(res);
     if (!auth) return;
-    const controller = new AbortController();
-    const unregister = registerAuthSession(auth, () => controller.abort());
+    // Revocation expires this login's authority for every waiter on a shared
+    // collection. A closed connection only cancels this waiter, so it must not
+    // make the shared authority look expired to a sibling that is still connected.
+    const revoked = new AbortController();
+    const closed = new AbortController();
+    const unregister = registerAuthSession(auth, () => revoked.abort());
     const close = () => {
-      if (!res.writableEnded) controller.abort();
+      if (!res.writableEnded) closed.abort();
     };
     res.on('close', close);
+    const signal = AbortSignal.any([revoked.signal, closed.signal]);
     const current = () =>
-      !controller.signal.aborted && isAuthSessionCurrent(auth) && visible(req.params.id);
+      !revoked.signal.aborted && isAuthSessionCurrent(auth) && visible(req.params.id);
     try {
       const response = await lifecycle.refresh(
         req.params.id,
@@ -68,12 +73,12 @@ export function createContextSnapshotRouter(
           current,
           allowTokenCount: async () => current() && input.data.allowTokenCount === true,
         },
-        controller.signal,
+        signal,
       );
       if (!isAuthSessionCurrent(auth))
         return res.status(401).json({ error: 'Operator authorization expired' });
       if (!visible(req.params.id)) return res.status(404).json({ error: 'Conversation not found' });
-      if (controller.signal.aborted) return;
+      if (signal.aborted) return;
       return res.json(ContextSnapshotResponseSchema.parse(lifecycle.forDelivery(response)));
     } catch {
       log.warn('Context snapshot response unavailable', {
@@ -81,8 +86,7 @@ export function createContextSnapshotRouter(
         stage: 'snapshot_response',
         reason: 'storage_failed',
       });
-      if (!controller.signal.aborted)
-        return res.status(503).json({ error: 'Context snapshot unavailable' });
+      if (!signal.aborted) return res.status(503).json({ error: 'Context snapshot unavailable' });
     } finally {
       unregister();
       res.off('close', close);

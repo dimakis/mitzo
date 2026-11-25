@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1274-context-snapshot-lifecycle-and-turn-attribution';
+  'v1.0.1275-context-snapshot-shared-waiter-authority';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,13 +30,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../context-snapshot-lifecycle.ts':
     '53fb84237b6d2e8e6821aaff6fc9ea956fb800b59942d06a39a9fc29b7e1d7f5',
   '../context-snapshot-router.ts':
-    'ac75a7b42ad79ad3f6ec2b779fe0ff3fd3bed9502cf562f54105d2a15e0d8027',
+    'e347adb6aae3ce1297d84bd99ba6d6475305a9767d5b1e846495b1a5325d9a05',
   '../context-snapshot-runtime.ts':
     '4bcc84c82a17003b49ba60c3cf16eebd737e7e173616b64b4b46ec15b661540f',
   '../operator-http-authority.ts':
     'c383a74e1360087bdeaf6a42492bacceeccda27bdbb6e073c0dfd19568d00598',
   '../__tests__/context-snapshot-lifecycle.test.ts':
-    'f944c5638cc8bf972ba38b444d9952f941e67cf5a343db403bdb5e78f9c547c8',
+    '018459981769bd126a927b78bf4731b0aa434c1253de2d04f2a5ef91a45a05b8',
   '../../packages/protocol/src/context-measurement.ts':
     '0d89c2ebfee3a80604c64c8174aa8001b35a3f8854dccac845cab40f3af3d925',
   '../context-measurement-adapters.ts':
