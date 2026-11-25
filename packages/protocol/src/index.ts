@@ -2,6 +2,7 @@ export * from './markdown-paths.js';
 export * from './ordinary-turn.js';
 export { conversationActivities } from './conversation-activity.js';
 export type { OrdinarySkillContext } from './ordinary-skill-context.js';
+export * from './context-snapshot.js';
 export {
   ToolFailureSchema,
   toolFailure,
@@ -278,6 +279,13 @@ export type { BackupRunStatus, BackupRun, BackupOverview } from './backup.js';
 export { isRegisteredConversation } from './conversation-identity.js';
 
 export { ModelTokenLimitsSchema, type ModelTokenLimits } from './token-limits.js';
+export {
+  ContextMeasurementSchema,
+  ContextObservationSchema,
+  ContextRequestUsageSchema,
+  type ContextMeasurement,
+  type ContextObservation,
+} from './context-measurement.js';
 export {
   TerminalOpenBody,
   TerminalInputBody,

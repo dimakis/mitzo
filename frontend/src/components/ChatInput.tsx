@@ -1861,6 +1861,7 @@ function ChatInputContent({
             ) : (
               tokenState && (
                 <TokenBar
+                  sessionId={sessionId}
                   tokenState={tokenState}
                   ownerName={tokenOwnerName}
                   alwaysVisible
