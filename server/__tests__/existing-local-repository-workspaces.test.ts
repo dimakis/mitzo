@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import type { AccountBinding } from '@mitzo/protocol';
 import { OrdinaryLocalWorkspaceOwner } from '../ordinary-local-workspace-owner.js';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
+import { runtimeFailureDiagnostics } from '../runtime-failure-diagnostics.js';
 
 vi.mock('fs/promises', async (importOriginal) => {
   const original = await importOriginal<typeof import('fs/promises')>();
@@ -184,6 +185,63 @@ it('reattaches the original conversation and dirty owned worktree after owner re
   await expect(
     resumedService.claimReservedHostTask({ ...reservation, conversationId: 'other-conversation' }),
   ).rejects.toThrow();
+});
+
+it('names the exact refused check when a cold follow-up revalidates a claimed task after restart', async () => {
+  const f = fixture();
+  const service = f.open();
+  const ready = await service.selectExistingLocalRepository(
+    binding,
+    f.repositories[0],
+    selection,
+    signal(),
+    undefined,
+    'HEAD',
+  );
+  const reservation = f.reservation(ready.id);
+  await service.reserveHostTask(reservation);
+  await service.claimReservedHostTask(reservation);
+  service.close();
+  services.splice(services.indexOf(service), 1);
+  const resumed = f.open();
+  // A cold follow-up carries no first-command fingerprint.
+  const followUp: Omit<typeof reservation, 'commandFingerprint'> = Object.fromEntries(
+    Object.entries(reservation).filter(([key]) => key !== 'commandFingerprint'),
+  ) as Omit<typeof reservation, 'commandFingerprint'>;
+  // The revalidation step that a cold follow-up reaches after its owner lookup.
+  const refusal = async (input: typeof followUp) => {
+    const error = await resumed.reserveHostTask({ ...input, signal: signal() }).then(
+      () => undefined,
+      (cause: unknown) => cause,
+    );
+    expect(error).toBeInstanceOf(Error);
+    return runtimeFailureDiagnostics(error);
+  };
+  expect(await refusal({ ...followUp, binding: { ...binding, model: 'other-model' } })).toEqual({
+    failedCheck: 'host_reservation.selection.account_binding',
+    authorityChecks: [
+      'host_reservation.existing',
+      'host_reservation.lookup',
+      'host_reservation.selection.account_binding',
+    ],
+    causeType: 'Error',
+  });
+  expect(
+    (
+      await refusal({
+        ...followUp,
+        runtimeBinding: {
+          ...runtime,
+          execution: { ...runtime.execution, targetRevision: 'mac-2' },
+        },
+      })
+    ).failedCheck,
+  ).toBe('host_reservation.runtime_target');
+  expect((await refusal({ ...followUp, conversationId: 'other-conversation' })).failedCheck).toBe(
+    'host_reservation.custody',
+  );
+  // The unchanged follow-up still revalidates its original claimed checkout.
+  await new OrdinaryLocalWorkspaceOwner(resumed, 'repository', followUp).revalidate(signal());
 });
 
 it('rechecks host access before capture, reservation and retained claim, and fails closed without it', async () => {

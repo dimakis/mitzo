@@ -8,6 +8,7 @@ import type { McpServerConfig } from './mcp-config.js';
 import { normalizeMcpToolResult } from './codex-tool-result.js';
 import { CodexToolFailure, codexToolFailureResult } from './codex-tool-failure.js';
 import { createLogger } from './logger.js';
+import { runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
 import {
   mcpStdioEnvironment,
   snapshotMcpEnvironment,
@@ -93,6 +94,10 @@ async function connect(
       code: 'mcp_connection_failed',
       stage: 'initialize',
       sourceId: source.id,
+      // Distinguish owner cancellation from a peer failure. The MCP SDK rewraps
+      // an abort reason without a cause, so report this connector's own signal.
+      cancelled: options.signal.aborted,
+      ...runtimeFailureDiagnostics(options.signal.aborted ? options.signal.reason : error),
     });
     try {
       await runBoundedToolCleanup(() => client.close(), options.toolGuardPolicy?.cleanupMs);

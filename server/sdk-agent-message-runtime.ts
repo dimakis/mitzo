@@ -76,6 +76,48 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
         owners.ordinaryCommandId ? owners.ordinaryCommandId() : owners.activeCommandId(),
       push: (input) => owners.push(input),
     });
+    owners.session.abortController.signal.addEventListener(
+      'abort',
+      () => this.#abandonUnacknowledged('session_abort'),
+      { once: true },
+    );
+  }
+
+  /** A steer released to stdin is queued until its replay ACK. If its owning
+   * query or session ends first, the outcome is unknown; never leave it queued. */
+  #abandonUnacknowledged(stage: 'session_abort' | 'query_retirement', query?: object) {
+    for (const pending of this.#pending.values()) {
+      if (query && pending.query !== query) continue;
+      const { messageId } = pending.message;
+      try {
+        const { message } = this.owners.events.agentCommunication.forHost(messageId);
+        if (message.status === 'pending' || message.status === 'queued')
+          this.owners.events.agentCommunication.recordForHost(
+            messageId,
+            'uncertain',
+            'admission_uncertain',
+          );
+      } catch (error) {
+        log.warn('Unacknowledged SDK peer input receipt not settled', {
+          code: 'peer_receipt_settlement_failed',
+          stage,
+          messageId,
+          causeType: error instanceof Error ? error.name : typeof error,
+        });
+      }
+      this.#pending.delete(messageId);
+    }
+  }
+
+  /** Bind at queue insertion, including inputs not yet released to stdin. */
+  bindInputToQuery(input: SDKUserMessage, query: object): void {
+    const pending = this.#inputs.get(input);
+    if (pending) pending.query = query;
+  }
+
+  /** A successor never inherits its predecessor's outstanding replay ACKs. */
+  retireQuery(query: object): void {
+    this.#abandonUnacknowledged('query_retirement', query);
   }
 
   async steerUser(input: CodexSteerInput, authorize: () => void) {
@@ -150,7 +192,10 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     this.#inputs.set(input, pending);
     this.#pending.set(message.messageId, pending);
     this.owners.push(input);
-    return 'uncertain' as const;
+    // The input is now held by the recipient's live query: queued, not
+    // uncertain. Its stdin guard records a refusal as failed, its exact replay
+    // ACK records delivered, and losing the session first records uncertain.
+    return 'queued' as const;
   }
 
   /** Called after asynchronous SDK authority checks and immediately before stdin yield.
@@ -369,6 +414,9 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     )
       return false;
     const pending = this.#pending.get(event.uuid);
+    // A live query may acknowledge only input submitted to that exact query.
+    // Retained receipts alone cannot turn a successor's replay into delivery.
+    if (query && (!queryAvailable || !pending || pending.query !== query)) return true;
     if (
       text !== agentMessagePrompt(retained.message) ||
       (pending && !pending.attempted) ||
@@ -380,6 +428,14 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
         sessionId: this.sessionId,
         messageId: retained.message.messageId,
       });
+      // The provider echoed something else for this exact message: its
+      // delivery is now unknown, no longer merely awaiting acknowledgement.
+      if (['pending', 'queued'].includes(retained.message.status))
+        this.owners.events.agentCommunication.recordForHost(
+          retained.message.messageId,
+          'uncertain',
+          'admission_uncertain',
+        );
       return true;
     }
     this.owners.events.agentCommunication.recordForHost(retained.message.messageId, 'delivered');

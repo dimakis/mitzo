@@ -6,7 +6,10 @@ import {
   OrdinaryLocalVertexTarget,
   localVertexCapabilities,
 } from './ordinary-local-vertex-capabilities.js';
-import { canResumeOwnedLocalVertexDriver } from './ordinary-local-vertex-entry.js';
+import {
+  canResumeOwnedLocalVertexDriver,
+  ownedLocalVertexStartupInFlight,
+} from './ordinary-local-vertex-entry.js';
 import {
   OrdinaryLocalResponsesTarget,
   localResponsesCapabilities,
@@ -66,7 +69,16 @@ export function ordinaryCodexContinuationStatus(
         native.readHostCustody(sessionId, meta.accountBinding!)?.authSessionId,
         authSessionId,
       );
+    // A new chat's first command stays durably uncertain from its dispatch claim
+    // until the SDK accepts it (workspace preparation and SDK startup). While
+    // this process still owns that exact startup, it is not an orphaned dispatch.
+    const startupInFlight =
+      !!authSessionId &&
+      binding.harness.implementation === 'claude-sdk' &&
+      binding.execution.location === 'local' &&
+      ownedLocalVertexStartupInFlight(sessionId, authSessionId);
     if (
+      !startupInFlight &&
       eventStore.hasUncertainOrdinaryCommand(sessionId) &&
       !(
         ownsNative &&
@@ -105,6 +117,11 @@ export function ordinaryCodexContinuationStatus(
         : process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED) !== '1'
     )
       return blocked('This conversation’s execution route is not enabled.');
+    // Match the state reported once startup finishes: the live owner attaches
+    // and the same login continues. The chat may read this only once per
+    // command, so a startup-only refusal would persist for the whole turn.
+    // Every later command is still requalified at its own admission.
+    if (startupInFlight) return { available: true };
     const profiles = loadAccountProfiles();
     let resolved;
     const request = {
