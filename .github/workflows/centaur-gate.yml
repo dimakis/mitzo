@@ -95,7 +95,9 @@ jobs:
               (latest.commit_id === undefined || latest.commit_id === head);
             const approved = unambiguous && current && latest.state !== 'DISMISSED' &&
               new RegExp(`^<!-- centaur:sha:${head} -->\\s*## Centaur Review\\s*` +
-                'LGTM — no issues found\\.\\s*### Convergence\\s*' +
+                // Non-blocking follow-ups may accompany a merge verdict; the counts
+                // below still require zero new and unresolved blockers.
+                '(?:LGTM — no issues found\\.|Found \\*\\*\\d+\\*\\* issue\\(s\\)(?: \\(\\d+ warning\\))?\\.)\\s*### Convergence\\s*' +
                 '\\*\\*Recommendation:\\*\\* `merge`[^\\n]*\\n').test(body) &&
               body.split('**Recommendation:**').length === 2 &&
               body.split('## Centaur Review').length === 2 &&

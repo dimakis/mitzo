@@ -17,6 +17,19 @@ import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import type { TelosWorkRoleRequest } from './telos-work-routes.js';
 import type { TaskStore } from './task-store.js';
 import { captureTelosWorkerFirstCommandAuthority } from './telos-worker-start-authority.js';
+import { isLocalCodexLaunchProvider } from './session-launch-runtime.js';
+
+/** TelosStartSlice starts only a Local Mac Codex worker whose account provider
+ * the reviewed launch maps to Local Codex (ChatGPT or OpenAI-compatible API). */
+export function telosWorkerStartRouteSupported(
+  binding: (CollaborationSettings | OrdinaryWorkspaceSettings)['binding'],
+): boolean {
+  return (
+    binding.execution.location === 'local' &&
+    binding.harness.implementation === 'codex' &&
+    isLocalCodexLaunchProvider(binding.account.provider)
+  );
+}
 
 /** The signed source owner is supplied by the live runtime, never tool JSON. */
 export async function startAllocatedTelosWorker(
@@ -102,11 +115,7 @@ export async function startAllocatedTelosWorker(
           throw Error(
             'claude_worker_start_unavailable: TelosStartSlice cannot start a Claude worker yet. Send its first instruction from its chat or with AgentCommunication.',
           );
-        if (
-          settings.binding.execution.location !== 'local' ||
-          settings.binding.harness.implementation !== 'codex' ||
-          settings.binding.account.provider !== 'openai-codex'
-        )
+        if (!telosWorkerStartRouteSupported(settings.binding))
           throw Error(
             'Delegated worker startup currently requires its selected Local Mac Codex runtime',
           );
