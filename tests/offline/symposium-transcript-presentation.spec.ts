@@ -79,8 +79,11 @@ for (const theme of ['light', 'dark'])
     await page.getByRole('button', { name: /^mcp__mitzo__TaskExecution/ }).click();
     await expect(page.locator('.tool-pill-detail')).toBeVisible();
     await expect(page.locator('.tool-pill-detail')).toContainText('technical-reference');
+    // WebKit reports a 44px target as e.g. 43.99999; compare at 1/100px.
     expect(
-      await activity.evaluate((node) => node.getBoundingClientRect().height),
+      await activity.evaluate(
+        (node) => Math.round(node.getBoundingClientRect().height * 100) / 100,
+      ),
     ).toBeGreaterThanOrEqual(44);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),

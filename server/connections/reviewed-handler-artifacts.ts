@@ -528,7 +528,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-transcript-presentation.tsx':
     '672d821c8d50ad659ecba50f56c4c6d8bdd0dbc36dfc0929456d22cbdff99a39',
   '../../tests/offline/symposium-transcript-presentation.spec.ts':
-    '5862aecc7307699f882c26d265e41ebff32ff864e000d9ebd402bd2801317c0e',
+    '90d7594cb8c1b549de8b19a24c183bddbdc52b02e44350d5f7b4281b49966d6a',
   '../../frontend/src/components/SessionLaunchCards.css':
     '6aee8d4e7e2a40b1228e5e27523806cc854f78ecca2dbc7c27899b73e8dafc32',
   '../../frontend/src/components/SessionLaunchCards.tsx':
