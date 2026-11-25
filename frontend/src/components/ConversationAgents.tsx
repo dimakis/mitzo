@@ -1,4 +1,12 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Link } from 'react-router-dom';
 import {
   DEFAULT_MITZO_PROFILE_ID,
@@ -28,6 +36,9 @@ import {
   sharedConversationLabel,
   type SharedConversationIdentity,
 } from '../lib/shared-conversation-identity';
+import { ConversationContextSelection } from './ConversationContextSelection';
+import { useConversationContextArtifacts } from '../hooks/useConversationContextArtifacts';
+import type { ConversationContextMessageMetadata } from '../lib/conversation-context-selection';
 
 export interface ConversationAgent {
   id: string;
@@ -100,6 +111,7 @@ function ParticipantHeaderFrame({ compact, children }: { compact?: boolean; chil
   return compact ? children : <div className="conversation-participants-container">{children}</div>;
 }
 function ConversationAgentsBody({
+  scope,
   agents,
   messages,
   repository,
@@ -196,9 +208,26 @@ function ConversationAgentsBody({
             : view === 'details'
               ? (previewAgent?.name ?? 'Agent details')
               : 'Agents';
-  const selectable = messages.filter((m) =>
-    m.blocks.some((b) => b.blockType === 'text' && b.content),
+  const contextArtifacts = useConversationContextArtifacts(
+    joiningOwner,
+    open &&
+      view === 'add' &&
+      setup.context === 'selected' &&
+      (!compactSetup || setupPage?.key === 'more'),
   );
+  // Only ordinary rows without their own recorded provenance use this source's name.
+  const sourceAgent = agents.find((agent) => agent.id === scope);
+  const sourceName = sourceAgent?.name;
+  const messageMetadata = useMemo(() => {
+    const metadata: Record<string, ConversationContextMessageMetadata> = {};
+    if (sourceName)
+      for (const message of messages) {
+        if (message.role === 'assistant' && !message.agentMessage && !message.symposiumProvenance) {
+          metadata[message.messageId] = { authorId: scope, authorLabel: sourceName };
+        }
+      }
+    return metadata;
+  }, [messages, scope, sourceName]);
   // No freshness, capacity, allocation or provider readiness is inferred from catalog data.
   const unavailable =
     unavailableReason ??
@@ -657,97 +686,29 @@ function ConversationAgentsBody({
                       </p>
                     ) : (
                       <>
-                        <p className="conversation-agents-explanation">
-                          Choose messages and saved artifact versions. Leave all unchecked for the
-                          joining brief only.
-                        </p>
-                        <fieldset className="conversation-context-selection">
-                          <legend>Messages</legend>
-                          {selectable.length === 0 && <p>No messages yet.</p>}
-                          {selectable.map((m) => (
-                            <label key={m.messageId}>
-                              <input
-                                type="checkbox"
-                                checked={setup.messageIds.includes(m.messageId)}
-                                onChange={(e) =>
-                                  setSetup((s) => ({
-                                    ...s,
-                                    messageIds: e.target.checked
-                                      ? [...s.messageIds, m.messageId]
-                                      : s.messageIds.filter((id) => id !== m.messageId),
-                                  }))
-                                }
-                              />
-                              <span>
-                                <small>
-                                  {m.role === 'user'
-                                    ? 'You'
-                                    : m.symposiumProvenance && 'seatLabel' in m.symposiumProvenance
-                                      ? m.symposiumProvenance.seatLabel
-                                      : 'Agent'}
-                                </small>
-                                {m.blocks
-                                  .filter((b) => b.blockType === 'text')
-                                  .map((b) => b.content)
-                                  .join('\n')}
-                              </span>
-                            </label>
-                          ))}
-                        </fieldset>
-                        {joiningOwner?.artifacts ? (
-                          <fieldset className="conversation-context-selection">
-                            <legend>Artifacts</legend>
-                            {joiningOwner.artifacts.length === 0 && (
-                              <p>No artifacts in this conversation.</p>
-                            )}
-                            {joiningOwner.artifacts.map((artifact) => (
-                              <label
-                                key={`${artifact.artifactId}:${artifact.revision}:${artifact.sha256}`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={setup.artifacts.some(
-                                    (a) =>
-                                      a.artifactId === artifact.artifactId &&
-                                      a.revision === artifact.revision &&
-                                      a.sha256 === artifact.sha256,
-                                  )}
-                                  onChange={(event) =>
-                                    setSetup((s) => ({
-                                      ...s,
-                                      artifacts: event.target.checked
-                                        ? [
-                                            ...s.artifacts,
-                                            {
-                                              artifactId: artifact.artifactId,
-                                              revision: artifact.revision,
-                                              sha256: artifact.sha256,
-                                            },
-                                          ]
-                                        : s.artifacts.filter(
-                                            (a) =>
-                                              a.artifactId !== artifact.artifactId ||
-                                              a.revision !== artifact.revision ||
-                                              a.sha256 !== artifact.sha256,
-                                          ),
-                                    }))
-                                  }
-                                />
-                                <span>
-                                  {artifact.title}
-                                  <small>Saved version {artifact.revision}</small>
-                                </span>
-                              </label>
-                            ))}
-                          </fieldset>
-                        ) : (
-                          <p className="conversation-agents-explanation">
-                            Saved artifact versions are not available for selection yet.
-                          </p>
+                        {contextArtifacts.loading && (
+                          <p role="status">Loading retained artifacts…</p>
                         )}
-                        {setup.messageIds.length === 0 && setup.artifacts.length === 0 && (
-                          <p>Joining brief only.</p>
+                        {joiningOwner?.artifactsUnavailableReason && (
+                          <p role="status">{joiningOwner.artifactsUnavailableReason}</p>
                         )}
+                        {contextArtifacts.error && (
+                          <div role="alert">
+                            <p>{contextArtifacts.error}</p>
+                            <button type="button" onClick={contextArtifacts.retry}>
+                              Retry artifact list
+                            </button>
+                          </div>
+                        )}
+                        <ConversationContextSelection
+                          messages={messages}
+                          messageMetadata={messageMetadata}
+                          messageIds={setup.messageIds}
+                          artifacts={contextArtifacts.artifacts}
+                          selectedArtifacts={setup.artifacts}
+                          onMessagesChange={(messageIds) => setSetup((s) => ({ ...s, messageIds }))}
+                          onArtifactsChange={(artifacts) => setSetup((s) => ({ ...s, artifacts }))}
+                        />
                       </>
                     )}
                   </QuickSettingsField>
