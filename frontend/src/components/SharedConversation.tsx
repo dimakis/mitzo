@@ -320,6 +320,11 @@ function useSharedConversation({
     });
     return {
       ...applicationOwner,
+      // Inspection never begins sharing. The existing catalog requires retained membership.
+      loadArtifacts: association.begun ? applicationOwner.loadArtifacts : undefined,
+      artifactsUnavailableReason: association.begun
+        ? undefined
+        : 'Retained artifacts are unavailable until this conversation has an existing shared association. Opening starting context does not create one.',
       async captureReview(...args: Parameters<typeof applicationOwner.captureReview>) {
         // Only this explicit review action begins the relationship; no session or model is allocated.
         if (!association.begun)
