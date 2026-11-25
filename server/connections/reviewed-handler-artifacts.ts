@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1275-pr-monitor-runtime';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1276-pr-monitor-external-ci';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4927,26 +4927,32 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/pr-monitor-consent.test.ts':
     '51f6c579bd83ba7dcdf59623694ab974ee5e85c0bfb33a217c8f8bac00c7b7e1',
   '../__tests__/pr-monitor-github.test.ts':
-    'a12533326d862bd3429fb7c7f882d09a21473ede2796514589192e180e6c9e1f',
+    '1b1fc3cbfe3f48a2ab0ec0e28c173e76856a556a6d7fdbc5cc6f6effbc039620',
   '../__tests__/pr-monitor-observer.test.ts':
     '11b454ef109dfe982741e348224497724f4ac6043d5257c9254068a8c98b63f1',
   '../__tests__/pr-monitor-runtime.test.ts':
-    '05459d6a1a795636b48be77fd8daac5a110ed4e58f05a90525ff90966de566fd',
+    'e7be0a3597def89e1b1b7f43248c591351d29bdeb1628882acc46ce9640d9d76',
   '../github-read-response.ts': 'f4cd0cdf394a46b54e6589cfb035249529d02d7adc5fd36d72ab4448b00773d8',
   '../pr-monitor-consent.ts': '39000037736a7df4b0fd5a5914b382351c79ad7556596f61615417ea8f6eb388',
-  '../pr-monitor-github.ts': 'cfde967e77e2a566fc031eba96e2e575f80774f58920cb843f42c45079b3264e',
-  '../pr-monitor-observer.ts': '9b7788569af08f7e97a7032fa5dc0c1e0b7cddc6161f3e71979c9a95491a2beb',
+  '../pr-monitor-github.ts': 'd909c0dfc03b36fdd7a0329f0be66346ec60fe77f136b186d61661466c4c20bb',
+  '../pr-monitor-observer.ts': '3224673082df63c83438ca50ac687448174cacf34b8047dd49c4b7ec75a554f7',
   '../pr-monitor-runtime.ts': 'cb340e94d1c0cd10ff2556ea7f75a70ab7fc9888423c621ce6046910077c7bf3',
   '../__tests__/pr-monitor-application.test.ts':
     '0a3127bebf18c5404b7e6aca03277c7e025afb06120cb6547b088d697cef4562',
   '../__tests__/pr-monitor-centaur.test.ts':
     'eac06590ecb659b4252235448d7a0e63899a6defec1437fd18b51617ee66e401',
   '../__tests__/pr-monitor-controller.test.ts':
-    'a488de1b390f7e6267b7e5721408ede47c5dbbba55ab7dc827e79d76af5c8145',
+    '41bd3c8fda9f221555761aeff905b4cd95bd204f36c9da10f2a056e57c193a29',
   '../pr-monitor-application.ts':
     'e285fb9366f88a3bf48c76e745c996c68e73c0bcd4dbfdf7d19b2875f93ff5e8',
   '../pr-monitor-author-policy.ts':
     '933a790188920368ef2a48738c0dfa46a51fd6fc325223cc5815c694acdf3e7d',
   '../pr-monitor-centaur.ts': '2ae376ef41f1ff6f7c6f4dcd7e7029a6b1445145985fa544f21a1f1bf27e5e47',
   '../pr-monitor-controller.ts': '77d67deedce12416dadd68fd22ddb3b73bc0f5a929561e00725bafa67d68fb42',
+  '../pr-monitor-external-ci.ts':
+    'dfc54e07322c2cf71f335187d254b88fe3654f96bb7ad78df5c9de4ed684511e',
+  '../__tests__/pr-monitor-external-ci.test.ts':
+    '38485c6b64558918b35de2484a5c22391bd16df65ac098511d8bede66db52235',
+  '../__tests__/fixtures/pr-monitor-external-ci.ts':
+    '8bfcb7a5e32dbe84e59be413c97c171ef9147cf9017375902d413bd5794ed9d3',
 });
