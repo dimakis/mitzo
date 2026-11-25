@@ -340,7 +340,9 @@ it('fences late authenticated HTTP through the runtime and retains every charged
   const successor = f.view();
   expect(successor.snapshot?.headSha).toBe(headSha);
   const calls = transport.mock.calls.length;
-  expect(calls).toBe(19);
+  // Two complete collections (7 requests each: principal attestation only on the
+  // opening and closing PR reads) plus the one held late request.
+  expect(calls).toBe(15);
   finish({ status: 500, headers: {}, data: {} });
   await old;
   expect(transport).toHaveBeenCalledTimes(calls);

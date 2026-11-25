@@ -211,7 +211,9 @@ export class PrMonitorStore {
       this.db
         .prepare('INSERT INTO pr_monitor_revocations VALUES (?,?,?,?)')
         .run(input.subscriptionId, input.requestId, input.fingerprint, JSON.stringify(pending));
-      view.subscription.lifecycle = 'paused';
+      // Removed and merged subscriptions stay terminal through revocation.
+      if (view.subscription.lifecycle !== 'removed' && view.subscription.lifecycle !== 'merged')
+        view.subscription.lifecycle = 'paused';
       view.subscription.nextRefreshAt = null;
       view.subscription.eligibilityRevision++;
       view.subscription.eligibilityDigest = prMonitorDigest([]);
@@ -323,9 +325,16 @@ export class PrMonitorStore {
         revision: authority.revision,
         expiresAt: authority.expiresAt,
       };
+      // Removed and merged subscriptions are terminal. Revocation is still
+      // recorded, but nothing (including revoke followed by issue) can resume them.
+      const terminal =
+        view.subscription.lifecycle === 'removed' || view.subscription.lifecycle === 'merged';
+      if (authority.kind === 'pr-watch' && terminal && authority.revokedAt === null)
+        throw Error('subscription_unavailable');
       if (authority.kind === 'pr-watch') {
         view.subscription.watch = ref;
-        view.subscription.lifecycle = authority.revokedAt === null ? 'watching' : 'paused';
+        if (!terminal)
+          view.subscription.lifecycle = authority.revokedAt === null ? 'watching' : 'paused';
         view.subscription.nextRefreshAt = authority.revokedAt === null ? 0 : null;
         view.refreshState = authority.revokedAt === null ? 'stale' : 'blocked';
         // A new Watch is a new baseline. Delivery sees revision invalidation;
