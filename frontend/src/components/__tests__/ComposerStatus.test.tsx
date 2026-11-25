@@ -175,6 +175,27 @@ it('keeps a shared issue in the alert outside the Agents control', () => {
   ).toBeNull();
 });
 
+it('keeps its own running status when a peer needs attention and marks only the Agents summary', () => {
+  const panel = sharedPanel(true);
+  panel.agents = [
+    ...panel.agents,
+    { id: 'unavailable', name: 'Unavailable', state: 'Not observed', diagnostic: 'Unavailable' },
+  ];
+  render(
+    <ConversationAgentsPanelContext.Provider value={panel}>
+      <ComposerStatusProvider>
+        <ComposerStatusRail running />
+      </ComposerStatusProvider>
+    </ConversationAgentsPanelContext.Provider>,
+  );
+  const rail = screen.getByRole('region', { name: 'Conversation status' });
+  expect(rail.getAttribute('data-tone')).toBe('normal');
+  expect(within(rail).getByRole('status').textContent).toBe('Working');
+  const opener = within(rail).getByRole('button', { name: /^Open Agents,/ });
+  expect(opener.getAttribute('data-attention')).toBe('true');
+  expect(opener.getAttribute('aria-label')).toContain('1 need attention');
+});
+
 it('shows the shared roster without a dead Open Agents control when no panel can open', () => {
   const open = vi.fn();
   render(

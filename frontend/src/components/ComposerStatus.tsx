@@ -184,12 +184,17 @@ export function ComposerStatusRail({
           : running
             ? workingLabel
             : 'Ready';
+  // The rail tone reflects this conversation's own issues only. Peer attention
+  // marks the Agents summary, so it never hides this conversation's running
+  // indicator or turn timer.
   const tone = issues.some((notice) => notice.tone === 'danger')
     ? 'danger'
-    : issues.length ||
-        shared?.agents.some((agent) => agent.diagnostic || agent.activityState === 'waiting')
+    : issues.length
       ? 'warning'
       : 'normal';
+  const rosterAttention = shared?.agents.some(
+    (agent) => agent.diagnostic || agent.activityState === 'waiting',
+  );
   const roster = shared?.agents
     .map((agent) => `${agent.name}: ${agent.state}${agent.diagnostic ? ' · needs attention' : ''}`)
     .join('; ');
@@ -241,6 +246,7 @@ export function ComposerStatusRail({
             <button
               type="button"
               className="composer-status-agents"
+              data-attention={rosterAttention ? 'true' : undefined}
               aria-label={`Open Agents, ${compactRoster}`}
               aria-haspopup="dialog"
               title={roster}
@@ -254,7 +260,11 @@ export function ComposerStatusRail({
             </button>
           ) : (
             // No mounted Agents panel can open: show the summary, not a dead control.
-            <span className="composer-status-agents" title={roster}>
+            <span
+              className="composer-status-agents"
+              data-attention={rosterAttention ? 'true' : undefined}
+              title={roster}
+            >
               <span className="composer-status-agent-names">{roster}</span>
               <span className="composer-status-agent-count">{compactRoster}</span>
             </span>

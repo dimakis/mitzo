@@ -20,6 +20,10 @@
   min-width: 0;
   text-align: start;
 }
+/* Peer attention colours only the Agents summary, never this conversation's status. */
+.composer-status .composer-status-agents[data-attention='true'] {
+  color: var(--color-warning);
+}
 .composer-status[data-shared='true'] .composer-status-summary {
   flex: 0 1 auto;
   max-width: 45%;

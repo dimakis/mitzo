@@ -360,7 +360,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '6efb121831e74a40fe2181409b8dde78524a06d7fb222d007fe212530bca30e4',
   '../../frontend/src/components/ChatInput.tsx':
-    '38528b4bc326f250eed10ba72c14d0734be5b3e7cca92e107518cd18eedb03d9',
+    '33f304fd04622bd2b6e9b745a306916deb386ef89fb0dc56a8a5fc161f68e272',
   '../../frontend/src/components/ChatInputHost.css':
     '6ac695e0ec3850781d32e6257738c2900657499c2545303321f200488e3ccc20',
   '../../frontend/src/components/ChatInputHost.tsx':
@@ -388,9 +388,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ComposerResponders.tsx':
     'd4b52d7e11e293735c56a8063f60dac5680ad595974aabbe9106a2fe8ab2d171',
   '../../frontend/src/components/ComposerStatus.css':
-    '1c4b30e97dc61a3b4e4c2b8c52ae5940ef9fb5db4c4b121499e74ea2e1e164c4',
+    'bcd06b89016d8e5d96cd84a7925970b5e599fc5d34d67d8006686f20029ad64d',
   '../../frontend/src/components/ComposerStatus.tsx':
-    '54d59242e34dc5be11b5d41972814f3d4e1517d5400860b343d5cfad622c4200',
+    '090b97110a9e67b93ee8ab048d64e4a56b5d53159d62efb73639a309e715fa1a',
   '../../frontend/src/components/ComposerTools.tsx':
     '4d12ffa29195b6f3b60277e5e76e87120ec18da8bed6080b49a4813c052a2e6d',
   '../../frontend/src/components/ConnectionSetupCard.tsx':
@@ -688,7 +688,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ComposerResponders.test.tsx':
     'a9fba4787efa00c35deec561b6cc64eafe1475dd1d07108d4cdb8215b8b1aff0',
   '../../frontend/src/components/__tests__/ComposerStatus.test.tsx':
-    'c4bb534576c6e1567159efc63d0e972c3e85ce49ed0a4c302b3a5921eefddd8b',
+    '179462e6870f6bab5317c49a663e656da5bf637353344fbfa2938ee20c06cca0',
   '../../frontend/src/components/__tests__/ComposerTimerPlacement.test.tsx':
     'f2b0e6b5e80c34d81ba8ddfa54148eb4c84b853e0694257e700ceec6aed7617e',
   '../../frontend/src/components/__tests__/ConnectionSetupCard.test.tsx':
