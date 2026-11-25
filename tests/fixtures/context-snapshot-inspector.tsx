@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
@@ -19,6 +19,8 @@ function Fixture() {
     window.addEventListener('fixture-switch-chat', switchChat);
     return () => window.removeEventListener('fixture-switch-chat', switchChat);
   }, []);
+  // Match useVoice: ChatInput cancels recording whenever this callback changes.
+  const cancelRecording = useCallback(() => setRecording(false), []);
   const voice: UseVoiceReturn = {
     available: true,
     recording,
@@ -43,7 +45,7 @@ function Fixture() {
         ),
       );
     },
-    cancelRecording: () => setRecording(false),
+    cancelRecording,
     ttsAvailable: false,
     speaking: false,
     voices: [],
