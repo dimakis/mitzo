@@ -151,9 +151,9 @@ fingerprints had not been regenerated; dependent browser/test jobs were skipped.
 The preparation fix retains every existing registration, regenerates those eight
 fingerprints, registers the extracted task observation and Stop consumer modules,
 and advanced the runtime revision to `v1.0.1271-background-task-ui` at that time.
-Later integrations with main took main's runtime revision (currently
-`v1.0.1272-verified-dependency-store`) and regenerated only this change's
-fingerprints; `server/connections/reviewed-handler-artifacts.ts` is authoritative.
+Later integrations with main regenerated this change's fingerprints and keep a
+distinct revision for it (currently `v1.0.1273-background-task-ui`);
+`server/connections/reviewed-handler-artifacts.ts` is authoritative.
 `npm run check:source-artifacts` and all four source/compile-preflight regression
 tests pass locally. Fresh CI and exact-head Centaur review remain required;
 the earlier green job named `centaur` had no published final review report.
