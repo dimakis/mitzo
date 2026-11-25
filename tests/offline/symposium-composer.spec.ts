@@ -107,6 +107,7 @@ test('one press waits for readiness, then shared Queue acknowledges a distinct p
         snapshot: input.snapshot,
         responders: ['architect'],
         readers: ['architect'],
+        settings: { architect: sharedPrompt.settings.architect },
         membershipRevision: input.expectedMembershipRevision,
         policySequence: input.expectedPolicySequence,
         deliveries: [
