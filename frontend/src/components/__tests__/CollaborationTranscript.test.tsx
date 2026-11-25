@@ -232,6 +232,39 @@ it('names automated assignments and activity with readable summaries and retaine
   expect(screen.getAllByText(/technical-grant/).length).toBeGreaterThan(0);
 });
 
+it.each(['__proto__', 'constructor', 'toString', 'unknown', '{"nested":true}'])(
+  'keeps an invalid TaskExecution operation %s as a generic readable summary',
+  (operation) => {
+    const view = sharedConversationView();
+    view.messages = [{ ...sharedPrompt, origin: { sessionId: 'reader', requestId: uuid(902) } }];
+    render(
+      <MemoryRouter>
+        <CollaborationTranscript
+          names={names}
+          projection={createCollaborationProjection(view)}
+          ordinary={sourceChat([
+            {
+              messageId: 'tool',
+              replyToMessageId: 'ordinary-architect',
+              role: 'assistant',
+              blocks: [
+                {
+                  blockId: 't',
+                  blockType: 'tool_use',
+                  toolName: 'mcp__mitzo__TaskExecution',
+                  toolInput: JSON.stringify({ operation }),
+                  content: '',
+                },
+              ],
+            },
+          ])}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: /Architect.*Task operation/ })).toBeTruthy();
+  },
+);
+
 it('keeps roster accents distinct and stable for removed authors after remount', () => {
   const view = sharedConversationView();
   view.seatOrder = Array.from({ length: 16 }, (_, index) => `seat-${index}`);
@@ -561,6 +594,52 @@ it('deduplicates ordinary finished/live source echoes using command identity wit
   // Reusing a source message ID under another command is distinct work.
   h.rerender(tree(sourceChat([], sourceStream('different-command'))));
   expect(screen.getAllByText('Same visible body')).toHaveLength(3);
+});
+
+it('keeps a live shared reply below its prompt after an ordinary native prefix through completion', () => {
+  const view = sharedConversationView();
+  view.messages = [sharedPrompt];
+  const prefix: FinishedMessage = {
+    messageId: 'prefix',
+    role: 'user',
+    startedSeq: 10,
+    blocks: [{ blockId: 'text', blockType: 'text', content: 'Ordinary prefix' }],
+  };
+  const stream = { ...sourceStream(sharedReply.source!.commandId!), startedSeq: 20 };
+  const tree = (ordinary: ChatAreaProps) => (
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={ordinary}
+        names={names}
+      />
+    </MemoryRouter>
+  );
+  const { container, rerender } = render(tree(sourceChat([prefix], stream)));
+  const order = () => container.querySelector('.chat-messages')!.textContent!;
+  // The reply quotes its prompt, so locate the prompt by its own delivery line.
+  const promptDelivery = 'To Architect, Reviewer';
+  const expectOrdered = () => {
+    expect(order().indexOf('Ordinary prefix')).toBeLessThan(order().indexOf(promptDelivery));
+    expect(order().indexOf(promptDelivery)).toBeGreaterThanOrEqual(0);
+    expect(order().indexOf(promptDelivery)).toBeLessThan(order().indexOf('Same visible body'));
+  };
+  expectOrdered();
+  rerender(
+    tree(
+      sourceChat([
+        prefix,
+        {
+          messageId: stream.messageId,
+          startedSeq: stream.startedSeq,
+          replyToMessageId: stream.replyToMessageId,
+          role: 'assistant',
+          blocks: [{ blockId: 'text', blockType: 'text', content: 'Same visible body' }],
+        },
+      ]),
+    ),
+  );
+  expectOrdered();
 });
 
 it('keeps ordinary prefix order and shared sequence order despite unrelated source cursors and timestamps', () => {

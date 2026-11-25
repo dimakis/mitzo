@@ -8,6 +8,14 @@ import type { ActivityRow } from '../lib/groupActivityRows';
 import { webAccessSummary } from '../lib/web-access-outcome';
 import { SeatLabel } from './SeatLabel';
 
+const TASK_OPERATION_LABELS: Readonly<Record<string, string>> = {
+  run: 'Run command',
+  commit: 'Save code changes',
+  github_read: 'Read repository',
+  status: 'Check task access',
+  authorize: 'Request task access',
+};
+
 function activityPreview(block: ChatBlock): string {
   if (block.blockType === 'redacted_thinking') return 'Reasoning redacted';
   if (block.blockType !== 'tool_use') {
@@ -38,22 +46,18 @@ function activityPreview(block: ChatBlock): string {
   }
   const tool = block.toolName?.split('__').at(-1) ?? 'Tool call';
   if (tool === 'TaskExecution') {
+    // Arguments are displayed even when execution rejects them: only an own,
+    // known operation name may select a label, so inherited keys stay generic.
+    let operation: unknown;
     try {
-      const input = JSON.parse(block.toolInput ?? '{}');
-      return (
-        (
-          {
-            run: 'Run command',
-            commit: 'Save code changes',
-            github_read: 'Read repository',
-            status: 'Check task access',
-            authorize: 'Request task access',
-          } as Record<string, string>
-        )[input.operation] ?? 'Task operation'
-      );
+      operation = (JSON.parse(block.toolInput ?? '{}') as { operation?: unknown } | null)
+        ?.operation;
     } catch {
       return 'Task operation';
     }
+    return typeof operation === 'string' && Object.hasOwn(TASK_OPERATION_LABELS, operation)
+      ? TASK_OPERATION_LABELS[operation]
+      : 'Task operation';
   }
   if (['exec_command', 'write_stdin'].includes(tool))
     return tool === 'exec_command' ? 'Run command' : 'Check command output';

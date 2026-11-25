@@ -268,12 +268,13 @@ function CollaborationTranscriptContent({
                 .find((row) => messageOrder.includes(row.messageId))
             : undefined;
         const commandAnchor = commandAnchors.get(stream.replyToMessageId ?? '');
-        const anchorId =
-          previous?.messageId ??
-          (commandAnchor !== undefined ? shared[commandAnchor].messageId : stream.replyToMessageId);
-        const anchorPosition = anchorId
-          ? messageOrder.indexOf(displayedIds.get(anchorId) ?? anchorId)
-          : -1;
+        const replyAnchorId =
+          commandAnchor !== undefined ? shared[commandAnchor].messageId : stream.replyToMessageId;
+        const position = (id: string | undefined) =>
+          id ? messageOrder.indexOf(displayedIds.get(id) ?? id) : -1;
+        // A preceding native row orders live output among native history, but a
+        // reply can never be placed above the exact prompt it answers.
+        const anchorPosition = Math.max(position(previous?.messageId), position(replyAnchorId));
         messageOrder.splice(
           anchorPosition < 0 ? messageOrder.length : anchorPosition + 1,
           0,

@@ -302,7 +302,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AdviserSubscriptions.tsx':
     '568a46de4fc1202e3304220ddb576092882c9a308e5e2080471e89e0bc246466',
   '../../frontend/src/components/AgentActivity.tsx':
-    '7c17b38156ed32bfac60ccab37928c7b6d6a757412d968e7fbc6f31eee85610f',
+    'deff50f5b38579a213ec124776a02eac635b43f8c5f16db9d6af9213749abf22',
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/components/AgentLibraryChatSource.tsx':
@@ -356,7 +356,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/CollaborationTranscript.css':
     'e617da58d37e75e41c4f165ff976675017d4bd650c8949a6b0f2f4fe1634c392',
   '../../frontend/src/components/CollaborationTranscript.tsx':
-    '2942f335ede66fb51855b3369e5e36e2289c7bad57a4c1d5dc68741d744e3836',
+    '02fafc3a4c55c99c43952964aa44303c60d0dc7606de482dde9c9dfcca888930',
   '../../frontend/src/components/CompactionMarker.tsx':
     '3e798182633e73f76818bda6342a51ef8aa34d6bd6bcf684948c24eda8cdc6c4',
   '../../frontend/src/components/ComposerResponders.css':
@@ -650,7 +650,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/CollaborationTranscript.scroll.test.tsx':
     'd311f06b65e873a896e758ecd1f6660f601d5922ee86a18097dca67876d20cde',
   '../../frontend/src/components/__tests__/CollaborationTranscript.test.tsx':
-    '97cdb6090372d1a302e1be16fcf84fd4974c857580829996933287cb08e3ea7d',
+    'b92d45709bbdb00a133bebcc07784808689383bedcef9edd7ab1cfe4cae096a8',
   '../../frontend/src/components/__tests__/ComposerActivity.lifecycle.test.tsx':
     '78f1471cb6b2a0770636b1d9379665daa2bb3267e027c41373c8b44519e9cabf',
   '../../frontend/src/components/__tests__/ComposerActivity.test.tsx':
