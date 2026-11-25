@@ -2961,13 +2961,7 @@ export class EventStore {
           const error = RESTARTED_SDK_COMMAND_ERRORS[outcome];
           if (error) {
             this.failSendCommand(row.client_msg_id, error);
-            this.append(row.session_id, 'error', {
-              type: 'error',
-              v: 2,
-              sessionId: row.session_id,
-              clientMsgId: row.client_msg_id,
-              error,
-            });
+            this.appendRestartedSdkCommandNotice(row.session_id, row.client_msg_id, outcome, error);
           }
           return outcome;
         }).immediate();
@@ -2980,6 +2974,72 @@ export class EventStore {
       }
     }
     return { settled, unsettled };
+  }
+
+  /** Durable restart notice for one command. `restartCommandId` and
+   * `restartSettlement` are the settlement evidence. A command whose user echo
+   * is retained uses the sanctioned retained-command failure shape so restored
+   * history shows it beside that message; otherwise it is a session-level
+   * runtime notice, which replay never attributes to an unechoed command. */
+  private appendRestartedSdkCommandNotice(
+    sessionId: string,
+    commandId: string,
+    outcome: RestartedOrdinarySdkCommand['outcome'],
+    error: string,
+  ): void {
+    this.append(sessionId, 'error', {
+      type: 'error',
+      v: 2,
+      sessionId,
+      restartCommandId: commandId,
+      restartSettlement: outcome,
+      ...(this.hasUserMessage(sessionId, commandId)
+        ? { clientMsgId: commandId, retainedCommandFailure: true, error: `Message saved. ${error}` }
+        : { error }),
+    });
+  }
+
+  /** A Claude SDK command whose execution began and whose input was pushed
+   * (receipt consumed) but whose CLI echo never arrived before a restart. Its
+   * delivery is unknown: settle it with the same notice as an unconfirmed
+   * claim. Returns false when other evidence already settled it. */
+  settleUnacknowledgedOrdinarySdkCommand(sessionId: string, commandId: string): boolean {
+    return this.db!.transaction(() => {
+      const command = this.getSendCommand(commandId);
+      if (
+        command?.sessionId !== sessionId ||
+        command.error ||
+        this.getOrdinaryLocalVertexCommandAdmission(commandId)?.state !== 'consumed' ||
+        !this.getExecutionAdmission(sessionId, commandId) ||
+        this.getOrdinarySdkTurnEvents(sessionId, commandId).some(
+          (event) => event.type === 'ordinary_sdk_turn_accepted',
+        )
+      )
+        return false;
+      const error = RESTARTED_SDK_COMMAND_ERRORS.unknown!;
+      this.failSendCommand(commandId, error);
+      this.appendRestartedSdkCommandNotice(sessionId, commandId, 'unknown', error);
+      return true;
+    }).immediate();
+  }
+
+  /** Positive evidence that restart settlement proved this SDK input never
+   * reached the CLI: no execution began, the receipt was consumed by that
+   * settlement, and its durable not_delivered notice is retained. */
+  getOrdinarySdkInputRestartUndelivered(sessionId: string, commandId: string): boolean {
+    const command = this.getSendCommand(commandId);
+    return (
+      command?.sessionId === sessionId &&
+      command.error === RESTARTED_SDK_COMMAND_ERRORS.not_delivered &&
+      !this.getExecutionAdmission(sessionId, commandId) &&
+      this.getOrdinaryLocalVertexCommandAdmission(commandId)?.state === 'consumed' &&
+      this.getOrdinarySdkTurnEvents(sessionId, commandId).length === 0 &&
+      !!this.db!.prepare(
+        `SELECT 1 FROM events WHERE session_id=? AND type='error'
+         AND json_extract(payload,'$.restartCommandId')=?
+         AND json_extract(payload,'$.restartSettlement')='not_delivered' LIMIT 1`,
+      ).get(sessionId, commandId)
+    );
   }
 
   /** The command that owns one execution generation. */
@@ -4227,11 +4287,27 @@ export class EventStore {
    * SDK history or missing acknowledgements. Every execution must be covered. */
   hasOnlyCancelledOrdinarySdkInputs(sessionId: string): boolean {
     const meta = this.getSession(sessionId);
-    if (meta?.executionPhase !== 'TERMINAL') return false;
+    if (!meta) return false;
     const commands = this.db!.prepare(
       'SELECT client_msg_id FROM execution_admissions WHERE session_id = ?',
     ).all(sessionId) as Array<{ client_msg_id: string }>;
-    if (!commands.length || commands.length !== meta.executionGeneration) return false;
+    if (!commands.length) {
+      // No execution ever began. Only inputs a restart settlement positively
+      // proved undelivered qualify; a pending successor is not yet consumed.
+      if (meta.executionGeneration) return false;
+      const consumed = this.db!.prepare(
+        `SELECT client_msg_id FROM send_commands WHERE session_id=?
+         AND json_extract(ordinary_admission,'$.state')='consumed'`,
+      ).all(sessionId) as Array<{ client_msg_id: string }>;
+      return (
+        consumed.length > 0 &&
+        consumed.every(({ client_msg_id: id }) =>
+          this.getOrdinarySdkInputRestartUndelivered(sessionId, id),
+        )
+      );
+    }
+    if (meta.executionPhase !== 'TERMINAL') return false;
+    if (commands.length !== meta.executionGeneration) return false;
     return commands.every(({ client_msg_id: id }) => {
       return this.getOrdinarySdkInputCancellation(sessionId, id) !== undefined;
     });

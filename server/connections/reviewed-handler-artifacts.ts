@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-cli-restart-resume-offline.test.ts':
     '6d036d15be2e409f2e5addc207cab41304303b8e3dea5fba4d64f26347529356',
   '../__tests__/claude-restart-interrupted-turn.test.ts':
-    'd7c49f60f0dcd4445296c59596136567a4e7ad8ca7fe197c0a7d0775dcba8096',
+    '8106e8984b7e465783d64c7ebc7ebf2aa4c9f60bb19ab12cefbbec9d47118b48',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -1543,7 +1543,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/deployment-store.ts':
     '06980f353fa11edc16a5e8f75fb8de4b4679853b979d71a1e3d819f76007e04a',
   '../../packages/protocol/src/event-store.ts':
-    '16f88ecbf28c7ffe5df423b45dda82d128cbb8aa73acfb928739a36997cef197',
+    '542ea0aabe9c7203b6e5fb665620cdd39563d85f77a34597515c4e6dfffa6cfc',
   '../../packages/protocol/src/execution-ledger.ts':
     '1399fe4c7ffcebea20fa4374083d0e14b90aba619f3b3349439882ba01851b88',
   '../../packages/protocol/src/index.ts':
@@ -4441,7 +4441,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../responses-chat-session.ts':
     'a98cc0d1e884fa231f104e091971efb1c74225d74ea1f322427e1565cc2df99f',
   '../responses-input.ts': 'b4be57d3535660a31597f07b075070a90b49b2e62239916937e9316e78cc4b05',
-  '../restart-interruption.ts': 'eae9961b7a5e6c6ababb610b07f0dca26f22ebc1e42611f99919a4b307836e3e',
+  '../restart-interruption.ts': '2d19aef1b5d256e9f119129bd69778d98e46b54199e897c0875e588953c87027',
   '../retained-application-effects.ts':
     '057755c678c291c21b0d62451152841ef0ce3ec23705792991a51c2eeb294cb0',
   '../retained-finalization.ts': '7a02d1828e432b48584ab95bee18a2320cd76c5dfba1a727020213c2bbd89ae6',

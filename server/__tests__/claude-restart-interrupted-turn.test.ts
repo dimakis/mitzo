@@ -8,6 +8,9 @@ import {
 } from '../ordinary-local-vertex-owned-runtime.js';
 import { OrdinarySdkTurnEvidence } from '../ordinary-sdk-turn-evidence.js';
 import { recoverAfterRestart } from '../restart-interruption.js';
+import { replayEventsToMessages } from '../conversation-transcript.js';
+import { readClaudeAccountHistory } from '../claude-account-history.js';
+import { getSessionInfo, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
 // Same offline host harness as claude-repository-deploy-continuity.test.ts.
@@ -182,7 +185,7 @@ it('names a restart before the agent received a message and does not brick the c
   );
   expect(restartErrors(f, sessionId)).toEqual([
     expect.objectContaining({
-      clientMsgId: f.request.clientMsgId,
+      restartCommandId: f.request.clientMsgId,
       error: expect.stringMatching(/before this message reached the agent/),
     }),
   ]);
@@ -207,10 +210,141 @@ it('keeps unknown delivery visible when the restart hit between execution start 
   // claims that any tool ran.
   expect(errors).toEqual([
     expect.objectContaining({
-      clientMsgId: f.request.clientMsgId,
+      restartCommandId: f.request.clientMsgId,
       error: expect.stringMatching(/may not have received it/),
     }),
   ]);
+  await expect(create('next').admitResume({ ...f.request, clientMsgId: 'next' })).resolves.toEqual({
+    dispatched: true,
+  });
+});
+
+/** What a reopened chat shows: the stored stream through the public replay contract. */
+const restoredText = (f: Awaited<ReturnType<typeof claudeChat>>['f'], sessionId: string) =>
+  replayEventsToMessages(f.events.getSessionEvents(sessionId))
+    .flatMap((message) => message.blocks.map((block) => ('content' in block ? block.content : '')))
+    .join('\n');
+
+it('shows restart command notices in restored history beside the saved message', async () => {
+  const { f, create, sessionId } = await claudeChat(async () => {
+    throw Error('server terminated during cold start');
+  });
+  await expect(create(f.request.clientMsgId).admit(f.request)).rejects.toThrow();
+  if (!f.events.hasUserMessage(sessionId, f.request.clientMsgId))
+    f.events.append(sessionId, 'user_message', {
+      v: 2,
+      type: 'user_message',
+      messageId: f.request.clientMsgId,
+      text: 'Do the work',
+    });
+
+  recoverAfterRestart(f.events);
+
+  const [notice] = restartErrors(f, sessionId);
+  expect(notice).toMatchObject({
+    clientMsgId: f.request.clientMsgId,
+    retainedCommandFailure: true,
+    restartSettlement: 'not_delivered',
+    error: expect.stringMatching(/^Message saved\. Mitzo restarted before this message/),
+  });
+  expect(restoredText(f, sessionId)).toMatch(
+    /Mitzo restarted before this message reached the agent/,
+  );
+});
+
+it('keeps a restart notice for an unechoed command at session level, never attributed to it', async () => {
+  const { f, create, sessionId } = await claudeChat(async () => {
+    throw Error('server terminated during dispatch');
+  });
+  await expect(create(f.request.clientMsgId).admit(f.request)).rejects.toThrow();
+  f.events.beginOrdinaryLocalVertexCommandExecution(sessionId, f.request.clientMsgId);
+  const echoed = f.events.hasUserMessage(sessionId, f.request.clientMsgId);
+
+  recoverAfterRestart(f.events);
+
+  const [notice] = restartErrors(f, sessionId);
+  expect(notice).toMatchObject({ restartSettlement: 'unknown' });
+  if (echoed) expect(notice).toMatchObject({ retainedCommandFailure: true });
+  else {
+    expect(notice).not.toHaveProperty('clientMsgId');
+    expect(notice!.error).toMatch(/^Mitzo restarted while this message was being delivered/);
+  }
+});
+
+it('admits the next message on a cold start when the restart preceded the CLI', async () => {
+  const { f, create, dispatch, sessionId } = await claudeChat(async () => {
+    throw Error('server terminated before the CLI started');
+  });
+  await expect(create(f.request.clientMsgId).admit(f.request)).rejects.toThrow();
+  expect(f.events.getExecutionAdmission(sessionId, f.request.clientMsgId)).toBeUndefined();
+
+  recoverAfterRestart(f.events);
+  expect(f.events.getOrdinarySdkInputRestartUndelivered(sessionId, f.request.clientMsgId)).toBe(
+    true,
+  );
+  expect(f.events.hasOnlyCancelledOrdinarySdkInputs(sessionId)).toBe(true);
+
+  // The CLI never wrote native history for this conversation.
+  const account = vi.mocked(readClaudeAccountHistory);
+  const info = vi.mocked(getSessionInfo);
+  const messages = vi.mocked(getSessionMessages);
+  const originals = [
+    account.getMockImplementation(),
+    info.getMockImplementation(),
+    messages.getMockImplementation(),
+  ] as const;
+  account.mockResolvedValue({ info: undefined, messages: [] } as never);
+  info.mockResolvedValue(undefined as never);
+  messages.mockResolvedValue([]);
+  try {
+    await expect(
+      create('next').admitResume({ ...f.request, clientMsgId: 'next' }),
+    ).resolves.toEqual({ dispatched: true });
+  } finally {
+    account.mockImplementation(originals[0]!);
+    info.mockImplementation(originals[1]!);
+    messages.mockImplementation(originals[2]!);
+  }
+  expect(dispatch).toHaveBeenCalledTimes(2);
+});
+
+it('does not treat absent history as undelivered without restart settlement evidence', async () => {
+  const { f, create, sessionId } = await claudeChat(async () => {
+    throw Error('server terminated before the CLI started');
+  });
+  await expect(create(f.request.clientMsgId).admit(f.request)).rejects.toThrow();
+  // No restart settlement ran: the uncertain claim is not positive evidence.
+  expect(f.events.hasOnlyCancelledOrdinarySdkInputs(sessionId)).toBe(false);
+});
+
+it('names unknown delivery when the restart hit after input was pushed but before its echo', async () => {
+  const { f, create, sessionId } = await claudeChat();
+  await expect(create(f.request.clientMsgId).admit(f.request)).resolves.toEqual({
+    dispatched: true,
+  });
+  // The owner began the execution, pushed the input and consumed the receipt;
+  // the CLI echo never arrived before the server died.
+  f.events.beginOrdinaryLocalVertexCommandExecution(sessionId, f.request.clientMsgId);
+  f.events.completeOrdinaryLocalVertexCommand(f.request.clientMsgId);
+  expect(f.events.getOrdinaryLocalVertexCommandAdmission(f.request.clientMsgId)?.state).toBe(
+    'consumed',
+  );
+
+  recoverAfterRestart(f.events);
+
+  expect(f.events.getSession(sessionId)?.executionPhase).toBe('TERMINAL');
+  const errors = restartErrors(f, sessionId);
+  expect(errors).toEqual([
+    expect.objectContaining({
+      restartCommandId: f.request.clientMsgId,
+      restartSettlement: 'unknown',
+      error: expect.stringMatching(/may not have received it/),
+    }),
+  ]);
+  expect(f.events.getSendCommand(f.request.clientMsgId)?.error).toMatch(/may not have received it/);
+  // No turn notice claims a tool ran, and a second startup adds nothing.
+  recoverAfterRestart(f.events);
+  expect(restartErrors(f, sessionId)).toHaveLength(1);
   await expect(create('next').admitResume({ ...f.request, clientMsgId: 'next' })).resolves.toEqual({
     dispatched: true,
   });

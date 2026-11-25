@@ -10,6 +10,7 @@ type RestartStore = Pick<
   | 'recoverOrphanedExecutionTokens'
   | 'recoverPendingSendCommands'
   | 'settleRestartedOrdinarySdkCommands'
+  | 'settleUnacknowledgedOrdinarySdkCommand'
   | 'getExecutionCommandId'
   | 'getOrdinaryLocalVertexCommandAdmission'
   | 'getOrdinarySdkTurnEvents'
@@ -57,16 +58,19 @@ export function recoverAfterRestart(
   for (const token of interrupted) {
     try {
       const commandId = store.getExecutionCommandId(token);
-      // Only a turn whose input the CLI acknowledged can have run tools. A
-      // command with unknown delivery already carries its own notice.
+      if (!commandId || !store.getOrdinaryLocalVertexCommandAdmission(commandId)) continue;
+      // Only a turn whose input the CLI acknowledged can have run tools.
       if (
-        !commandId ||
-        !store.getOrdinaryLocalVertexCommandAdmission(commandId) ||
         !store
           .getOrdinarySdkTurnEvents(token.sessionId, commandId)
           .some((event) => event.type === 'ordinary_sdk_turn_accepted')
-      )
+      ) {
+        // Input pushed (receipt consumed) but never echoed: delivery is
+        // unknown. A still-uncertain claim was settled above with its notice.
+        if (store.settleUnacknowledgedOrdinarySdkCommand(token.sessionId, commandId))
+          settled.push({ sessionId: token.sessionId, commandId, outcome: 'unknown' });
         continue;
+      }
       const calls = store.getUnsettledToolCalls(token);
       store.append(token.sessionId, 'error', {
         type: 'error',
