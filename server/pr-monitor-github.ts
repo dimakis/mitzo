@@ -74,9 +74,13 @@ export function createPrMonitorGitHubReader(options: {
       request.assertCurrent();
       options.assertConnection(request);
     };
-    const get = async (endpoint: string, additional = true) => {
+    // The observer reserved one request for this read; every further GET is
+    // reserved separately so the collection budget counts actual requests.
+    let baseUsed = false;
+    const get = async (endpoint: string) => {
       check();
-      const release = additional ? request.reserveAdditional() : undefined;
+      const release = baseUsed ? request.reserveAdditional() : undefined;
+      baseUsed = true;
       try {
         const result = await options.transport(endpoint, request.signal, check);
         check();
@@ -86,10 +90,12 @@ export function createPrMonitorGitHubReader(options: {
         release?.();
       }
     };
-    const identity = await get('/user', false);
-    if (identity.status !== 200) return identity;
-    const principal = z.object({ id: number }).parse(identity.data);
-    if (`github:${principal.id}` !== request.principalId) throw Error('connection_unavailable');
+    if (request.verifyPrincipal) {
+      const identity = await get('/user');
+      if (identity.status !== 200) return identity;
+      const principal = z.object({ id: number }).parse(identity.data);
+      if (`github:${principal.id}` !== request.principalId) throw Error('connection_unavailable');
+    }
     const g = request.subscription.github,
       root = `/repos/${g.owner}/${g.name}`;
     if (request.resource === 'pr') {

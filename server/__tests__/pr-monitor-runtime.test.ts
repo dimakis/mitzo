@@ -113,9 +113,11 @@ it('composes durable Watch, authenticated reads, real quota admission and event 
   expect(view.refreshState).toBe('current');
   expect(view.snapshot?.headSha).toBe(head);
   expect(view.counters.modelTurns).toBe(0);
-  expect(transport).toHaveBeenCalledTimes(8);
-  expect(store.githubReadQuota.inspect('github:42').charged).toBe(8);
+  // Opening and closing PR reads attest the principal (2 each); the empty CI
+  // runs page and reviews page cost one request each.
+  expect(transport).toHaveBeenCalledTimes(6);
+  expect(store.githubReadQuota.inspect('github:42').charged).toBe(6);
   await runtime.close();
   await runtime.reconcileDue();
-  expect(transport).toHaveBeenCalledTimes(8);
+  expect(transport).toHaveBeenCalledTimes(6);
 });

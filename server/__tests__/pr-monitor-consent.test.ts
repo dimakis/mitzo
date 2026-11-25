@@ -208,3 +208,51 @@ it('cannot renew a subscription removed by conversation deletion even with an ob
   ).toThrow('subscription_unavailable');
   expect(f.store.prMonitor.read('ordinary:user', 'one', id).subscription.lifecycle).toBe('removed');
 });
+it('keeps a removed subscription terminal when Watch is revoked and then renewed', async () => {
+  const f = await fixture();
+  f.issue();
+  f.store.prMonitor.stopConversation('one', 'deleted');
+  const removed = f.store.prMonitor.read('ordinary:user', 'one', id).subscription;
+  f.consent.revoke(f.login, {
+    requestId: 'revoke-deleted',
+    conversationId: 'one',
+    subscriptionId: id,
+    expectedRevision: removed.revision,
+    expectedAuthorityRevision: removed.watch!.revision,
+  });
+  const revoked = f.store.prMonitor.read('ordinary:user', 'one', id).subscription;
+  expect(revoked.lifecycle).toBe('removed');
+  expect(revoked.nextRefreshAt).toBeNull();
+  expect(f.store.prMonitor.due(Date.now())).toEqual([]);
+  expect(() =>
+    f.consent.issue(f.login, {
+      requestId: 'renew-after-revoke',
+      conversationId: 'one',
+      subscriptionId: id,
+      expectedRevision: revoked.revision,
+      expectedAuthorityRevision: revoked.watch!.revision,
+      durationMinutes: 30,
+      reviewedScope: f.ports.connection(),
+    }),
+  ).toThrow('subscription_unavailable');
+  // The store fence holds even without the consent owner's lifecycle guard.
+  expect(() =>
+    f.store.prMonitor.mutateAuthority({
+      requestId: 'direct-renew',
+      fingerprint: 'direct-renew',
+      operatorId: 'ordinary:user',
+      conversationId: 'one',
+      subscriptionId: id,
+      expectedRevision: revoked.revision,
+      expectedAuthorityRevision: revoked.watch!.revision,
+      kind: 'pr-watch',
+      assertCurrent: () => undefined,
+      change: (previous) => ({
+        ...previous!,
+        revision: previous!.revision + 1,
+        revokedAt: null,
+      }),
+    }),
+  ).toThrow('subscription_unavailable');
+  expect(f.store.prMonitor.read('ordinary:user', 'one', id).subscription.lifecycle).toBe('removed');
+});
