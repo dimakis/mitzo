@@ -13,6 +13,7 @@ import {
   readPrivateOperationFile,
   publishPrivateOperationFile,
   assertPrivateOperationDirectory,
+  upgradePrivateOperationFile,
 } from './private-operation-file.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import { CodexConversationStore } from './codex-conversation-store.js';
@@ -21,6 +22,12 @@ import { maintenanceIdleFingerprint } from './deployment-maintenance-idle.js';
 import { getLocalCommit } from './git-version.js';
 import type { z } from 'zod';
 import type { EventStore } from './event-store.js';
+import {
+  inspectMaintenanceDatabases,
+  publishMaintenanceIdentity,
+  readMaintenanceIdentity,
+  readMaintenanceVolumeUuids,
+} from './deployment-maintenance-identity.js';
 
 /** Historical acceptance evidence, never a renewal of the captured actor or a
  * grant to resume. The normal deployment API must still authorize delivery. */
@@ -29,7 +36,7 @@ export function assertMaintenanceBootstrap(
   plan: z.infer<typeof MaintenancePlan>,
   seal: z.infer<typeof MaintenanceSeal>,
   commit: string | null,
-): void {
+): NonNullable<ReturnType<EventStore['deployment']['get']>> {
   const deny = () => {
     throw Error('Reviewed maintenance adoption is required before application startup');
   };
@@ -155,6 +162,7 @@ export function assertMaintenanceBootstrap(
       maintenanceFingerprint(plan.owners.map((owner) => owner.sessionId))
   )
     deny();
+  return operation!;
 }
 
 /** Permanent private requirement survives a restored events file and an omitted
@@ -163,47 +171,85 @@ export function persistMaintenanceRequirement(
   path: string,
   plan: z.infer<typeof MaintenancePlan>,
   seal: z.infer<typeof MaintenanceSeal>,
+  captureStableIdentity = false,
 ): void {
   const root = resolve(join(codexPrivateDirectory(), 'deployment'));
   if (dirname(resolve(path)) !== root || realpathSync(root) !== root)
     throw Error('Protected physical operation directory required');
   assertPrivateOperationDirectory(root);
   const value = {
-    version: 1,
+    version: 1 as const,
     planFile: resolve(path),
     planSha256: maintenanceFingerprint(plan),
     sealSha256: maintenanceFingerprint(seal),
   };
   const marker = join(root, 'required-handoff.json');
+  const initial = Buffer.from(JSON.stringify(value) + '\n');
+  let bytes: Buffer;
   try {
-    const existing = MaintenanceRequirement.parse(
-      JSON.parse(readPrivateOperationFile(marker, 16 * 1024).toString('utf8')),
-    );
-    if (!isDeepStrictEqual(existing, value))
-      throw Error('Retained maintenance requirement changed');
+    bytes = readPrivateOperationFile(marker, requirementByteLimit);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    publishPrivateOperationFile(marker, JSON.stringify(value) + '\n');
+    publishPrivateOperationFile(marker, initial.toString('utf8'));
+    bytes = initial;
+  }
+  const existing = MaintenanceRequirement.parse(JSON.parse(bytes.toString('utf8')));
+  if (
+    existing.planFile !== value.planFile ||
+    existing.planSha256 !== value.planSha256 ||
+    existing.sealSha256 !== value.sealSha256
+  )
+    throw Error('Retained maintenance requirement changed');
+  if (captureStableIdentity) {
+    const identities = inspectMaintenanceDatabases(
+      plan,
+      configuredDatabases(),
+      true,
+      readMaintenanceVolumeUuids,
+    )!;
+    const identity = publishMaintenanceIdentity(existing, 'original-device', identities);
+    requirePersistentIdentity(marker, bytes, existing, identity);
   }
 }
 
-/** Runs through index's first dependency before application or recovery imports. */
-export function validateMaintenanceBootstrap(): z.infer<typeof MaintenancePlan> | undefined {
+const requirementByteLimit = 16 * 1024;
+
+function requirePersistentIdentity(
+  marker: string,
+  previous: Buffer,
+  requirement: z.infer<typeof MaintenanceRequirement>,
+  identity: ReturnType<typeof publishMaintenanceIdentity>,
+) {
+  if (requirement.version === 2) return;
+  const next = {
+    ...requirement,
+    version: 2,
+    databaseIdentitySha256: maintenanceFingerprint(identity),
+  };
+  upgradePrivateOperationFile(marker, previous, JSON.stringify(next) + '\n', requirementByteLimit);
+}
+
+function configuredDatabases(): [string, string] {
+  return [
+    join(process.env.REPO_PATH || '.', '.mitzo/events.db'),
+    join(codexPrivateDirectory(), 'conversations.db'),
+  ];
+}
+
+function readRequiredHandoff() {
   const selected = process.env.MITZO_MAINTENANCE_PLAN_FILE;
   if (Object.hasOwn(process.env, 'MITZO_MAINTENANCE_PLAN_FILE') && !selected)
     throw Error('Explicit maintenance selector must name its protected plan');
   const root = resolve(join(codexPrivateDirectory(), 'deployment'));
-  let required: z.infer<typeof MaintenanceRequirement>;
+  const marker = join(root, 'required-handoff.json');
+  let bytes: Buffer;
   try {
-    required = MaintenanceRequirement.parse(
-      JSON.parse(
-        readPrivateOperationFile(join(root, 'required-handoff.json'), 16 * 1024).toString('utf8'),
-      ),
-    );
+    bytes = readPrivateOperationFile(marker, requirementByteLimit);
   } catch (error) {
     if (!selected && (error as NodeJS.ErrnoException).code === 'ENOENT') return;
     throw error;
   }
+  const required = MaintenanceRequirement.parse(JSON.parse(bytes.toString('utf8')));
   const path = required.planFile;
   if (
     (selected && resolve(selected) !== path) ||
@@ -223,39 +269,73 @@ export function validateMaintenanceBootstrap(): z.infer<typeof MaintenancePlan> 
     required.sealSha256 !== maintenanceFingerprint(seal)
   )
     throw Error('Original private maintenance requirement changed');
-  // Match the paths the application will actually open, before its imports can
-  // create another store or recover owners outside the adopted hold.
-  for (const [configured, original] of [
-    [join(process.env.REPO_PATH || '.', '.mitzo/events.db'), plan.events],
-    [join(codexPrivateDirectory(), 'conversations.db'), plan.native],
-  ] as const) {
-    const identity = lstatSync(configured);
-    const retained = lstatSync(original.path);
-    if (
-      !identity.isFile() ||
-      !retained.isFile() ||
-      identity.uid !== process.getuid?.() ||
-      retained.uid !== process.getuid?.() ||
-      identity.nlink !== 1 ||
-      retained.nlink !== 1 ||
-      realpathSync(configured) !== realpathSync(original.path) ||
-      identity.dev !== original.identity.dev ||
-      identity.ino !== original.identity.ino ||
-      retained.dev !== original.identity.dev ||
-      retained.ino !== original.identity.ino
-    )
-      throw Error('Configured runtime database must retain original maintenance identity');
-  }
+  return { required, plan, seal, marker, bytes };
+}
+
+/** Explicit local operator action after verifying provenance of both legacy files. */
+export function migrateCompletedMaintenanceIdentity(
+  planSha256: string,
+  attestedVolumes: [string, string],
+  volumeProbe = readMaintenanceVolumeUuids,
+): void {
+  const evidence = readRequiredHandoff();
+  if (!evidence || evidence.required.planSha256 !== planSha256)
+    throw Error('Exact reviewed maintenance plan fingerprint required');
+  const { required, plan, seal, marker, bytes } = evidence;
+  const configured = configuredDatabases();
+  const identities = inspectMaintenanceDatabases(plan, configured, false, volumeProbe)!;
+  if (
+    identities.events.volumeUuid !== attestedVolumes[0].toLowerCase() ||
+    identities.native.volumeUuid !== attestedVolumes[1].toLowerCase()
+  )
+    throw Error('Database volume does not match the operator’s reviewed volume');
+  const sealedAt = lstatSync(required.planFile + '.sealed.json', { bigint: true }).birthtimeNs;
+  if (
+    sealedAt <= 0n ||
+    [identities.events, identities.native].some((identity) => BigInt(identity.birthNs) > sealedAt)
+  )
+    throw Error('Original databases must predate the retained handoff seal');
+
   const db = new Database(plan.events.path, { readonly: true, fileMustExist: true });
   try {
-    assertMaintenanceBootstrap(db, plan, seal, getLocalCommit());
-    const operation = JSON.parse(
-      (
-        db.prepare('SELECT data FROM deployment_operations WHERE id=?').get(plan.id) as {
-          data: string;
-        }
-      ).data,
-    ) as ReturnType<EventStore['deployment']['get']>;
+    if (assertMaintenanceBootstrap(db, plan, seal, getLocalCommit()).phase !== 'completed')
+      throw Error('Database identity migration requires a completed handoff');
+    if (
+      !isDeepStrictEqual(
+        identities,
+        inspectMaintenanceDatabases(plan, configured, false, volumeProbe),
+      )
+    )
+      throw Error('Maintenance databases changed during migration');
+    const identity = publishMaintenanceIdentity(required, 'completed-handoff', identities);
+    requirePersistentIdentity(marker, bytes, required, identity);
+  } finally {
+    db.close();
+  }
+}
+
+/** Runs through index's first dependency before application or recovery imports. */
+export function validateMaintenanceBootstrap(
+  volumeProbe = readMaintenanceVolumeUuids,
+): z.infer<typeof MaintenancePlan> | undefined {
+  const evidence = readRequiredHandoff();
+  if (!evidence) return;
+  const { required, plan, seal } = evidence;
+  const identity = readMaintenanceIdentity(required);
+  // Match the database paths before application imports can open another store.
+  const current = inspectMaintenanceDatabases(
+    plan,
+    configuredDatabases(),
+    !identity,
+    identity ? volumeProbe : undefined,
+  );
+  if (identity && !isDeepStrictEqual(current, { events: identity.events, native: identity.native }))
+    throw Error('Configured runtime database must retain its persistent maintenance identity');
+  const db = new Database(plan.events.path, { readonly: true, fileMustExist: true });
+  try {
+    const operation = assertMaintenanceBootstrap(db, plan, seal, getLocalCommit());
+    if (identity?.basis === 'completed-handoff' && operation.phase !== 'completed')
+      throw Error('Migrated database identity requires the original completed handoff');
     if (plan.idleSnapshotSha256 && operation.phase !== 'completed') {
       const native = new CodexConversationStore(plan.native.path, { observation: true });
       try {

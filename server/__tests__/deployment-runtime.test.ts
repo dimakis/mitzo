@@ -1,6 +1,15 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, mkdirSync, realpathSync, lstatSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  lstatSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CodexConversationStore } from '../codex-conversation-store.js';
@@ -10,7 +19,11 @@ import { MaintenancePlan, MaintenanceSeal } from '../deployment-maintenance-form
 import { maintenanceFingerprint } from '@mitzo/protocol/event-store';
 import { maintenanceIdleFingerprint } from '../deployment-maintenance-idle.js';
 import { publishPrivateOperationFile } from '../private-operation-file.js';
-import { persistMaintenanceRequirement } from '../deployment-maintenance-bootstrap.js';
+import {
+  migrateCompletedMaintenanceIdentity,
+  persistMaintenanceRequirement,
+  validateMaintenanceBootstrap,
+} from '../deployment-maintenance-bootstrap.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
 import { createDeploymentRuntime } from '../deployment-runtime.js';
@@ -19,7 +32,20 @@ const f = vi.hoisted(() => ({
   primary: true,
   native: undefined as unknown,
   deliveries: 0,
+  remountedDatabases: new Set<string>(),
 }));
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...fs,
+    lstatSync(path: string, options?: { bigint?: boolean }) {
+      const stat = fs.lstatSync(path, options);
+      if (stat && f.remountedDatabases.has(path))
+        stat.dev = typeof stat.dev === 'bigint' ? stat.dev + 1n : stat.dev + 1;
+      return stat;
+    },
+  };
+});
 vi.mock('../auth.js', () => ({
   hasPersistentRevocationAuthority: () => true,
   isAuthSessionCurrent: () => true,
@@ -57,6 +83,7 @@ afterEach(() => {
   f.primary = true;
   f.native = undefined;
   f.deliveries = 0;
+  f.remountedDatabases.clear();
 });
 function fixture() {
   const events = new EventStore(':memory:');
@@ -236,6 +263,12 @@ it('completes only an exact zero-delivery idle handoff while legacy native recov
       }),
     },
   );
+  const uuid = '2ef7f6fe-81ae-433a-9fad-64ebfb68481d';
+  const otherUuid = '4aa3f190-f86c-48ed-b10d-45d8dd169ba4';
+  const volumes = (): [string, string] => [uuid, uuid];
+  const migrate = () => migrateCompletedMaintenanceIdentity(seal.planSha256, volumes(), volumes);
+  const identityFile = planFile + '.database-identity.json';
+  expect(migrate).toThrow(/completed handoff/);
   const runtime = createDeploymentRuntime(
     { eventStore: events, sessionRegistry: { getActiveSessions: () => [] } } as never,
     {
@@ -281,4 +314,51 @@ it('completes only an exact zero-delivery idle handoff while legacy native recov
   expect(native.deploymentRecoveryPending()).toBe(true);
   expect(native.commands('legacy', account)).toEqual(saved);
   expect(events.deployment.canDispatch('quarantined')).toBe(false);
+
+  f.remountedDatabases = new Set([eventsPath, nativePath]);
+  expect(() => validateMaintenanceBootstrap(volumes)).toThrow(
+    /retain original maintenance identity/,
+  );
+  expect(() =>
+    migrateCompletedMaintenanceIdentity(seal.planSha256, [otherUuid, uuid], volumes),
+  ).toThrow(/operator’s reviewed volume/);
+  expect(migrate).not.toThrow();
+  const identity = readFileSync(identityFile);
+  expect(migrate).not.toThrow();
+  expect(readFileSync(identityFile)).toEqual(identity);
+  expect(readFileSync(planFile, 'utf8')).toBe(JSON.stringify(plan));
+  expect(readFileSync(planFile + '.sealed.json', 'utf8')).toBe(JSON.stringify(seal));
+  expect(validateMaintenanceBootstrap(volumes)).toEqual(plan);
+  expect(() => validateMaintenanceBootstrap(() => [uuid, otherUuid])).toThrow(
+    /persistent maintenance identity/,
+  );
+
+  // Even if macOS later reuses the original dev number, losing the bound
+  // record must fail closed. The original requirement bytes remain retained.
+  const marker = join(privateRoot, 'deployment/required-handoff.json');
+  expect(JSON.parse(readFileSync(marker + '.v1', 'utf8')).version).toBe(1);
+  f.remountedDatabases.clear();
+  renameSync(identityFile, identityFile + '.absent');
+  try {
+    expect(() => validateMaintenanceBootstrap(volumes)).toThrow(/ENOENT/);
+  } finally {
+    renameSync(identityFile + '.absent', identityFile);
+  }
+  f.remountedDatabases = new Set([eventsPath, nativePath]);
+
+  const savedNative = nativePath + '.original';
+  renameSync(nativePath, savedNative);
+  try {
+    writeFileSync(nativePath, '');
+    expect(() => validateMaintenanceBootstrap(volumes)).toThrow(
+      /retain original maintenance identity/,
+    );
+  } finally {
+    renameSync(savedNative, nativePath);
+  }
+
+  // An in-place restore of pre-adoption data keeps the same filesystem identity.
+  // The original adoption/quarantine checks must still refuse it.
+  db.prepare('DELETE FROM deployment_operations WHERE id=?').run(plan.id);
+  expect(() => validateMaintenanceBootstrap(volumes)).toThrow(/Reviewed maintenance adoption/);
 });

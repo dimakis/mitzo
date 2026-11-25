@@ -13,12 +13,19 @@ export const MaintenanceSeal = z.strictObject({
   helpers: z.array(MaintenanceProcessIdentity),
   completionSha256: Hash,
 });
-export const MaintenanceRequirement = z.strictObject({
-  version: z.literal(1),
+const requirementFields = {
   planFile: z.string().startsWith('/'),
   planSha256: Hash,
   sealSha256: Hash,
-});
+};
+export const MaintenanceRequirement = z.discriminatedUnion('version', [
+  z.strictObject({ version: z.literal(1), ...requirementFields }),
+  z.strictObject({
+    version: z.literal(2),
+    ...requirementFields,
+    databaseIdentitySha256: Hash,
+  }),
+]);
 const Owner = z.strictObject({
   sessionId: z.string().min(1),
   authoritySha256: Hash,
