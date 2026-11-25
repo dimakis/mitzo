@@ -68,7 +68,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatInputSharedQueue.test.tsx':
     '9e89f849cb672f130104ced688c385e09c9a0f3680142d1f104037b2cab4c139',
   '../../frontend/src/hooks/__tests__/useConversationSending.admission.test.tsx':
-    'd6d9c4873364ae85547da575a76e591b0823955e6ff6a2aca06dc6b9d5e989e0',
+    'acda5ee46dab0ed4587680c6bc2bc2aa1039fbb9e0a001f263c29f039532c44d',
   '../__tests__/collaboration-shared-queue.test.ts':
     '61de0bc823f76c48af35751474178d9151e30c811a79f54f5b8d832051e1742c',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',

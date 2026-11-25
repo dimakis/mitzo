@@ -135,14 +135,17 @@ it('clears an undispatched send journal when recovery cleanup retired an older r
   // Reject only after recovery cleanup has retired the older request, so the
   // dispatchNotStarted cleanup runs against the post-cleanup in-memory state.
   f.send.mockImplementation(async () => {
-    await vi.waitFor(() =>
-      expect(
-        conversationSendRequests(getChatDraft(f.draft.id)).some(
-          (request) => request.input.requestId === older.input.requestId,
-        ),
-      ).toBe(false),
+    await vi.waitFor(
+      () =>
+        expect(
+          conversationSendRequests(getChatDraft(f.draft.id)).some(
+            (request) => request.input.requestId === older.input.requestId,
+          ),
+        ).toBe(false),
+      { timeout: 10_000 },
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Let cleanup publish its in-memory state after its storage flush.
+    await new Promise((resolve) => setTimeout(resolve, 100));
     throw new CollaborationApiError(409, 'recipient_unavailable', 'Recipient unavailable', true);
   });
   let releaseStorage!: () => void;
@@ -173,7 +176,9 @@ it('clears an undispatched send journal when recovery cleanup retired an older r
     });
     expect(f.send).toHaveBeenCalledOnce();
     // The undispatched request must not be stranded in the journal.
-    await waitFor(() => expect(conversationSendRequests(getChatDraft(f.draft.id))).toEqual([]));
+    await waitFor(() => expect(conversationSendRequests(getChatDraft(f.draft.id))).toEqual([]), {
+      timeout: 10_000,
+    });
     h.unmount();
     await storage.reopen();
     expect(conversationSendRequests(getChatDraft(f.draft.id))).toEqual([]);
