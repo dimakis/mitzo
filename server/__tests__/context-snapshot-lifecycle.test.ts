@@ -404,6 +404,37 @@ it('routes authenticated passive reads and explicit bounded refresh without acce
   expect(result.headers['cache-control']).toBe('no-store');
 });
 
+it('a closed connection cancels only its routed waiter, not a shared sibling collection', async () => {
+  const f = fixture(),
+    { app } = http(f),
+    control = deferred<ReturnType<typeof raw>>();
+  f.query.getContextUsage.mockImplementation(() => control.promise);
+  const refresh = vi.spyOn(f.lifecycle, 'refresh');
+  const post = () =>
+    request(app)
+      .post('/sessions/chat/context-snapshot/refresh')
+      .set('X-Mitzo-Context-Intent', 'refresh-summary')
+      .send({ requestId: randomUUID() });
+  const closing = post();
+  const closed = closing.then(
+    () => 'delivered',
+    () => 'closed',
+  );
+  await vi.waitFor(() => expect(f.query.getContextUsage).toHaveBeenCalledTimes(1));
+  const sibling = post().then((response) => response);
+  // Both tabs joined one collection before the first connection closes.
+  await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+  closing.abort();
+  expect(await closed).toBe('closed');
+  expect(await refresh.mock.results[0]!.value).toMatchObject({ status: 'cancelled' });
+  control.resolve(raw());
+  const response = await sibling;
+  expect(response.status).toBe(200);
+  expect(response.body).toMatchObject({ status: 'available', snapshot: { usedTokens: 60 } });
+  expect(f.query.getContextUsage).toHaveBeenCalledTimes(1);
+  expect(f.events.contextSnapshots.read('chat').revision).toBe(1);
+});
+
 it('revocation during a routed refresh prevents both storage and response delivery', async () => {
   const f = fixture(),
     { app, auth } = http(f),
