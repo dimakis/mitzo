@@ -15,6 +15,19 @@ for (const name of [
     process.exit(1);
   }
 }
+// Draft runs deselect every expensive owner; anything else is an inconsistent selection.
+const draft = needs.changes.outputs?.draft;
+if (
+  !['true', 'false'].includes(draft) ||
+  (draft === 'true' &&
+    ['browser', 'native', 'prepared', 'ordinary'].some(
+      (owner) => needs.changes.outputs?.[owner] !== 'false',
+    ))
+) {
+  console.error('Draft selection unavailable or inconsistent with selected owners');
+  process.exit(1);
+}
+
 const selectedNative = needs.changes.outputs?.native;
 if (
   !['true', 'false'].includes(selectedNative) ||

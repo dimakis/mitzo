@@ -18,9 +18,10 @@ const workflow = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
     }
   >;
 };
-it('validates PR candidates without launching a duplicate full suite after merge', () => {
+it('validates PR candidates, admits ready drafts and revalidates every merge to main', () => {
   expect(workflow.on).toEqual({
-    pull_request: { types: ['opened', 'synchronize', 'reopened'] },
+    push: { branches: ['main'] },
+    pull_request: { types: ['opened', 'synchronize', 'reopened', 'ready_for_review'] },
   });
 });
 const selection = JSON.parse(
@@ -29,7 +30,7 @@ const selection = JSON.parse(
     'utf8',
   ),
 );
-function fixture(native = 'true', prepared = 'true', ordinary = 'true') {
+function fixture(native = 'true', prepared = 'true', ordinary = 'true', draft = 'false') {
   return Object.fromEntries(
     [
       'changes',
@@ -51,7 +52,17 @@ function fixture(native = 'true', prepared = 'true', ordinary = 'true') {
           (['ordinary-journey', 'ordinary-supplemental'].includes(name) && ordinary === 'false')
             ? 'skipped'
             : 'success',
-        ...(name === 'changes' ? { outputs: { native, prepared, ordinary } } : {}),
+        ...(name === 'changes'
+          ? {
+              outputs: {
+                browser: draft === 'true' ? 'false' : 'true',
+                native,
+                prepared,
+                ordinary,
+                draft,
+              },
+            }
+          : {}),
       },
     ]),
   );
@@ -268,3 +279,60 @@ it.each(['ordinary-journey', 'ordinary-supplemental'])(
       }
   },
 );
+
+it('accepts a draft run whose cheap owners pass and every expensive owner was deselected', () => {
+  expect(run(fixture('false', 'false', 'false', 'true')).status).toBe(0);
+});
+
+it.each(['browser', 'native', 'prepared', 'ordinary'])(
+  'rejects a draft verdict that claims %s coverage was still selected',
+  (owner) => {
+    const needs = fixture('false', 'false', 'false', 'true');
+    needs.changes.outputs![owner] = 'true';
+    expect(run(needs).status).toBe(1);
+  },
+);
+
+it('rejects missing or invalid draft selection', () => {
+  for (const draft of ['', 'unknown', undefined, true, false]) {
+    const needs = fixture();
+    Object.assign(needs.changes.outputs!, { draft });
+    expect(run(needs).status).toBe(1);
+  }
+});
+
+it.each(['core', 'unit-validation', 'preflight', 'frontend-build'])(
+  'still requires the cheap %s owner for a draft',
+  (owner) => {
+    const needs = fixture('false', 'false', 'false', 'true');
+    needs[owner].result = 'skipped';
+    expect(run(needs).status).toBe(1);
+  },
+);
+
+it('requires the full selected owner set for a ready PR', () => {
+  const needs = fixture();
+  for (const owner of ['native', 'ordinary-journey', 'ordinary-supplemental']) {
+    needs[owner].result = 'skipped';
+    expect(run(needs).status).toBe(1);
+    needs[owner].result = 'success';
+  }
+  expect(run(needs).status).toBe(0);
+});
+
+it('fails a draft verdict when the PR has since left draft', () => {
+  const job = workflow.jobs.ci as (typeof workflow.jobs)['ci'] & {
+    permissions: Record<string, string>;
+  };
+  expect(job.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
+  const recheck = job.steps.findIndex(
+    (s) => s.if === "${{ needs.changes.outputs.draft == 'true' }}",
+  );
+  const gate = job.steps.findIndex((s) => s.run === 'node scripts/ci-required-gate.mjs');
+  expect(recheck).toBeGreaterThan(-1);
+  expect(recheck).toBeLessThan(gate);
+  const script = (job.steps[recheck] as { with: { script: string } }).with.script;
+  expect(script).toContain('github.rest.pulls.get');
+  expect(script).toContain('live.draft !== true');
+  expect(script).toContain('core.setFailed');
+});

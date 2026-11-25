@@ -43,6 +43,6 @@ Fix it first. A red CI pipeline means every subsequent merge is unverified. The 
 
 ## Integration and review reuse
 
-Keep strict up-to-date protection unless a fully configured native merge queue provides equivalent combined-result validation. Integrate main at the final landing turn; do not refresh every waiting PR whenever main advances. CI must cover the candidate plus current base. A clean Git merge alone is insufficient.
+Keep strict up-to-date protection unless a fully configured native merge queue provides equivalent combined-result validation, or the repository operator has explicitly turned it off and main runs the full suite after every merge (Mitzo since 25 November 2026; see `docs/operations/ci-delivery.md`). Never turn strict protection off yourself. Where it is on, integrate main at the final landing turn; do not refresh every waiting PR whenever main advances. CI must cover the candidate plus current base. A clean Git merge alone is insufficient.
 
 Follow `skills/land-pr/SKILL.md` for review: one thorough approval plus verification of later changes, with an independent second full pass for high-impact risks. Preserve the baseline across accepted base merges. Review relevant integration deltas, conflict resolutions and extra edits. A new SHA alone does not require another full PR review. Only the trusted review service may reconcile current-head approval; never copy statuses or bypass the App-bound gate.

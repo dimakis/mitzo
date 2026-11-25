@@ -95,6 +95,18 @@ it('admits a new candidate without waiting for an older PR run to finish shuttin
 });
 it('preserves main candidate concurrency identity and does not cancel its validation', () => {
   expect(concurrencyFor('push', 'main-sha')).toEqual({ group: 'ci-main-sha', cancel: false });
+  // Consecutive merges each keep their own full post-merge run.
+  expect(concurrencyFor('push', 'next-main-sha').group).not.toBe(
+    concurrencyFor('push', 'main-sha').group,
+  );
+});
+it('lets the ready_for_review full run supersede an in-flight draft run of the same candidate', () => {
+  // Draft and ready events for one candidate share the group, so the newer
+  // full-suite run cancels the cheap draft run rather than racing it.
+  const draft = concurrencyFor('pull_request', 'candidate-sha', 1200);
+  const ready = concurrencyFor('pull_request', 'candidate-sha', 1200);
+  expect(ready).toEqual(draft);
+  expect(ready.cancel).toBe(true);
 });
 
 it('frontend production builds retain failure diagnostics but stop on cancellation', () => {
