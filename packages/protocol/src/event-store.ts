@@ -2996,6 +2996,10 @@ export class EventStore {
         )
       )
         db.exec('ALTER TABLE send_commands ADD COLUMN ordinary_admission TEXT');
+      // The index's implicit rowid orders both the first and latest receipt.
+      // Older conversations can have no receipts, so a miss must stay cheap.
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_send_commands_ordinary_admission
+        ON send_commands(session_id) WHERE ordinary_admission IS NOT NULL`);
       if (
         !(db.prepare('PRAGMA table_info(send_commands)').all() as Array<{ name: string }>).some(
           (c) => c.name === 'preparing',
