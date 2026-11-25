@@ -47,21 +47,22 @@ policy state and allow explicit removal. Preserve Add agent, preview, Details an
 Chat settings. Approved by Dimitri on 16 November 2026 after interactive revision 3;
 see the appended Symposium approval in the ledger. Runtime adoption remains separate.
 
-On constrained composer widths, secondary controls share the existing **More
-composer actions** disclosure before they can crowd Send, Queue, Steer or Stop.
-Resources, Agents, context usage and voice keep their existing components and
-mounted state inside that disclosure. Escape returns to its trigger; resizing
-between inline and overflow layouts preserves reachable keyboard focus. Nested
-dialogs retain their original control for focus restoration. The overflow scrolls
-within the space above the action row, including visual-viewport changes.
+On narrow widths the Symposium composer wraps onto **two rows of icons**. Every
+control stays a direct, 44px control: nothing moves into **More composer
+actions**. The first row holds the recipient trigger, More, Resources and Agents.
+The second row holds context usage, voice and the primary actions, which share
+one row. With an extra retained source Stop, context usage ends the first row so
+neither row overflows at 280px. Row membership is fixed per state, so typing,
+queueing and sending do not move controls. The ordinary (non-Symposium) composer
+keeps its approved single-row layout. Approved by Dimitri on 25 November 2026
+(ledger revision `two-row-narrow-composer-2026-11-25`).
 
 The inline @ selector remains separate. Expanded recipients use a bounded,
 scrollable row across the composer, with wrapping full names and their existing
-selection behavior. Text entry has a viewport-relative height limit even when
-expanded, so long drafts do not displace primary controls. Existing status and
-Send/Queue owners remain unchanged. This responsive repair was explicitly
-requested in the S6 implementation handoff on 21 November 2026; it preserves the
-revision-3 control identities and adds no alternate recipient dialog or palette.
+selection behavior. In Symposium chats, text entry has a viewport-relative height
+limit even when expanded, so long drafts do not displace the control rows.
+Existing status and Send/Queue owners remain unchanged; the revision-3 control
+identities are preserved and no alternate recipient dialog or palette is added.
 See [validation and remaining browser/phone gates](../evidence/symposium-responsive-composer-2026-11-21.md).
 
 ## Conversation tree navigation

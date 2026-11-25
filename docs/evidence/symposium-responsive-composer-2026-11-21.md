@@ -81,3 +81,27 @@ iOS/Android keyboards, safe-area/visual-viewport behavior and screen-reader focu
 No browser, physical phone, full-build or live model acceptance is claimed.
 Exact combined-head CI and the normal Centaur review gates remain required before
 any separately authorized merge. No staging or production work was performed.
+
+## Revision after the operator design decision (2026-11-25)
+
+CI on the original candidate showed that moving context usage and voice into More
+broke the protected ordinary composer check (`tests/browser/composer-layout.spec.ts`,
+"context wheel joins the actions"). Dimitri then decided that narrow Symposium
+composers wrap onto two rows of direct icons, with nothing in More, and that the
+ordinary composer keeps its approved single row.
+
+The candidate now restores main's ChatInput/ComposerTools structure, so the
+ordinary composer is unchanged and the earlier secondary overflow (and its Centaur
+findings about overflow anchoring and height) no longer exists. A
+`data-symposium` toolbar marker and `SymposiumComposer.css` order the existing
+controls into two rows below a 34rem composer width. The responsive spec was
+rewritten for 280/320/390/768px. It checks that every control is a direct 44px
+icon (not inside More), that there is no overlap, that the layout has exactly two
+rows at 280-390px, that the primary actions share a row, and that positions stay
+the same while typing, sending and queueing. It also checks the expanded
+recipient row on a short, large-text viewport and that the ordinary composer has
+a single row. The spec is protected in the ledger revision
+`two-row-narrow-composer-2026-11-25`.
+
+Browser execution was not available in the implementing sandbox. CI is the browser
+evidence for this revision.

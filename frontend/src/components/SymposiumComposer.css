@@ -1,0 +1,83 @@
+/* Symposium only: long or expanded drafts keep a viewport-relative height so
+   they cannot push the two control rows off screen (the field scrolls instead). */
+.chat-input--compact:has(.composer-toolbar[data-symposium]) .chat-input-field {
+  max-height: min(10rem, 25dvh);
+  overflow-y: auto;
+}
+.chat-input--compact.chat-input--expanded:has(.composer-toolbar[data-symposium]) .chat-input-field {
+  max-height: min(30rem, 40dvh);
+}
+
+/* Symposium composer on narrow widths (approved by Dimitri, 2026-11-25; see
+   docs/design/approved/ledger.json, surface "symposium-shared-composer", revision "two-row-narrow-composer-2026-11-25"):
+   every control stays a direct, visible icon. Nothing moves into More. The
+   controls wrap onto two icon rows: recipients/More/Resources/Agents first,
+   then context usage, voice and the primary actions. Expanded recipient names
+   take their own bounded, scrollable row above the icons. The ordinary composer
+   keeps its approved single-row layout; these rules only apply with
+   [data-symposium]. Row membership is fixed per state, so typing, queueing and
+   sending do not move controls between rows. */
+@container (max-width: 34rem) {
+  .chat-input--compact .composer-toolbar[data-symposium] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: var(--space-1);
+    column-gap: 4px;
+  }
+  .chat-input--compact
+    .composer-toolbar[data-symposium]
+    :is(
+      .chat-input-command-strip,
+      .composer-recipient-slot,
+      .composer-responders-inline,
+      .composer-actions
+    ) {
+    display: contents;
+  }
+  /* Row break, then a spacer that right-aligns the action row. */
+  .chat-input--compact .composer-toolbar[data-symposium]::after {
+    content: '';
+    order: 2;
+    flex-basis: 100%;
+    height: 0;
+  }
+  .chat-input--compact .composer-toolbar[data-symposium]::before {
+    content: '';
+    order: 3;
+    flex: 1 0 0;
+    height: 0;
+  }
+  .chat-input--compact .composer-toolbar[data-symposium] .composer-actions > * {
+    order: 4;
+    flex-shrink: 0;
+  }
+  /* A retained source Stop adds a sixth action; balance the rows at 280px by
+     placing context usage at the end of the first row. */
+  .chat-input--compact
+    .composer-toolbar[data-symposium][data-source-stop]
+    .composer-actions
+    > .token-wheel-control {
+    order: 1;
+  }
+  .chat-input--compact .composer-toolbar[data-symposium] .composer-responder-names {
+    order: -1;
+    flex-basis: 100%;
+  }
+}
+
+/* Expanded recipients: a bounded, scrollable row with wrapping full names. */
+.composer-toolbar[data-symposium] .composer-responder-names {
+  max-width: 100%;
+  max-height: min(8rem, 20dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  flex-wrap: wrap;
+}
+.composer-toolbar[data-symposium] .composer-responder-name {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+  flex-shrink: 1;
+}

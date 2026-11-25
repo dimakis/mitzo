@@ -61,14 +61,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5e99e6c48c7f22ed925c327f79a61a1773e5d6a19d1ef7431e5a718b20c48d20',
   '../__tests__/chat-sdk-query-adapter.test.ts':
     '9601a0147184fd2adb2a2d430cca1e6bc79b8eb96c85e0ef058dc419957747d9',
-  '../../frontend/src/components/ComposerTools.css':
-    '8a783f229e2bedad083382787fd955775f4ec29057e96531e028a8a9f5fbe7bd',
-  '../../frontend/src/components/__tests__/ComposerTools.overflow.test.tsx':
-    '6fe05fa7239aff463f1192fcb7e92bbadd70b09adcaac6d2fe5443dcf4deb59c',
+  '../../frontend/src/components/SymposiumComposer.css':
+    '61d2021bccb8ba6a35df28f61f87946dac2423a264d7f3628fa2c5596728bb6f',
   '../../tests/fixtures/composer-responsive.tsx':
     'f37ca128d2dc4e20c8fb98108d01297367eff933ce47382464bc6403e8e38333',
   '../../tests/offline/composer-responsive.spec.ts':
-    'c58853f4b5ea62788acef2d174e3b45adc4eb14ec76a187038bfd22494c3cc52',
+    'ef17bc903c6adde554bd6cb106a83b99e85ca4ae3127826d0a227f9c11a43268',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -122,7 +120,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/telos-workspaces/s6-codex-peer-communication.md':
     'be26559bbb82e40dde63cc0669f88a174cf59d0c929e399d826e6489ed43e822',
   '../../docs/design/ui-design-system.md':
-    'c5ceffd026f2b0e2d7258d9dda7c81d1fc983c2f0a434f9ba1d854532da39e9c',
+    '5688b9561e1920bc793e25889f4cd7071174950d231edcd8b78ad7ec62eba0c1',
   '../../docs/evidence/symposium-forwarding-ui-2026-11-11.md':
     '160b7f429e0a507f6dd29acb5600541b098b1705d0aed781372c939f56977945',
   '../../docs/evidence/symposium-integration-acceptance.md':
@@ -362,7 +360,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '6efb121831e74a40fe2181409b8dde78524a06d7fb222d007fe212530bca30e4',
   '../../frontend/src/components/ChatInput.tsx':
-    '1715ccd1ccfd351910cc13f0352b7dc53819fce110fd03fbfcfb65f9a572bf79',
+    '3db4b2e6b935cf77614e8fae477354fc63212960d522b8d728130c846f16520e',
   '../../frontend/src/components/ChatInputHost.css':
     '6ac695e0ec3850781d32e6257738c2900657499c2545303321f200488e3ccc20',
   '../../frontend/src/components/ChatInputHost.tsx':
@@ -394,7 +392,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ComposerStatus.tsx':
     'da4fc2df254abdfbe88dad54b44e302927425fd1dece845b9cea7672fd780d3f',
   '../../frontend/src/components/ComposerTools.tsx':
-    '899c36441f5774769edfb17c5073ca8035fa8977db091119d107ac3cdf5c3cca',
+    '4d12ffa29195b6f3b60277e5e76e87120ec18da8bed6080b49a4813c052a2e6d',
   '../../frontend/src/components/ConnectionSetupCard.tsx':
     'aa50d51188da08cd8fa6b72435493d93b0063541d799cbd6987e285142c9de25',
   '../../frontend/src/components/ContextInjectionDisclosure.tsx':
@@ -1321,7 +1319,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/tool-result.css':
     'c232bf0777c08438666ae4fc154f2387b2cc8517a71ab004c808f71ad06a82ea',
   '../../frontend/src/styles/workspace-chat.css':
-    '623b643c1ac80ad497c8e1bcce445f02a258a3fa1d898d8f0ca56ee4eaaf558d',
+    '69957d1c5fff52e0d070938263433e911207fccb57cfb0cacb72300a600680d6',
   '../../frontend/src/styles/workspace.css':
     'b771e9b97b5c006092d67d592f765e0d5ac7659f13669ee0d109bfe8ac477d8f',
   '../../frontend/src/test-utils/multi-runtime-inventory-fixture.ts':

@@ -3,6 +3,10 @@ import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 
+// Approved Symposium composer (Dimitri, 2026-11-25): on narrow widths every
+// control stays a direct icon (nothing moves into More) and the controls wrap
+// onto two icon rows. Ledger: symposium-shared-composer / two-row-narrow-composer-2026-11-25.
+
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/composer-responsive.tsx')],
   plugins: [chatStorageBootstrap()],
@@ -19,24 +23,6 @@ const bundle = build({
     '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
   },
 });
-
-async function reachable(page: Page, name: string) {
-  const button = page.getByRole('button', { name, exact: true });
-  await expect(button).toBeVisible();
-  const box = (await button.boundingBox())!;
-  const viewport = page.viewportSize()!;
-  expect(box.width).toBeGreaterThanOrEqual(44);
-  expect(box.height).toBeGreaterThanOrEqual(44);
-  expect(box.x).toBeGreaterThanOrEqual(0);
-  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
-  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
-  expect(
-    await button.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
-    }),
-  ).toBe(true);
-}
 
 async function serve(page: Page, theme: string) {
   const files = (await bundle).outputFiles!;
@@ -59,45 +45,60 @@ async function serve(page: Page, theme: string) {
   });
 }
 
-test('responsive composer overflow spans the toolbar and stays on screen', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  await serve(page, 'dark');
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  const panel = page.locator('.composer-tools[data-expanded="true"]');
-  const more = page.getByRole('button', { name: 'More composer actions' });
-  // Ordinary chats have no recipient row; the overflow must not shrink to the More strip.
-  for (const query of ['/?ordinary=1', '/']) {
-    await page.setViewportSize({ width: 320, height: 640 });
-    await page.goto(query);
-    await more.click();
-    await expect(panel).toBeVisible();
-    const toolbar = (await page.locator('.composer-toolbar').boundingBox())!;
-    const box = (await panel.boundingBox())!;
-    expect(box.width).toBeGreaterThanOrEqual(Math.min(toolbar.width, 24 * 16) - 1);
-    expect(box.x).toBeGreaterThanOrEqual(0);
-    expect(box.x + box.width).toBeLessThanOrEqual(320);
-    expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
-    await reachable(page, 'Attach images or PDF');
-    await page.keyboard.press('Escape');
-    await expect(panel).toBeHidden();
+type Box = { name: string; x: number; y: number; width: number; height: number };
+
+/** Every expected control is a direct, unobstructed, touch-sized icon on screen. */
+async function directControls(page: Page, names: string[]): Promise<Box[]> {
+  const viewport = page.viewportSize()!;
+  const boxes: Box[] = [];
+  for (const name of names) {
+    const button = page.getByRole('button', { name, exact: true });
+    await expect(button, name).toBeVisible();
+    expect(await button.evaluate((el) => !el.closest('.composer-tools')), name).toBe(true);
+    const box = (await button.boundingBox())!;
+    expect(box.width, name).toBeGreaterThanOrEqual(44);
+    expect(box.height, name).toBeGreaterThanOrEqual(44);
+    expect(box.x, name).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width, name).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height, name).toBeLessThanOrEqual(viewport.height);
+    expect(
+      await button.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+      }),
+      name,
+    ).toBe(true);
+    boxes.push({ name, ...box });
   }
-  // With recipients on their own row, available height starts at the toolbar,
-  // not at the More button, so the first overflow control stays reachable.
-  await page.setViewportSize({ width: 320, height: 360 });
-  await page.addStyleTag({ content: 'html{font-size:150%}' });
-  await expect(page.getByLabel('Selected recipients')).toBeAttached();
-  await more.click();
-  await expect(panel).toBeVisible();
-  expect((await panel.boundingBox())!.y).toBeGreaterThanOrEqual(0);
-  await panel.evaluate((el) => (el.scrollTop = 0));
-  await reachable(page, 'Commands');
-  expect(errors).toEqual([]);
-});
+  for (const [index, a] of boxes.entries())
+    for (const b of boxes.slice(index + 1))
+      expect(
+        a.x + a.width <= b.x + 0.5 ||
+          b.x + b.width <= a.x + 0.5 ||
+          a.y + a.height <= b.y + 0.5 ||
+          b.y + b.height <= a.y + 0.5,
+        `${a.name} overlaps ${b.name}`,
+      ).toBe(true);
+  return boxes;
+}
+
+const rows = (boxes: Box[]) =>
+  boxes
+    .map((box) => box.y + box.height / 2)
+    .sort((a, b) => a - b)
+    .filter((y, index, ys) => index === 0 || y - ys[index - 1] > 8).length;
+
+const same = (before: Box[], after: Box[]) => {
+  for (const box of before) {
+    const next = after.find((candidate) => candidate.name === box.name)!;
+    expect(Math.abs(next.x - box.x), box.name).toBeLessThanOrEqual(1);
+    expect(Math.abs(next.y - box.y), box.name).toBeLessThanOrEqual(1);
+  }
+};
 
 for (const sourceStop of [false, true])
   for (const theme of ['dark', 'light'])
-    test(`responsive composer: narrow, large text and short viewport (${theme}, source Stop ${sourceStop})`, async ({
+    test(`Symposium composer keeps every control direct on two rows (${theme}, source Stop ${sourceStop})`, async ({
       page,
     }, info) => {
       const errors: string[] = [];
@@ -108,47 +109,54 @@ for (const sourceStop of [false, true])
       await page.goto(sourceStop ? '/?sourceStop=1' : '/');
       const input = page.getByRole('textbox', { name: 'Message Mitzo' });
       await expect(input).toHaveValue('Keep this unsent draft');
-      await input.evaluate((el) => el.setAttribute('data-original', 'yes'));
-      for (const width of [280, 320, 359, 390, 1280]) {
+      const secondary = [
+        'Choose who replies',
+        'More composer actions',
+        'Open session tray',
+        'Agents',
+        'Token usage',
+        'Record voice message',
+        ...(sourceStop ? ['Stop original agent'] : []),
+      ];
+      const idle = [...secondary, 'Send message'];
+      const running = [
+        ...secondary,
+        'Steer selected agents',
+        'Queue message',
+        'Stop selected agents',
+      ];
+      for (const width of [280, 320, 390, 768]) {
         await page.setViewportSize({ width, height: 640 });
-        await reachable(page, 'Send message');
-        if (sourceStop) await reachable(page, 'Stop original agent');
-      }
-      await page.getByRole('button', { name: 'Toggle running' }).click();
-      for (const width of [280, 320, 359, 390, 800, 1280]) {
-        await page.setViewportSize({ width, height: 640 });
-        for (const name of ['Steer selected agents', 'Queue message', 'Stop selected agents'])
-          await reachable(page, name);
-        if (sourceStop) await reachable(page, 'Stop original agent');
-        const primary = await page
-          .locator('.composer-actions > button')
-          .evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect().y));
-        expect(new Set(primary).size).toBe(1);
+        const idleBoxes = await directControls(page, idle);
+        if (width <= 390) expect(rows(idleBoxes)).toBe(2);
+        // Typing does not move any control.
+        await input.fill(`Draft at ${width}px`);
+        same(idleBoxes, await directControls(page, idle));
+        // Sending (refused by the fixture, so the draft stays) does not move controls.
+        await page.getByRole('button', { name: 'Send message', exact: true }).click();
+        same(idleBoxes, await directControls(page, idle));
+        await page.getByRole('button', { name: 'Toggle running' }).click();
+        const runningBoxes = await directControls(page, running);
+        if (width <= 390) expect(rows(runningBoxes)).toBe(2);
+        const primary = runningBoxes.filter((box) =>
+          ['Steer selected agents', 'Queue message', 'Stop selected agents'].includes(box.name),
+        );
+        expect(new Set(primary.map((box) => Math.round(box.y))).size).toBe(1);
+        // Queueing keeps the running layout stable.
+        await page.getByRole('button', { name: 'Queue message', exact: true }).click();
+        same(runningBoxes, await directControls(page, running));
         expect(
           await page
             .locator('.composer-toolbar')
             .evaluate((el) => el.scrollWidth <= el.clientWidth),
         ).toBe(true);
+        await page.getByRole('button', { name: 'Toggle running' }).click();
       }
+      // Short viewport with large text: recipients expand on their own bounded row.
       await page.setViewportSize({ width: 320, height: 360 });
-      await page.addStyleTag({
-        content: 'html{font-size:200%}.chat-input-field{font-size:2rem!important}',
-      });
+      await page.addStyleTag({ content: 'html{font-size:150%}' });
       await input.fill('A long draft\n'.repeat(20));
-      await reachable(page, 'Stop selected agents');
-      await reachable(page, 'Queue message');
-      await page.getByRole('button', { name: 'More composer actions' }).focus();
-      await page.keyboard.press('Enter');
-      await page.getByRole('button', { name: 'Expand input' }).focus();
-      await page.keyboard.press('Enter');
-      await reachable(page, 'Stop selected agents');
-      const more = page.getByRole('button', { name: 'More composer actions' });
-      await more.focus();
-      await page.keyboard.press('Enter');
-      await page.getByRole('button', { name: 'Commands', exact: true }).focus();
-      await page.keyboard.press('Escape');
-      await expect(more).toBeFocused();
-      await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeHidden();
+      await directControls(page, idle);
       await page.getByRole('button', { name: 'Choose who replies' }).click();
       const recipient = page.getByRole('button', {
         name: 'Agent 7 with a very long recipient name that must remain readable',
@@ -157,12 +165,28 @@ for (const sourceStop of [false, true])
       await recipient.focus();
       await page.keyboard.press('Enter');
       await expect(page.getByLabel('Selected recipients')).toHaveText('agent-0,agent-1,agent-7');
-      await reachable(page, 'Stop selected agents');
-      await page.getByRole('button', { name: 'Choose who replies' }).click();
-      await expect(input).toHaveAttribute('data-original', 'yes');
+      await directControls(page, idle);
       await expect(input).toHaveValue('A long draft\n'.repeat(20));
-      await page.getByRole('button', { name: 'Stop selected agents' }).click();
-      await expect(page.getByLabel('Stop count')).toHaveText('1');
-      await page.screenshot({ path: info.outputPath('composer-short-large-text.png') });
+      await page.screenshot({ path: info.outputPath('symposium-composer-two-rows.png') });
       expect(errors).toEqual([]);
     });
+
+test('ordinary composer keeps its approved single row with direct usage and voice', async ({
+  page,
+}) => {
+  await serve(page, 'dark');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const width of [390, 768]) {
+    await page.setViewportSize({ width, height: 640 });
+    await page.goto('/?ordinary=1');
+    const boxes = await directControls(page, [
+      'More composer actions',
+      'Open session tray',
+      'Agents',
+      'Token usage',
+      'Record voice message',
+      'Send message',
+    ]);
+    expect(rows(boxes)).toBe(1);
+  }
+});
