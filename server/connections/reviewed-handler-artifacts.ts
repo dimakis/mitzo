@@ -31,6 +31,16 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/src/context-measurement.ts':
+    '0d89c2ebfee3a80604c64c8174aa8001b35a3f8854dccac845cab40f3af3d925',
+  '../context-measurement-adapters.ts':
+    '1f71dedb3133083fd79ab9134db23af2627b1cac524d665e84f9138dc59731de',
+  '../context-measurement-control.ts':
+    '84675c4f36c776cf6fca2b6379cb1d63db80bc49212742197674a36f38e41da6',
+  '../__tests__/context-measurement.test.ts':
+    '5e99e6c48c7f22ed925c327f79a61a1773e5d6a19d1ef7431e5a718b20c48d20',
+  '../__tests__/chat-sdk-query-adapter.test.ts':
+    '9601a0147184fd2adb2a2d430cca1e6bc79b8eb96c85e0ef058dc419957747d9',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -1551,7 +1561,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/execution-ledger.ts':
     '9306195c826ca603ee848d0532e2231a2a7299eb596b63df1c84928771391e94',
   '../../packages/protocol/src/index.ts':
-    'ca50c9fc0c7ecab2ba938db6c8233df100b887b919bed1c950dd36155b6a3ee3',
+    'ad0df0e3449d449790f615f1882f6424d6e889e6eb0eb2de82ba968fc1f534f7',
   '../../packages/protocol/src/local-codex-first-command.ts':
     'dce160cff162ec58adac0e98208b93b8f332bc822654914ddf85220084405b4e',
   '../../packages/protocol/src/local-vertex-command.ts':
@@ -3361,7 +3371,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sdk-task-run-consumer.test.ts':
     'ac98380c62b296d33920503d96aa442740b7e7763b3311ff9318514d15787ac3',
   '../__tests__/sdk-turn-query.test.ts':
-    'ee52f3f6f77501f01e105fb242422edb9cfac478713e0967c1fd4a96bb8a1445',
+    '0d2664596c72ea961ea32c15b9fe962d0a508dd85405177497df6cfa6d37ce46',
   '../__tests__/sdk-user-steering.test.ts':
     '8e9f8714d8f4f4d7b7e9ac3a455076462a1f8cb67ed6ca454ef57045df45d508',
   '../__tests__/secret-relay-artifacts.test.ts':
