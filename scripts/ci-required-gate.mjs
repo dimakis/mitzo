@@ -15,6 +15,19 @@ for (const name of [
     process.exit(1);
   }
 }
+// Draft runs deselect every expensive owner; anything else is an inconsistent selection.
+const draft = needs.changes.outputs?.draft;
+if (
+  !['true', 'false'].includes(draft) ||
+  (draft === 'true' &&
+    ['browser', 'native', 'prepared', 'ordinary'].some(
+      (owner) => needs.changes.outputs?.[owner] !== 'false',
+    ))
+) {
+  console.error('Draft selection unavailable or inconsistent with selected owners');
+  process.exit(1);
+}
+
 const selectedNative = needs.changes.outputs?.native;
 if (
   !['true', 'false'].includes(selectedNative) ||
@@ -41,5 +54,15 @@ if (
   )
 ) {
   console.error('Selected ordinary CI owners incomplete or selection unavailable');
+  process.exit(1);
+}
+
+// A draft verdict must never be mergeable: once a PR is marked ready, GitHub
+// would otherwise accept this run's green ci until the full run's aggregate
+// appears. GitHub refuses to merge drafts, so failing here costs nothing.
+if (draft === 'true') {
+  console.error(
+    'Draft PR: cheap checks passed. ci stays red by design until the PR is marked ready and its full run passes.',
+  );
   process.exit(1);
 }

@@ -15,8 +15,47 @@ import {
 } from './session-launch-store.js';
 import type { SessionLaunchController } from './session-launch-controller.js';
 import type { SessionLaunchAuthority } from './session-launch-service.js';
+import { createLogger } from './logger.js';
 
 const reference = z.string().min(1).max(200).regex(/^\S+$/);
+const log = createLogger('session-launch');
+
+/** Every refused or failed launch request is observable with a stable code and
+ * its proposal ID. The reason is the same operator-facing message the route
+ * returns; unexpected causes log only their type, never payloads or prompts.
+ * A request the client itself abandoned is expected and stays at debug. */
+function logSessionLaunchRouteFailure(
+  req: Request,
+  status: number,
+  error: unknown,
+  cancelled: boolean,
+) {
+  const proposalId = z.uuid().safeParse(req.params.proposalId);
+  const code =
+    error instanceof SessionLaunchPreflightError
+      ? error.code
+      : error instanceof SessionLaunchError
+        ? 'session_launch_refused'
+        : error instanceof SessionLaunchDefaultsConflict
+          ? 'session_launch_defaults_conflict'
+          : error instanceof ZodError
+            ? 'session_launch_invalid_request'
+            : 'session_launch_unavailable';
+  const fields = {
+    code,
+    status,
+    method: req.method,
+    route: req.route?.path as string | undefined,
+    ...(proposalId.success ? { proposalId: proposalId.data } : {}),
+    ...(error instanceof SessionLaunchError || error instanceof SessionLaunchDefaultsConflict
+      ? { reason: error.message.slice(0, 300) }
+      : { causeType: error instanceof Error ? error.name : typeof error }),
+  };
+  if (cancelled) log.debug('Session launch request cancelled', fields);
+  else if (status >= 500) log.error('Session launch request failed', fields);
+  else log.warn('Session launch request refused', fields);
+}
+
 export function createSessionLaunchRouter(deps: {
   controller: SessionLaunchController;
   session(id: string): { title: string } | undefined;
@@ -89,6 +128,7 @@ export function createSessionLaunchRouter(deps: {
             : error instanceof ZodError
               ? 400
               : 503;
+      logSessionLaunchRouteFailure(req, status, error, controller.signal.aborted);
       res.status(status).json({
         ...(error instanceof SessionLaunchPreflightError
           ? { code: error.code, effectStatus: error.effectStatus }

@@ -9,7 +9,8 @@ import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { resolveOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { sessionHarnessForProvider } from './session-harness-routing.js';
-import { repositoryWorkspaceCatalog } from './repository-workspace-runtime.js';
+import { repositoryWorkspaceSourceInventory } from './repository-workspace-runtime.js';
+import type { RepositoryWorkspaceSourceReason } from './repository-workspace-runtime.js';
 import { CollaborationApplicationReview } from './collaboration-application-review.js';
 import { createApplicationCollaborationJoining } from './collaboration-application-joining.js';
 import type { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
@@ -43,6 +44,33 @@ export type SpecialistAuthority = {
   signal: AbortSignal;
   assertCurrent(): void;
 };
+
+/** Catalog refusals for accounts that have no repository source. The entry keeps
+ * the harness/code shape the catalog already uses and adds the account it names,
+ * so an unassigned Claude account is explicit instead of silently absent. */
+export function repositorySourceRefusals(
+  entries: readonly {
+    harness: string;
+    accountId: string;
+    inventory: {
+      available: boolean;
+      repositories: readonly unknown[];
+      reason?: RepositoryWorkspaceSourceReason;
+    };
+  }[],
+) {
+  const refusals = new Map<string, { harness: string; accountId: string; code: string }>();
+  for (const entry of entries) {
+    if (entry.inventory.repositories.length || !entry.inventory.reason) continue;
+    const refusal = {
+      harness: entry.harness,
+      accountId: entry.accountId,
+      code: entry.inventory.reason,
+    };
+    refusals.set(JSON.stringify(refusal), refusal);
+  }
+  return [...refusals.values()];
+}
 
 /** Bounded composition over existing Library, repository, context, joining,
  * messaging and ordinary execution owners. No model client or scheduler. */
@@ -116,6 +144,7 @@ export class SpecialistConsultations {
       string,
       { connectionId: string; repository: string; accountId: string }
     >();
+    const sourceInventory: Parameters<typeof repositorySourceRefusals>[0][number][] = [];
     for (const harness of ['codex', 'claude-sdk'] as const) {
       try {
         const inventory = ordinaryRepositoryRuntimeInventory('local', harness);
@@ -139,7 +168,9 @@ export class SpecialistConsultations {
             account.account.accountId,
             account.models[0]?.id,
           );
-          for (const source of repositoryWorkspaceCatalog(binding).repositories ?? []) {
+          const sources = repositoryWorkspaceSourceInventory(binding);
+          sourceInventory.push({ harness, accountId: binding.accountId, inventory: sources });
+          for (const source of sources.repositories) {
             if (source.connectionId === 'local') continue;
             const item = {
               connectionId: source.connectionId,
@@ -176,6 +207,7 @@ export class SpecialistConsultations {
       modelPolicy: this.receipts.modelPolicies.view(a.leadSessionId),
       unavailable: [
         ...unavailable,
+        ...repositorySourceRefusals(sourceInventory),
         { harness: 'openshell', code: 'shared_delivery_not_qualified' },
         { harness: 'gemini', code: 'shared_participant_not_qualified' },
       ],
@@ -273,13 +305,20 @@ export class SpecialistConsultations {
         });
       }
       await this.resolveRoute(route);
+      const sources = repositoryWorkspaceSourceInventory(binding);
       if (
-        !(repositoryWorkspaceCatalog(binding).repositories ?? []).some(
+        !sources.repositories.some(
           (source) =>
             source.connectionId === input.connectionId && source.repository === input.repository,
         )
       )
-        throw Error('Repository source is not configured for this specialist account');
+        // Carry the same named reason the catalog shows, so an operator sees one
+        // explanation for the same fact rather than a bare refusal.
+        throw Error(
+          `Repository source is not configured for this specialist account${
+            sources.reason ? ` (${sources.reason})` : ''
+          }`,
+        );
       routes.push(route);
     }
     this.current(a);

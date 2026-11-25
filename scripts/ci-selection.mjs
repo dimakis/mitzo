@@ -1,6 +1,10 @@
-/** Select expensive jobs conservatively; unknown paths and incomplete diffs run every owner. */
-export function selectCiJobs({ eventName, files, complete = true }) {
+/** Select expensive jobs conservatively; unknown paths and incomplete diffs run every owner.
+ * A confirmed draft PR runs only the cheap owners; marking it ready runs the full suite. */
+export function selectCiJobs({ eventName, files, complete = true, draft = false }) {
   const all = () => ({ browser: true, native: true, prepared: true, ordinary: true });
+  if (eventName === 'pull_request' && draft === true) {
+    return { browser: false, native: false, prepared: false, ordinary: false };
+  }
   const validPath = (path) =>
     typeof path === 'string' &&
     !path.includes('\\') &&

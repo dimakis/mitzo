@@ -55,7 +55,7 @@ import { z } from 'zod';
 import { searchCodex } from './codex-approved-search.js';
 import { BorrowedCodexSearch } from './codex-borrowed-search.js';
 import { context, trace, SpanStatusCode, type Span, type Context } from '@opentelemetry/api';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { CodexNativeFileChange } from './codex-native-file-change.js';
 import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
@@ -92,6 +92,8 @@ import {
   type CodexNativeExecutionPolicy,
 } from './codex-native-execution-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
+import type { CodexContextSnapshotEvents } from './codex-context-snapshot.js';
+import type { ContextSnapshotReason, ContextSnapshotScope } from '@mitzo/protocol';
 import {
   codexToolResultContentItems,
   normalizeCodexToolResult,
@@ -195,6 +197,8 @@ export type { NativeBaseReadScope } from './native-base-read-scope.js';
 import type { NativeBaseReadScope } from './native-base-read-scope.js';
 
 export interface CodexConversationOptions {
+  /** Installed only by the qualified Local Mac composition. */
+  contextSnapshots?: CodexContextSnapshotEvents;
   /** Host-only committed context identity, never an admission epoch or public input.
    * Selected before constructing the owner; absent retains exact legacy behavior. */
   providerContextRevision?: string;
@@ -576,6 +580,58 @@ export class CodexConversation {
   private commandContexts = new Map<string, Context>();
   private queueTimingSpans = new Map<string, Span>();
   private active?: ActiveCommand;
+  private contextSnapshotTurn?: {
+    active: ActiveCommand;
+    transportGeneration: number;
+    binding: AccountBinding;
+    generation: string;
+  };
+
+  /** Passive read of the existing acknowledged native owner; no RPC or admission. */
+  getContextSnapshotScope(): ContextSnapshotScope | undefined {
+    const witness = this.contextSnapshotTurn;
+    const active = this.active;
+    if (
+      !witness ||
+      !active ||
+      witness.active !== active ||
+      this.closed ||
+      !this.ready ||
+      active.abort.signal.aborted ||
+      !active.accepted ||
+      active.ownershipPending ||
+      witness.transportGeneration !== this.transportGeneration ||
+      !isDeepStrictEqual(witness.binding, this.binding) ||
+      !this.threadId ||
+      !active.turnId
+    )
+      return;
+    return {
+      identity: {
+        sessionId: this.opts.conversationId,
+        threadId: this.threadId,
+        turnId: active.turnId,
+        scope: 'parent',
+        ownerGeneration: witness.generation,
+      },
+      binding: {
+        engine: 'codex',
+        placement: 'local',
+        model: active.command.model ?? this.binding!.model,
+        accountRef: this.binding!.accountId,
+        runtimeBindingRevision:
+          active.nativeExecution?.bindingRevision ??
+          createHash('sha256').update(JSON.stringify(this.binding)).digest('hex'),
+        runtimeVersion: SUPPORTED_CODEX_CLI_VERSION,
+      },
+    };
+  }
+
+  private invalidateContextSnapshot(reason: ContextSnapshotReason) {
+    if (!this.contextSnapshotTurn) return;
+    this.contextSnapshotTurn = undefined;
+    this.opts.contextSnapshots?.invalidate(reason);
+  }
   private interruptTargets = new WeakMap<
     CodexInterruptTarget,
     { active: ActiveCommand; client: Rpc; transportGeneration: number }
@@ -651,6 +707,7 @@ export class CodexConversation {
     };
   }
   private createClient() {
+    this.invalidateContextSnapshot('scope_changed');
     this.subagentOwner?.close();
     this.subagentOwner = undefined;
     const generation = ++this.transportGeneration;
@@ -936,6 +993,7 @@ export class CodexConversation {
   }
   private transportClosed(generation: number, error: Error, requireRecoveryPersistence = false) {
     if (this.closed || generation !== this.transportGeneration) return;
+    this.invalidateContextSnapshot('query_retired');
     const failure =
       error instanceof CodexTransportError && error.diagnostic
         ? { failure: codexRuntimeErrorTelemetry(error) }
@@ -2794,6 +2852,7 @@ export class CodexConversation {
   }
 
   private resetMapper(threadId: string, freshThread = false) {
+    this.invalidateContextSnapshot('scope_changed');
     this.mapper = new CodexSessionEvents(
       this.opts.conversationId,
       threadId,
@@ -2801,6 +2860,24 @@ export class CodexConversation {
       this.opts.emit,
       {
         freshThread,
+        onContextUsage: (params) => {
+          const scope = this.getContextSnapshotScope();
+          if (
+            scope &&
+            params.threadId === scope.identity.threadId &&
+            params.turnId === scope.identity.turnId
+          )
+            this.opts.contextSnapshots?.usage(params);
+        },
+        onContextCompaction: (params) => {
+          const scope = this.getContextSnapshotScope();
+          if (
+            scope &&
+            params.threadId === scope.identity.threadId &&
+            params.turnId === scope.identity.turnId
+          )
+            this.opts.contextSnapshots?.invalidate('compacted');
+        },
         requireExactTurnIdentity: Boolean(this.opts.onProviderMessageSource),
         onTextMessageStarted: (messageId, providerTurnId) => {
           const active = this.active;
@@ -2832,6 +2909,7 @@ export class CodexConversation {
    * racing one more request against a dying process.
    */
   private retireTransportForRecovery() {
+    this.invalidateContextSnapshot('query_retired');
     this.transportGeneration += 1;
     this.ready = false;
     this.client.close();
@@ -3361,6 +3439,15 @@ export class CodexConversation {
           }
           active.ownershipPending = false;
         }
+        if (this.opts.contextSnapshots) {
+          this.contextSnapshotTurn = {
+            active,
+            transportGeneration,
+            binding: structuredClone(this.binding!),
+            generation: randomUUID(),
+          };
+          this.opts.contextSnapshots.turnStarted();
+        }
         // Output can race turn/start's response. Only the response's exact turn identity
         // authorizes a durable source binding; stale or uncertain output stays unmapped.
         for (const [messageId, providerTurnId] of active.replySources)
@@ -3802,6 +3889,7 @@ export class CodexConversation {
       }
       // Even turn/started is not an acceptance receipt: wait for turn/start's exact response.
       if (!this.active.accepted || this.active.ownershipPending) return;
+      this.invalidateContextSnapshot('turn_completed');
       if (turn.data.status === 'completed' && !this.active.callbacksSettled) {
         const active = this.active;
         (active.callbacks ??= new TurnCallbacks()).seal();
@@ -5277,6 +5365,7 @@ export class CodexConversation {
     if (this.closed) return;
     this.retainEmptyCompletionPhase();
     this.closed = true;
+    this.invalidateContextSnapshot('query_retired');
     this.borrowedSearch?.transportClosed(new Error('Search connection closed'));
     this.paused = true;
     const active = this.active;

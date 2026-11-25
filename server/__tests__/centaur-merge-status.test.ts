@@ -143,6 +143,32 @@ it('rejects a quoted LGTM inside a blocking authoritative review', async () => {
   ).toBe('failure');
 });
 
+const withFindings = (summary: string, recommendation: string, newBlocking: number) =>
+  body
+    .replace('LGTM — no issues found.', summary)
+    .replace('`merge`', `\`${recommendation}\``)
+    .replace('- New blocking findings: 0', `- New blocking findings: ${newBlocking}`) +
+  '- Non-blocking follow-ups: 1\n\n### `server/x.ts`\n- 🔵 **missing_tests** `[follow-up]`\n';
+
+it('approves a merge verdict whose only findings are non-blocking follow-ups', async () => {
+  for (const summary of ['Found **1** issue(s).', 'Found **2** issue(s) (1 warning).']) {
+    expect(
+      (await execute([{ ...review, body: withFindings(summary, 'merge', 0) }])).at(-1)?.state,
+    ).toBe('success');
+  }
+});
+
+it('still rejects findings with blockers, critical findings or a non-merge verdict', async () => {
+  for (const blocked of [
+    withFindings('Found **1** issue(s).', 'merge', 1),
+    withFindings('Found **1** issue(s) (1 critical).', 'merge', 0),
+    withFindings('Found **1** issue(s).', 'fix', 0),
+    withFindings('Found **1** issue(s).', 'human_decision', 0),
+  ]) {
+    expect((await execute([{ ...review, body: blocked }])).at(-1)?.state).toBe('failure');
+  }
+});
+
 const prior = (state: string, login = 'centaur-status[bot]') => ({
   state,
   context: 'Centaur final LGTM',

@@ -244,6 +244,11 @@ it.each([
     'repository_source_unassigned',
     /accountId in catalog.*Connections/,
   ],
+  [
+    'Repository source is not configured for this specialist account (repository_scope_not_assigned)',
+    'repository_source_unassigned',
+    /accountId in catalog.*Connections/,
+  ],
   ['Specialist runtime is unavailable', 'specialist_runtime_unavailable', /Inspect catalog/],
   ['Specialist consultation policy was not approved', 'policy_not_approved', /did not approve/],
 ])('names the %s refusal with its next action', async (cause, code, next) => {
