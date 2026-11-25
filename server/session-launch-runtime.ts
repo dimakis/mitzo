@@ -12,6 +12,9 @@ import { SessionLaunchError, type RetainedSessionLaunch } from './session-launch
 import type { EventStore } from './event-store.js';
 import { assertSessionLaunchTools } from './session-launch-tools-selection.js';
 import { nativeStartupSessionId } from './ordinary-repository-startup.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('session-launch-runtime');
 
 function assertLaunchChildAdmissible(events: EventStore, id: string) {
   if (events.getSession(id)?.isHidden)
@@ -97,7 +100,14 @@ export async function resolveSessionLaunchProposalRoute(
         provider: AccountProviderSchema.parse(binding.provider),
         profileRevision: binding.profileRevision,
       };
-    } catch {
+    } catch (err) {
+      // Expected for an unconfigured account; the proposal stays editable.
+      log.info('Session launch proposal account unresolved', {
+        code: 'session_launch_account_unresolved',
+        stage: 'proposal_route',
+        accountId: account.accountId,
+        errorName: err instanceof Error ? err.name : typeof err,
+      });
       return { configuration: config, blocker: SESSION_LAUNCH_ACCOUNT_UNRESOLVED };
     }
   }
@@ -120,7 +130,13 @@ export async function resolveSessionLaunchProposalRoute(
           .map((route) => route.targetId),
       ),
     ];
-  } catch {
+  } catch (err) {
+    log.warn('Session launch proposal route inventory unavailable', {
+      code: 'session_launch_route_inventory_failed',
+      stage: 'proposal_route',
+      harness,
+      err,
+    });
     return { configuration: resolved, blocker: SESSION_LAUNCH_ROUTE_UNAVAILABLE };
   }
   const current = config.runtime.execution.targetId;

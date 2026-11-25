@@ -301,6 +301,78 @@ describe('StartSession proposal tool', () => {
         expect(result.startupBlocker).toMatch(/requested host does not run this account's engine/);
       },
     );
+    // A retry with the same requestId returns the retained proposal. It must keep
+    // the retained configuration exactly and still report the route blocker.
+    const retry = async (
+      tool: 'StartSession' | 'TelosCreateSession',
+      runtime: Record<string, unknown>,
+      edit?: (config: typeof configuration) => void,
+    ) => {
+      const f = fixture();
+      f.defaults.get.mockReturnValue({ revision: 1, configuration: claudeDefault });
+      const call = {
+        ...input,
+        overrides: { runtime },
+        ...(tool === 'TelosCreateSession'
+          ? { itemId: 'selected-slice', expectedRevision: 'a'.repeat(64) }
+          : {}),
+      };
+      const execute = () =>
+        f.tools.execute(call, new AbortController().signal, { turnId: 't', callId: 'c' }, tool);
+      const first = await execute();
+      const retained = structuredClone(f.store.propose.mock.results[0].value);
+      edit?.(retained.configuration);
+      f.store.forRequest.mockReturnValue(retained);
+      const second = await execute();
+      return {
+        first,
+        second,
+        retained: retained.configuration,
+        saved: f.store.propose.mock.calls[1][0].configuration,
+        telosProposals: f.telos.propose.mock.calls.length,
+      };
+    };
+    it.each(['StartSession', 'TelosCreateSession'] as const)(
+      '%s retry keeps a host mismatch blocker and the retained configuration',
+      async (tool) => {
+        const { first, second, retained, saved, telosProposals } = await retry(tool, {
+          account: enMaas,
+          execution: { targetId: 'host-mac-vertex' },
+        });
+        expect(first.startupBlocker).toMatch(/requested host does not run this account's engine/);
+        expect(second.startupBlocker).toBe(first.startupBlocker);
+        expect(saved).toEqual(retained);
+        if (tool === 'TelosCreateSession') expect(telosProposals).toBe(1);
+      },
+    );
+    it.each(['StartSession', 'TelosCreateSession'] as const)(
+      '%s retry keeps an unresolved-account blocker',
+      async (tool) => {
+        const { first, second } = await retry(tool, {
+          account: { accountId: 'missing', model: 'x' },
+        });
+        expect(first.startupBlocker).toMatch(/not configured on this Mac/);
+        expect(second.startupBlocker).toBe(first.startupBlocker);
+      },
+    );
+    it('a retry reports no blocker once review moved the proposal to a valid host', async () => {
+      const { first, second, saved } = await retry(
+        'StartSession',
+        { account: enMaas, execution: { targetId: 'host-mac-vertex' } },
+        (config) => {
+          config.runtime.execution = { location: 'local', targetId: 'host-mac-codex' };
+        },
+      );
+      expect(first.startupBlocker).toBeDefined();
+      expect(saved.runtime.execution.targetId).toBe('host-mac-codex');
+      expect(second.startupBlocker).toBeUndefined();
+    });
+    it('a retry of a valid resolved route stays unblocked', async () => {
+      const { first, second, saved, retained } = await retry('StartSession', { account: enMaas });
+      expect(first.startupBlocker).toBeUndefined();
+      expect(second.startupBlocker).toBeUndefined();
+      expect(saved).toEqual(retained);
+    });
     it('still refuses accounts New chat cannot start locally, with a named reason', async () => {
       for (const tool of ['StartSession', 'TelosCreateSession'] as const)
         expect(

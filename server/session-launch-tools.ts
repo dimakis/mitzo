@@ -8,6 +8,7 @@ import {
   type SessionLaunchConfig,
   type StartSessionInput,
 } from '@mitzo/protocol';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { checkSkillPolicy, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
@@ -66,10 +67,17 @@ export async function proposeTelosSession(
   authority.signal.throwIfAborted();
   // Adoption keeps an existing chat's retained settings; only a new child's
   // agent-edited account or host is resolved as New chat would resolve it.
+  // A retried request keeps its retained configuration; its route diagnostic
+  // is recomputed so a retry cannot hide a blocker the first call reported.
   const route =
-    previous?.configuration || selected.configuration
+    selected.telos?.adoption || (!previous && selected.configuration)
       ? null
-      : await proposedSessionLaunchConfig(controller, input.overrides, 'telos');
+      : await proposedSessionLaunchConfig(
+          controller,
+          input.overrides,
+          'telos',
+          previous?.configuration,
+        );
   authority.assertCurrent();
   authority.signal.throwIfAborted();
   const record = controller.launches.store.propose({
@@ -78,7 +86,7 @@ export async function proposeTelosSession(
     operatorId: 'user',
     sourceSessionId,
     originalInput: input,
-    configuration: previous?.configuration ?? selected.configuration ?? route!.configuration,
+    configuration: previous?.configuration ?? route?.configuration ?? selected.configuration!,
   });
   controller.changed(sourceSessionId);
   // Adoption keeps an existing Codex or Claude chat's engine; only creation of
@@ -96,21 +104,32 @@ export async function proposeTelosSession(
 }
 
 /** Saved defaults plus agent overrides, with an edited account or named host
- * resolved to the Local Mac route New chat uses for that account. */
+ * resolved to the Local Mac route New chat uses for that account. A retained
+ * proposal (same requestId) keeps its configuration unchanged; only its
+ * blocker is recomputed. When it still matches what this input resolves to,
+ * that resolution's blocker applies; when review edited it, its current host
+ * is checked as an explicit choice. */
 async function proposedSessionLaunchConfig(
   controller: SessionLaunchController,
   overrides: StartSessionInput['overrides'],
   scope: SessionLaunchScope,
-) {
+  retained?: SessionLaunchConfig,
+): Promise<{ configuration: SessionLaunchConfig; blocker: string | null }> {
   const configuration = resolveSessionLaunchConfig(
     controller.defaults.get('user').configuration ?? initialSessionLaunchConfig(),
     overrides,
   );
   const targetId = overrides?.runtime?.execution?.targetId;
-  return resolveSessionLaunchProposalRoute(configuration, {
+  const route = await resolveSessionLaunchProposalRoute(configuration, {
     scope,
     targetSupplied: typeof targetId === 'string',
   });
+  if (!retained || isDeepStrictEqual(retained, route.configuration)) return route;
+  const { blocker } = await resolveSessionLaunchProposalRoute(retained, {
+    scope,
+    targetSupplied: true,
+  });
+  return { configuration: retained, blocker };
 }
 
 export function initialSessionLaunchConfig(): SessionLaunchConfig {
@@ -213,23 +232,25 @@ export function sessionLaunchTools(options: {
         'user',
         input.requestId,
       );
-      const route = previous
-        ? null
-        : await proposedSessionLaunchConfig(controller, input.overrides, 'session');
+      const route = await proposedSessionLaunchConfig(
+        controller,
+        input.overrides,
+        'session',
+        previous?.configuration,
+      );
       current();
       captured.assertCurrent();
-      const configuration = previous?.configuration ?? route!.configuration;
       const record = controller.launches.store.propose({
         operatorId: 'user',
         sourceSessionId: options.sessionId,
         ...input,
-        configuration,
+        configuration: route.configuration,
         originalInput: input,
       });
       current();
       captured.assertCurrent();
       controller.changed(options.sessionId);
-      const startupBlocker = sessionLaunchStartupBlocker(record.configuration) ?? route?.blocker;
+      const startupBlocker = sessionLaunchStartupBlocker(record.configuration) ?? route.blocker;
       return {
         ...publicSessionLaunchRecord(record),
         handoverDownloadUrl: sessionLaunchHandoverUrl(record.proposalId),

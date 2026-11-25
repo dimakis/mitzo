@@ -3436,7 +3436,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-launch-tools-selection.test.ts':
     '2f8ba495c348dafd62c4f495e63569f88168d9f45095a56da85cbb1b61a2fe8f',
   '../__tests__/session-launch-tools.test.ts':
-    '7bb727b119d7d5c92ff0af2713b5906c912f8664312ea967e3b2601de63a5005',
+    '231be7e99d62f1aa3e85ee4aae6a746986bf4aa9990b1c0026f197bfb79db9ce',
   '../__tests__/session-learning-policy.test.ts':
     '218605e3efb261b2f814be91ab436d1d4f2715fd13da10f3042b35b5f867f882',
   '../__tests__/session-learning-router.test.ts':
@@ -4531,13 +4531,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd00c67e372fdae9f683fb4ee27774ca3bedacf93dd9fe2ae8dc982dbc0bf9388',
   '../session-launch-routes.ts': '45dd88531e35d17ed7ab1175a7268ee9edc1a87ea29f8487180053b3c4cc98c3',
   '../session-launch-runtime.ts':
-    '8c133a1b32613866360c990a549c7d6b5ddf6d9da4a07acccdbe50bd0352dc1c',
+    '1dacee8230a916f2647210ac05f3b6ba65b4abb51c041d183e3f4ab1037a8f4a',
   '../session-launch-service.ts':
     '63acde5c2f83668093eb0385f6bae85d89b9257fadd8e47f6e2a04fd4f9e9636',
   '../session-launch-store.ts': 'fb81b892e6721fc3f7c4a8768a6a8de9102b35f95597da7e1629d6e2a1779a18',
   '../session-launch-tools-selection.ts':
     '6f3f0133b2b35d4387f48d2a40823507624543ea7372b70a9e1476e60f384661',
-  '../session-launch-tools.ts': '31d838393f0704b65d492f500239a4738f585ea2c3bdd06135a2801f627048c6',
+  '../session-launch-tools.ts': '0f22a5d393c1e34b333b30068e28f019c9c35beaf7aaf2fc694c9f2dcf353011',
   '../session-learning-router.ts':
     '52503a7b4900412691746f2a83e954659f0d5c7e97dc5f5ef20f56d93a7aefbc',
   '../session-learning-tools.ts':
