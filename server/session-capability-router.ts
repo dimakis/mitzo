@@ -66,7 +66,7 @@ export function createSessionCapabilityRouter(options: {
     }
     next();
   });
-  router.get('/pr-monitor', (req, res) => {
+  router.get<{ id: string }>('/pr-monitor', (req, res) => {
     const auth = recentAuthorizationSession(res);
     if (!auth) return;
     if (!options.monitor) return res.status(503).json({ code: 'pr_watch_unavailable' });
@@ -137,7 +137,7 @@ export function createSessionCapabilityRouter(options: {
       },
     } satisfies SessionCapabilityInventory);
   });
-  router.post('/pr-watch/:subscriptionId', (req, res) => {
+  router.post<{ id: string; subscriptionId: string }>('/pr-watch/:subscriptionId', (req, res) => {
     if (!options.grants.prWatchAvailable)
       return res.status(503).json({
         code: 'pr_watch_unavailable',
