@@ -188,7 +188,8 @@ it('reconciles a missed push after a cold SQLite/auth restart and honors retaine
   expect(recovered.refreshState).toBe('current');
   expect(recovered.subscription.head).toMatchObject({ sha: 'c'.repeat(40), generation: 2 });
   expect(recovered.counters).toMatchObject({ observations: 2, modelTurns: 0 });
-  expect(f.read).toHaveBeenCalledTimes(9);
+  // Principal attestation only on the opening and closing PR reads.
+  expect(f.read).toHaveBeenCalledTimes(7);
   f.store.revokeAuthSession(f.login);
   await f.restart();
   now += 120000;

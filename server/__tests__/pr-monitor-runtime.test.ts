@@ -1,12 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../../packages/protocol/src/event-store.js';
 import { createPrMonitorObservationRuntime } from '../pr-monitor-runtime.js';
+import { PR_MONITOR_MAX_REQUESTS } from '../pr-monitor-observer.js';
 const id = '9c6bb0d4-081f-4f55-86f8-60c703452053',
   head = 'a'.repeat(40),
   base = 'b'.repeat(40);
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
-it.each([0, 3, 5, 7, 8])(
+it.each([0, 3, 5, 10, 11])(
   'composes durable Watch and %i workflows through actual bounded quota admission without a model port',
   async (workflows) => {
     const store = new EventStore(':memory:');
@@ -124,23 +125,29 @@ it.each([0, 3, 5, 7, 8])(
       },
     );
     await runtime.reconcileDue();
+    // Opening and closing PR reads attest the principal (2 each); the runs page,
+    // reviews and comments cost one each, plus one job page per workflow run.
     const view = store.prMonitor.read('ordinary:user', 'chat', id);
-    if (workflows === 8) {
-      expect(view.refreshState).toBe('partial');
-      expect(view.diagnostic?.code).toBe('incomplete');
+    if (workflows === 11) {
+      // Within the collection cap, but beyond the probe plus 16-request background
+      // burst a fresh quota epoch admits: collection defers instead of publishing
+      // partial evidence, and later paced allocation completes it.
+      expect(7 + workflows).toBeLessThanOrEqual(PR_MONITOR_MAX_REQUESTS);
+      expect(view.refreshState).toBe('quota_delayed');
+      expect(view.diagnostic?.code).toBe('quota_delayed');
       expect(view.outbox).toBeNull();
-      expect(transport).toHaveBeenCalledTimes(16);
-      expect(store.githubReadQuota.inspect('github:42').charged).toBe(16);
+      expect(transport).toHaveBeenCalledTimes(17);
+      expect(store.githubReadQuota.inspect('github:42').charged).toBe(17);
       await runtime.close();
       return;
     }
     expect(view.refreshState).toBe('current');
     expect(view.snapshot?.headSha).toBe(head);
     expect(view.counters.modelTurns).toBe(0);
-    expect(transport).toHaveBeenCalledTimes(9 + workflows);
-    expect(store.githubReadQuota.inspect('github:42').charged).toBe(9 + workflows);
+    expect(transport).toHaveBeenCalledTimes(7 + workflows);
+    expect(store.githubReadQuota.inspect('github:42').charged).toBe(7 + workflows);
     await runtime.close();
     await runtime.reconcileDue();
-    expect(transport).toHaveBeenCalledTimes(9 + workflows);
+    expect(transport).toHaveBeenCalledTimes(7 + workflows);
   },
 );

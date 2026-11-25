@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1279-github-read-quota';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1284-github-read-quota';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4921,28 +4921,28 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/github-read-quota.ts':
     '2788f76411e9ecf838bbd754b012f4c0221413f41a634b6a4ca962b9f6bd273d',
   '../../packages/protocol/src/pr-monitor-store.ts':
-    '7b5d2e357188d6a0ea9cad5c1e0817074be5f1bfb2e1cb22527ec4a4ad8175e4',
+    '6a388b0b0b0b6fd65230d486030526e85007314c2d7266b32469667e7980e00e',
   '../../packages/protocol/src/pr-monitor.ts':
     '9ae0ce58688aeeb47472ffac588c5e606a911b923a8776e28306a9117c66cfa9',
   '../__tests__/pr-monitor-consent.test.ts':
-    '51f6c579bd83ba7dcdf59623694ab974ee5e85c0bfb33a217c8f8bac00c7b7e1',
+    'adb93ef2c874d284204d9472ab76d247c6cafa7757e846755353674204ddb49a',
   '../__tests__/pr-monitor-github.test.ts':
-    '0c3de7eaacad7672c16a5a7d85e7b6300cb5d381df8795d489589987f96b3100',
+    '2d80a2e59611a6b1ae64aae11049680edd539f1bd4ba3efe3093585a1b32d66d',
   '../__tests__/pr-monitor-observer.test.ts':
-    '11b454ef109dfe982741e348224497724f4ac6043d5257c9254068a8c98b63f1',
+    '6aa62ac6f9610f2e9b53fe71bdf82c4fda2ef10c2cfaadb3d405c4401475b4a1',
   '../__tests__/pr-monitor-runtime.test.ts':
-    '05459d6a1a795636b48be77fd8daac5a110ed4e58f05a90525ff90966de566fd',
+    '4b6989af0ef8cddfb0b8a9e9fc178ab2c7431bd475ea9be14600fb98d818f9e2',
   '../github-read-response.ts': 'dc11f3e2a606bac5fcadaa2121a45b42bcb12e03e6abe2b5e6ef5ced08646f0f',
   '../pr-monitor-consent.ts': '39000037736a7df4b0fd5a5914b382351c79ad7556596f61615417ea8f6eb388',
-  '../pr-monitor-github.ts': 'cfde967e77e2a566fc031eba96e2e575f80774f58920cb843f42c45079b3264e',
-  '../pr-monitor-observer.ts': 'bf4d24c236b1feb7aed74d6aa210656361387d7fc55baac3c5ef41fef1a3f8c9',
+  '../pr-monitor-github.ts': '707d184d95623d269de0cc0aaea42e59faecf5d803d45e1e1d92f35eb1e03fad',
+  '../pr-monitor-observer.ts': 'd8c4904c2e8872299d74f0793c0a7a9797dff94c5ede8ef86cb6c88dfe4ac37f',
   '../pr-monitor-runtime.ts': 'ac0df477071b6ad357e4af55720d484bef273b69956f5a8aa932a51ae8444930',
   '../__tests__/pr-monitor-application.test.ts':
     '0a3127bebf18c5404b7e6aca03277c7e025afb06120cb6547b088d697cef4562',
   '../__tests__/pr-monitor-centaur.test.ts':
     'eac06590ecb659b4252235448d7a0e63899a6defec1437fd18b51617ee66e401',
   '../__tests__/pr-monitor-controller.test.ts':
-    'fb085efe3e6b6c759f0cf895d2fd3e4450c9b783827b118e46be4445e88f94c1',
+    'c0c41cb7b169b4e1015841cca0348a4051a184c416241314d91c5afd9f4cb3ae',
   '../pr-monitor-application.ts':
     'e285fb9366f88a3bf48c76e745c996c68e73c0bcd4dbfdf7d19b2875f93ff5e8',
   '../pr-monitor-author-policy.ts':
