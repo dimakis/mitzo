@@ -64,7 +64,7 @@ Offline only; not deployment or live acceptance.
   suites pass. Some heavy end-to-end files time out under full parallel load
   and pass when rerun alone.
 - Protocol and server TypeScript, changed-file ESLint/Prettier and regenerated
-  reviewed source artifacts (`v1.0.1274-symposium-initial-command-identity`) pass.
+  reviewed source fingerprints pass (no runtime revision bump, per #1454).
 
 ## Not in scope
 
