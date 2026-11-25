@@ -3648,7 +3648,7 @@ app.get('/api/sessions', async (req, res) => {
             readSessionModelSelection(eventStore, s.id),
           ),
           numTurns: meta?.numTurns,
-          ...sessionRuntimeIdentity(eventStore, s.id),
+          ...sessionRuntimeIdentity(eventStore, meta),
           closedBy: meta?.closedBy ?? undefined,
           ...sessionConversationNavigation(
             eventStore,
