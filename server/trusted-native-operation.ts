@@ -248,8 +248,16 @@ export async function executeAdmittedGitHubRead(
   const response = await admission.read(endpoint, { ...scope, principalId }, async () => {
     const received: { response?: GitHubReadResponse } = {};
     const body = await executeTrustedGitHubRead(
-      endpoint, signal, timeoutMs, maxOutputBytes, view, assertCurrent, logOptions,
-      (r) => { received.response = r; },
+      endpoint,
+      signal,
+      timeoutMs,
+      maxOutputBytes,
+      view,
+      assertCurrent,
+      logOptions,
+      (r) => {
+        received.response = r;
+      },
     );
     const metadata = received.response;
     if (!metadata) throw Error('github_response_invalid');

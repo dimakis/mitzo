@@ -21,7 +21,10 @@ import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { executeSandboxedCommand } from '../sandboxed-command.js';
 import * as nativeFiles from '../native-file-operation.js';
-import { executeTrustedGitCommit, executeAdmittedGitHubRead as executeTrustedGitHubRead } from '../trusted-native-operation.js';
+import {
+  executeTrustedGitCommit,
+  executeAdmittedGitHubRead as executeTrustedGitHubRead,
+} from '../trusted-native-operation.js';
 import { executePublicGitHubRead } from '../public-github-read.js';
 import { captureLocalRepository } from '../local-repository-worktree.js';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';

@@ -44,21 +44,33 @@ import { EventStore } from '../../packages/protocol/src/event-store.js';
 it('meters ordinary authenticated reads through the same EventStore quota and retains HTTP failure backoff', async () => {
   const store = new EventStore(':memory:');
   installTrustedGitHubReadQuota(store.githubReadQuota);
-  const envelope = (status: number, data: unknown, extra = '') => `HTTP/2.0 ${status} Response\r\nX-RateLimit-Resource: core\r\nX-RateLimit-Limit: 5000\r\nX-RateLimit-Remaining: 4999\r\nX-RateLimit-Reset: ${Math.floor(Date.now()/1000)+3600}\r\n${extra}\r\n${JSON.stringify(data)}`;
+  const envelope = (status: number, data: unknown, extra = '') =>
+    `HTTP/2.0 ${status} Response\r\nX-RateLimit-Resource: core\r\nX-RateLimit-Limit: 5000\r\nX-RateLimit-Remaining: 4999\r\nX-RateLimit-Reset: ${Math.floor(Date.now() / 1000) + 3600}\r\n${extra}\r\n${JSON.stringify(data)}`;
   githubProcess.execute.mockReset();
   githubProcess.execute.mockImplementation((_file, args, _options, callback) => {
     expect(args).toContain('--include');
-    if (args.includes('/user')) callback(null, envelope(200,{id:42,login:'owner'}), '');
-    else callback(Object.assign(Error('HTTP failure'), {code:1}), envelope(429,{message:'limited'},'Retry-After: 120\r\n'), 'bounded offline error');
+    if (args.includes('/user')) callback(null, envelope(200, { id: 42, login: 'owner' }), '');
+    else
+      callback(
+        Object.assign(Error('HTTP failure'), { code: 1 }),
+        envelope(429, { message: 'limited' }, 'Retry-After: 120\r\n'),
+        'bounded offline error',
+      );
     return {};
   });
   try {
-    await expect(executeAdmittedGitHubRead('/repos/owner/repo',new AbortController().signal)).rejects.toThrow('github_read_failed:429');
+    await expect(
+      executeAdmittedGitHubRead('/repos/owner/repo', new AbortController().signal),
+    ).rejects.toThrow('github_read_failed:429');
     expect(store.githubReadQuota.inspect('github:42').charged).toBe(2);
     expect(githubProcess.execute).toHaveBeenCalledTimes(2);
-    await expect(executeAdmittedGitHubRead('/repos/owner/repo',new AbortController().signal)).rejects.toThrow('quota_delayed');
+    await expect(
+      executeAdmittedGitHubRead('/repos/owner/repo', new AbortController().signal),
+    ).rejects.toThrow('quota_delayed');
     expect(githubProcess.execute).toHaveBeenCalledTimes(2);
-  } finally { store.close(); }
+  } finally {
+    store.close();
+  }
 });
 
 it('preserves bounded CI log whitespace and metadata through shared foreground admission', async () => {
@@ -69,14 +81,28 @@ it('preserves bounded CI log whitespace and metadata through shared foreground a
   githubProcess.execute.mockImplementation((_file, args, options, callback) => {
     const identity = args.includes('/user');
     if (!identity) expect(options.maxBuffer).toBe(8 * 1024 * 1024 + 16384);
-    callback(null, `HTTP/2.0 200 OK\r\nX-RateLimit-Resource: core\r\nX-RateLimit-Limit: 5000\r\nX-RateLimit-Remaining: 4999\r\nX-RateLimit-Reset: ${Math.floor(Date.now()/1000)+3600}\r\n\r\n${identity ? JSON.stringify({id:42}) : body}`, '');
+    callback(
+      null,
+      `HTTP/2.0 200 OK\r\nX-RateLimit-Resource: core\r\nX-RateLimit-Limit: 5000\r\nX-RateLimit-Remaining: 4999\r\nX-RateLimit-Reset: ${Math.floor(Date.now() / 1000) + 3600}\r\n\r\n${identity ? JSON.stringify({ id: 42 }) : body}`,
+      '',
+    );
     return {};
   });
   try {
-    const output = await executeAdmittedGitHubRead('/repos/owner/repo/actions/jobs/1/logs', new AbortController().signal, undefined, undefined, 'full', undefined, {limit:100});
+    const output = await executeAdmittedGitHubRead(
+      '/repos/owner/repo/actions/jobs/1/logs',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      'full',
+      undefined,
+      { limit: 100 },
+    );
     expect(JSON.parse(output).content).toBe(body);
     expect(store.githubReadQuota.inspect('github:42').charged).toBe(2);
-  } finally { store.close(); }
+  } finally {
+    store.close();
+  }
 });
 
 it('collects a large CI job log with bounded literal-filter output and unchanged GET authority', async () => {

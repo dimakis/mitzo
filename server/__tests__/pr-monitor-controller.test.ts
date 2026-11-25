@@ -239,8 +239,12 @@ it('registers a canonical paused PR only after interactive scope review and star
 });
 it('coalesces identical concurrent registrations and charges only the three real foreground reads', async () => {
   const f = await fixture();
-  const results = await Promise.all(Array.from({length:8},()=>f.controller.register(f.login,'chat',f.input)));
-  expect(results.every(r=>r.projection.subscription.id===results[0].projection.subscription.id)).toBe(true);
+  const results = await Promise.all(
+    Array.from({ length: 8 }, () => f.controller.register(f.login, 'chat', f.input)),
+  );
+  expect(
+    results.every((r) => r.projection.subscription.id === results[0].projection.subscription.id),
+  ).toBe(true);
   expect(f.read).toHaveBeenCalledTimes(3);
   expect(f.store.githubReadQuota.inspect('github:42').charged).toBe(3);
   expect(results[0].projection.subscription.watch).toBeNull();
@@ -250,10 +254,17 @@ it('rejects a conflicting concurrent registration retry before another authentic
   const f = await fixture();
   const original = f.read.getMockImplementation()!;
   let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  f.read.mockImplementationOnce(async (...args) => { await gate; return original(...args); });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.read.mockImplementationOnce(async (...args) => {
+    await gate;
+    return original(...args);
+  });
   const first = f.controller.register(f.login, 'chat', f.input);
-  await expect(f.controller.register(f.login, 'chat', {...f.input, pr:8})).rejects.toThrow('request_conflict');
+  await expect(f.controller.register(f.login, 'chat', { ...f.input, pr: 8 })).rejects.toThrow(
+    'request_conflict',
+  );
   expect(f.read).toHaveBeenCalledTimes(1);
   release();
   await first;

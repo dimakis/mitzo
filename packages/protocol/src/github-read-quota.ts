@@ -68,9 +68,11 @@ export class GitHubReadQuota {
     })();
   }
   private reservationCount() {
-    return (this.db.prepare('SELECT count(*) n FROM github_read_reservations').get() as {
-      n: number;
-    }).n;
+    return (
+      this.db.prepare('SELECT count(*) n FROM github_read_reservations').get() as {
+        n: number;
+      }
+    ).n;
   }
   private capacity(id: string) {
     const epoch = /^q1:([1-9][0-9]*):[^:]+$/.exec(id);
@@ -152,7 +154,9 @@ export class GitHubReadQuota {
   }
   reserve(r: Request) {
     if (
-      ![r.requestId, r.principalId, r.connectionId].every((v) => v && Buffer.byteLength(v) <= 200) ||
+      ![r.requestId, r.principalId, r.connectionId].every(
+        (v) => v && Buffer.byteLength(v) <= 200,
+      ) ||
       !/^github:[1-9][0-9]*$/.test(r.principalId) ||
       !Number.isSafeInteger(r.cost) ||
       r.cost < 1 ||
@@ -263,19 +267,31 @@ export class GitHubReadQuota {
       .update(JSON.stringify(['identity', connectionId, background]))
       .digest('hex');
     const old = this.db
-      .prepare('SELECT principal_id,fingerprint,expires_at FROM github_read_reservations WHERE id=?')
-      .get(requestId) as {
-      principal_id: string;
-      fingerprint: string;
-      expires_at: number;
-    } | undefined;
+      .prepare(
+        'SELECT principal_id,fingerprint,expires_at FROM github_read_reservations WHERE id=?',
+      )
+      .get(requestId) as
+      | {
+          principal_id: string;
+          fingerprint: string;
+          expires_at: number;
+        }
+      | undefined;
     if (old?.fingerprint === fingerprint)
       return { id: requestId, expiresAt: old.expires_at, principalId: old.principal_id || null };
     if (old && !old.principal_id) throw Error('request_conflict');
     const principalId = old?.principal_id ?? this.control().principal_id;
     if (principalId)
       return {
-        ...this.reserve({ requestId, connectionId, principalId, background, cost: 1, now, probe: true }),
+        ...this.reserve({
+          requestId,
+          connectionId,
+          principalId,
+          background,
+          cost: 1,
+          now,
+          probe: true,
+        }),
         principalId,
       };
     return this.db.transaction(() => {
@@ -289,7 +305,9 @@ export class GitHubReadQuota {
         .prepare('INSERT INTO github_read_reservations VALUES (?,?,?,?,?,?,?,0,0)')
         .run(requestId, '', connectionId, fingerprint, 1, now, expiresAt);
       this.db
-        .prepare('UPDATE github_read_quota_control SET probe_at=?,unbound_charges=unbound_charges+1 WHERE id=1')
+        .prepare(
+          'UPDATE github_read_quota_control SET probe_at=?,unbound_charges=unbound_charges+1 WHERE id=1',
+        )
         .run(now);
       return { id: requestId, expiresAt, principalId: null };
     })();
@@ -303,18 +321,23 @@ export class GitHubReadQuota {
         .get(id) as { principal_id: string; started: number } | undefined;
       if (!r?.started) throw Error('reservation_consumed');
       if (r.principal_id !== principalId) {
-        const c = this.control(), s = this.inspect(principalId);
+        const c = this.control(),
+          s = this.inspect(principalId);
         const charge = r.principal_id ? 1 : c.unbound_charges;
         s.charged += charge;
         s.remaining = Math.max(0, s.remaining - charge);
         this.save(principalId, s);
         // Uncertain bootstrap failures remain charged, even if their receipts were compacted.
         this.db
-          .prepare("UPDATE github_read_reservations SET principal_id=? WHERE principal_id='' OR id=?")
+          .prepare(
+            "UPDATE github_read_reservations SET principal_id=? WHERE principal_id='' OR id=?",
+          )
           .run(principalId, id);
         this.db.prepare('UPDATE github_read_quota_control SET unbound_charges=0 WHERE id=1').run();
       }
-      this.db.prepare('UPDATE github_read_quota_control SET principal_id=? WHERE id=1').run(principalId);
+      this.db
+        .prepare('UPDATE github_read_quota_control SET principal_id=? WHERE id=1')
+        .run(principalId);
     })();
   }
   defer(principalId: string, retryAt: number, now: number) {
@@ -330,7 +353,9 @@ export class GitHubReadQuota {
     // Escrow admits at most one unknown-identity probe per minute. Extending
     // that fence preserves Retry-After even before any numeric identity exists.
     this.db
-      .prepare('UPDATE github_read_quota_control SET probe_at=max(COALESCE(probe_at,0),?) WHERE id=1')
+      .prepare(
+        'UPDATE github_read_quota_control SET probe_at=max(COALESCE(probe_at,0),?) WHERE id=1',
+      )
       .run(retryAt - 60000);
   }
   finish(id: string) {

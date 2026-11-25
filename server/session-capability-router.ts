@@ -103,7 +103,9 @@ export function createSessionCapabilityRouter(options: {
           .status(201)
           .json(await options.monitor.register(auth, req.params.id as string, input));
       } catch (error) {
-        const quotaBlocked = error instanceof Error && ['quota_delayed', 'quota_retention_limit'].includes(error.message);
+        const quotaBlocked =
+          error instanceof Error &&
+          ['quota_delayed', 'quota_retention_limit'].includes(error.message);
         log.warn('PR registration could not retain verified scope', {
           stage: 'register',
           code: quotaBlocked ? error.message : 'pr_registration_unavailable',

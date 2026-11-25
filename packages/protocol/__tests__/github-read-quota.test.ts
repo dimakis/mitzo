@@ -29,7 +29,9 @@ it('retains exact receipts but dispatches them only once, including after expiry
     expect(() => q.start(receipt.id, r.now)).toThrow('reservation_consumed');
     expect(() => q.start(receipt.id, r.now + 20001)).toThrow('reservation_expired');
     expect(q.inspect(r.principalId).charged).toBe(1);
-  } finally { db.close(); }
+  } finally {
+    db.close();
+  }
 });
 it('compacts bounded receipts under an epoch fence without admitting forgotten IDs', () => {
   const db = new Database(':memory:');
@@ -45,25 +47,39 @@ it('compacts bounded receipts under an epoch fence without admitting forgotten I
       q.start(receipt.id, now);
       q.finish(receipt.id);
     }
-    expect(db.prepare('SELECT count(*) n FROM github_read_reservations').get()).toMatchObject({ n: expect.any(Number) });
-    const rows = db.prepare('SELECT count(*) n, sum(length(id)+length(fingerprint)+length(principal_id)+length(connection_id)+40) bytes FROM github_read_reservations').get() as {n:number;bytes:number};
+    expect(db.prepare('SELECT count(*) n FROM github_read_reservations').get()).toMatchObject({
+      n: expect.any(Number),
+    });
+    const rows = db
+      .prepare(
+        'SELECT count(*) n, sum(length(id)+length(fingerprint)+length(principal_id)+length(connection_id)+40) bytes FROM github_read_reservations',
+      )
+      .get() as { n: number; bytes: number };
     expect(rows.n).toBeLessThanOrEqual(4096);
     expect(rows.bytes).toBeLessThanOrEqual(4 * 1024 * 1024);
-    expect(() => q.reserve({ ...request('unused'), requestId: first, now: 300000000 })).toThrow('reservation_epoch_expired');
+    expect(() => q.reserve({ ...request('unused'), requestId: first, now: 300000000 })).toThrow(
+      'reservation_epoch_expired',
+    );
     expect(q.inspect('github:42').charged).toBe(4200);
-  } finally { db.close(); }
+  } finally {
+    db.close();
+  }
 });
 it('rolls back quota charges and dispatch claims when SQLite rejects the reservation transaction', () => {
   const db = new Database(':memory:');
   try {
     const q = new GitHubReadQuota(db);
-    db.exec("CREATE TRIGGER reject_reservation BEFORE INSERT ON github_read_reservations BEGIN SELECT RAISE(ABORT, 'offline disk failure'); END");
-    expect(() => q.reserve({ ...request('failed'), probe:true })).toThrow('offline disk failure');
+    db.exec(
+      "CREATE TRIGGER reject_reservation BEFORE INSERT ON github_read_reservations BEGIN SELECT RAISE(ABORT, 'offline disk failure'); END",
+    );
+    expect(() => q.reserve({ ...request('failed'), probe: true })).toThrow('offline disk failure');
     expect(q.inspect('github:42').charged).toBe(0);
     db.exec('DROP TRIGGER reject_reservation');
-    q.reserve({ ...request('failed'), probe:true });
+    q.reserve({ ...request('failed'), probe: true });
     expect(q.inspect('github:42').charged).toBe(1);
-  } finally { db.close(); }
+  } finally {
+    db.close();
+  }
 });
 it('requires quota metadata, admits one discovery probe and retains every charged reservation', () => {
   const q = fixture();
@@ -102,11 +118,7 @@ it('honors Retry-After, external depletion, stale reset evidence and in-flight c
   expect(() => q.reserve(request('c'))).toThrow('quota_delayed');
   q.finish(request('a').requestId);
   q.finish(request('b').requestId);
-  q.observe(
-    'github:42',
-    { limit: 1000, remaining: 10, resetAt: 60000, retryAt: 100000 },
-    1000,
-  );
+  q.observe('github:42', { limit: 1000, remaining: 10, resetAt: 60000, retryAt: 100000 }, 1000);
   expect(() => q.reserve(request('limited'))).toThrow('quota_delayed');
   expect(() => q.reserve({ ...request('stale'), now: 100001 })).toThrow('quota_delayed');
 });

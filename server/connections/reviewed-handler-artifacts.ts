@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1275-pr-monitor-runtime';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1279-github-read-quota';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2541,7 +2541,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     'bee29dc38e80311f35925c75dd2318b9e4fdcfddfd130497b8d7bf27b2488951',
   '../__tests__/codex-conversation-rpc-cleanup.integration.test.ts':
-    '25267beedb7c3a0e08eaa7c78b68e2c8adb595fd9cabe1c1b0691115283da6e9',
+    '8421ec81cab18a95f27a108a00f91974c36017b1d98bfa69485561d8f5f182d9',
   '../__tests__/codex-conversation-store-statements.test.ts':
     'f4e9d9ff8edcc9016d442157347049c875812e3cd47c5bbcb7217bd1d4a32d84',
   '../__tests__/codex-conversation-store.test.ts':
@@ -3019,7 +3019,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-telos-worker-materials.test.ts':
     '8fe2996730abcdcdd14ab4c4c67c638c4b51fd99a9abeb4d1d2a42698c2a7e12',
   '../__tests__/native-tool-executor.test.ts':
-    '397a11d5fab1a75fdd653255d4b2831d9cfc19014b906e1acb17f5486531cf5c',
+    'de35ac80cac330ad312e0cd1b6c79beaec3024cdd8fed68c16dae8f8afea5646',
   '../__tests__/notification-center.test.ts':
     'ff5627352ea837237c19ae7a37779b8c60be1b887da6f64871ecd29ba7585b15',
   '../__tests__/notification-routes.test.ts':
@@ -3658,7 +3658,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/trusted-native-operation-partial.test.ts':
     '3b6bb301cba2a336dc94b61b910ff9232ef19c253e45e911c6b09d84eab96e79',
   '../__tests__/trusted-native-operation.test.ts':
-    'f8d0e30eefdef0cf06ae9be4958cccf17413bcca533689dabc16e5124cf127b2',
+    '467c9174884707e68239fe8540e2b52c4674e533cb183ef8f5b744aceccda49c',
   '../__tests__/turn-callbacks.test.ts':
     '9bd9467485be14c6d6d0a46875e8442f9727139357c8c731afd6485e4a4b4205',
   '../__tests__/unified-inbox-routes.test.ts':
@@ -3738,7 +3738,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../api-tool-router.ts': '2b95fa7fa918be7ea1b59e04293d7fbbd80e55ef719d1b0a90e65ffb2e0b3eef',
   '../api-tool-runtime.ts': 'b81ed9f222e6b6aea47425b4fa33511c26235e02e5c548221522bd2cae43ed6c',
   '../api-tool-template.ts': '32908a45ddeacada75dfb4a1d0e8d2370b3fe441fabf8dad3d2fd3edb8eb8c51',
-  '../app.ts': '072aeaf8abfa759599be205e2f3dfb28f8abbc8e7708ce0e7d9e54cb33cfe530',
+  '../app.ts': 'd4bf30db9271fdbce915031aae4a14ed00ed6e47b54a5a014de94a762ca47a52',
   '../approved-url-fetch.ts': '523bbd692e74a9c16b7fd851b6b4b1cdc6be5581e083c04f9549662e11548ee3',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../auth-route-boundary.ts': '9b853baf795f6c65a7cf956311787d049c961291cf4817ad53ad9e22ec62dd4c',
@@ -4168,7 +4168,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '72264aed6e01d625cc6304c748c01a920342c4cf200f7d619f15dd1f99adbb67',
   '../native-telos-worker-materials.ts':
     '36d27dcd564a758082503ad455dba3ffabacda3b558efc66a28d7a42437b55af',
-  '../native-tool-executor.ts': '687a8d956e7e22b2d5501872b98e1725f48b094eaf3f58b4294a4e865ea7af81',
+  '../native-tool-executor.ts': '320414e1f7fab4700c95090e56fcb8173eb11930fe87b38a9e4020aa92ad02b0',
   '../native-tree-publication.ts':
     'f2c351fe07781a7e95d098372e04178d9de512d3d99f48e3d41bcecbb0dce54b',
   '../nested-repository.ts': '73edb5a2146e30cf6025511fca13d1485cfe111ad66c511753ab4df7513bb8dc',
@@ -4500,7 +4500,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-capability-grants.ts':
     'd2324c3da73f612ca356001df7cba86239110d554dbc96cc98a601600c09479e',
   '../session-capability-router.ts':
-    'd2fdc53f7719552e921cfe4a67e67752b6a386f63e59ee50f537c32659eb26e9',
+    '45b2a966a48e296a550e01641e69001a116557da4b880aa08951d24810913d47',
   '../session-collaboration-router.ts':
     '2511d1a25e5d0292b3dd4c8c3b7893d99ab9345d15697facb522ac093a9feb8c',
   '../session-connection-tools.ts':
@@ -4873,7 +4873,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../transport-auth-ownership.ts':
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
   '../trusted-native-operation.ts':
-    '322f366add47b02692c32a8788af33f85646eba225ae5d30ac3789db45de9646',
+    '028cc50116c48716cf50d7b3755ec1226966d4295d00e5ff483f70f3ff7ed05e',
   '../turn-callbacks.ts': '4bc4f9ddd7bf2fd9b04d1dc0553fcb115585c7311b85b4785f664e6e295cbb29',
   '../unified-inbox-routes.ts': '6413398c77b9f1c62fbb1c597d5cf7c857b65338b23592ce9751cf6755e271d4',
   '../unified-inbox.ts': '6ca474e1069e33341bfe53f87b3022372645e250beffa0d7082b138bf90911df',
@@ -4915,11 +4915,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   'registry.ts': '6007fe9878fc70d915890dcbaf04d5428113597f599a595acd2fd0a9ff8cc615',
   'runtime-profiles.ts': '3632545ca52fbfad7442de08c03d5f9808b50b5bfdef92f9cd72b8fa8ab5140b',
   '../../packages/protocol/__tests__/github-read-quota.test.ts':
-    '275b4d35b6dcf2f7fa1a5a7e1e7f9d1c1a87c10c9c7fd22647e2d95c063196fb',
+    '71957c9cd30ed2aecb3a500b9d7a9b2540d03e5b944b555010570251aacb9d23',
   '../../packages/protocol/__tests__/pr-monitor-store.test.ts':
     '33eea4e70581de163d36a7b8e3f6e6c8addd099b21e32b592335650b626437af',
   '../../packages/protocol/src/github-read-quota.ts':
-    '79bd186c0b212512f546605af9e5adfbd8752caa566637127862b55fd091f640',
+    '2788f76411e9ecf838bbd754b012f4c0221413f41a634b6a4ca962b9f6bd273d',
   '../../packages/protocol/src/pr-monitor-store.ts':
     '7b5d2e357188d6a0ea9cad5c1e0817074be5f1bfb2e1cb22527ec4a4ad8175e4',
   '../../packages/protocol/src/pr-monitor.ts':
@@ -4927,26 +4927,29 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/pr-monitor-consent.test.ts':
     '51f6c579bd83ba7dcdf59623694ab974ee5e85c0bfb33a217c8f8bac00c7b7e1',
   '../__tests__/pr-monitor-github.test.ts':
-    'a12533326d862bd3429fb7c7f882d09a21473ede2796514589192e180e6c9e1f',
+    '0c3de7eaacad7672c16a5a7d85e7b6300cb5d381df8795d489589987f96b3100',
   '../__tests__/pr-monitor-observer.test.ts':
     '11b454ef109dfe982741e348224497724f4ac6043d5257c9254068a8c98b63f1',
   '../__tests__/pr-monitor-runtime.test.ts':
     '05459d6a1a795636b48be77fd8daac5a110ed4e58f05a90525ff90966de566fd',
-  '../github-read-response.ts': 'f4cd0cdf394a46b54e6589cfb035249529d02d7adc5fd36d72ab4448b00773d8',
+  '../github-read-response.ts': 'dc11f3e2a606bac5fcadaa2121a45b42bcb12e03e6abe2b5e6ef5ced08646f0f',
   '../pr-monitor-consent.ts': '39000037736a7df4b0fd5a5914b382351c79ad7556596f61615417ea8f6eb388',
   '../pr-monitor-github.ts': 'cfde967e77e2a566fc031eba96e2e575f80774f58920cb843f42c45079b3264e',
-  '../pr-monitor-observer.ts': '9b7788569af08f7e97a7032fa5dc0c1e0b7cddc6161f3e71979c9a95491a2beb',
-  '../pr-monitor-runtime.ts': 'cb340e94d1c0cd10ff2556ea7f75a70ab7fc9888423c621ce6046910077c7bf3',
+  '../pr-monitor-observer.ts': 'bf4d24c236b1feb7aed74d6aa210656361387d7fc55baac3c5ef41fef1a3f8c9',
+  '../pr-monitor-runtime.ts': 'ac0df477071b6ad357e4af55720d484bef273b69956f5a8aa932a51ae8444930',
   '../__tests__/pr-monitor-application.test.ts':
     '0a3127bebf18c5404b7e6aca03277c7e025afb06120cb6547b088d697cef4562',
   '../__tests__/pr-monitor-centaur.test.ts':
     'eac06590ecb659b4252235448d7a0e63899a6defec1437fd18b51617ee66e401',
   '../__tests__/pr-monitor-controller.test.ts':
-    'a488de1b390f7e6267b7e5721408ede47c5dbbba55ab7dc827e79d76af5c8145',
+    'fb085efe3e6b6c759f0cf895d2fd3e4450c9b783827b118e46be4445e88f94c1',
   '../pr-monitor-application.ts':
     'e285fb9366f88a3bf48c76e745c996c68e73c0bcd4dbfdf7d19b2875f93ff5e8',
   '../pr-monitor-author-policy.ts':
     '933a790188920368ef2a48738c0dfa46a51fd6fc325223cc5815c694acdf3e7d',
   '../pr-monitor-centaur.ts': '2ae376ef41f1ff6f7c6f4dcd7e7029a6b1445145985fa544f21a1f1bf27e5e47',
-  '../pr-monitor-controller.ts': '77d67deedce12416dadd68fd22ddb3b73bc0f5a929561e00725bafa67d68fb42',
+  '../pr-monitor-controller.ts': 'a5e2ddefac72bd74ba6360b4e6b0102229ead02d3443607f2d407164efa0beba',
+  '../github-read-admission.ts': '109172929381d7288a75edfd5346fc7872f9ee424dc68e1b5873b79ae67dda1f',
+  '../__tests__/github-read-admission.test.ts':
+    'b23046066803737b3ba4dbe5570383d0d8592a5da017a081bdf0ff7e06ae3f8a',
 });

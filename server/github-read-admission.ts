@@ -40,7 +40,7 @@ export class GitHubReadAdmission {
           probe: true,
         });
     this.quota.start(reservation.id, now);
-    let failure: unknown;
+    let outcome: { ok: true; response: T } | { ok: false; failure: unknown };
     try {
       const response = await transport();
       let principalId = identity
@@ -77,23 +77,26 @@ export class GitHubReadAdmission {
         throw Error('connection_unavailable');
       scope.validateResponse?.(response);
       if (metadataError) throw metadataError;
-      return response;
+      outcome = { ok: true, response };
     } catch (error) {
-      failure = error;
-      throw error;
-    } finally {
-      // No refund. An ignored abort keeps its in-flight slot until the transport
-      // settles or its original expiry; the caller may independently stop waiting.
-      try {
-        this.quota.finish(reservation.id);
-      } catch (error) {
-        if (failure)
-          throw new AggregateError([failure, error], 'GitHub read failed; quota cleanup also failed', {
-            cause: failure,
-          });
-        throw error;
-      }
+      outcome = { ok: false, failure: error };
     }
+    // No refund. An ignored abort keeps its in-flight slot until the transport
+    // settles or its original expiry; the caller may independently stop waiting.
+    try {
+      this.quota.finish(reservation.id);
+    } catch (cleanupError) {
+      if (!outcome.ok)
+        throw new AggregateError(
+          [outcome.failure, cleanupError],
+          'GitHub read failed; quota cleanup also failed',
+          // eslint-disable-next-line preserve-caught-error -- The cleanup error is retained in errors; the read failure remains the cause.
+          { cause: outcome.failure },
+        );
+      throw cleanupError;
+    }
+    if (!outcome.ok) throw outcome.failure;
+    return outcome.response;
   }
 
   private observe(principalId: string, response: GitHubReadResponse) {

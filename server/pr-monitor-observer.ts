@@ -337,9 +337,12 @@ export class PrMonitorObserver {
       });
     } catch (error) {
       // Raw transport/review/log diagnostics never enter retained projection.
-      const message = error instanceof Error
-        ? error.message === 'quota_retention_limit' ? 'retention_limit' : error.message
-        : undefined;
+      const message =
+        error instanceof Error
+          ? error.message === 'quota_retention_limit'
+            ? 'retention_limit'
+            : error.message
+          : undefined;
       const known =
         message &&
         [

@@ -145,7 +145,13 @@ export function createPrMonitorController(options: Options) {
         quotaScope
           ? admission.read(
               endpoint,
-              { ...quotaScope, signal, assertCurrent: current, background: false, validateResponse },
+              {
+                ...quotaScope,
+                signal,
+                assertCurrent: current,
+                background: false,
+                validateResponse,
+              },
               transport,
             )
           : transport(),
