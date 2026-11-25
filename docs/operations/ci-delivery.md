@@ -267,25 +267,60 @@ does not by itself prove an OOM or a test failure. Job timeout bounds and the
 shorter shards contain the ordinary tail; a lost hosted VM may still require
 GitHub-side cleanup after the process stops.
 
-## PR validation without a duplicate merge run
+## PR, draft and post-merge validation, 25 November 2026
 
-The full `CI` workflow runs on PR open, synchronization and reopen events. It no
-longer starts another full suite on a push to main. Compiler/source validation,
-core checks, complete unit discovery, selected browser/native/prepared owners and
-their mandatory aggregators are unchanged. Unknown paths and incomplete PR diffs
-still select every owner; ordinary prose and iOS-only changes retain their existing
-bounded selection. A main run formerly forced every optional owner, but contained
-no unique default-branch test or build step.
+Mitzo is a user-owned public repository, so GitHub's merge queue is unavailable
+and Actions admits about 20 concurrent jobs, five of them macOS. One full PR run
+is 33 jobs (five macOS), roughly 250 runner-minutes. With about 25 PRs in a train,
+runs queued for hours, so the operator turned strict up-to-date protection off on
+main. Required checks are unchanged.
 
-Build output and production-frontend evidence remain scoped to the PR workflow
-run and candidate identity. No repository consumer requires a main-push CI
-artifact; do not relabel PR artifacts as accepted-commit artifacts. Recovery and
-landing reconciliation remain separate trusted default-branch workflows awakened
-by PR CI events, and Centaur's App-bound final LGTM is still required. Strict
-up-to-date protection and exact-head guarded merge retain combined-result
-validation. After merge, verify GitHub's accepted commit and its source tree
-against the tested combined candidate; do not claim a post-merge CI run exists.
+- **Ready PRs** (opened, synchronize, reopened, `ready_for_review`) run the
+  conservative affected-job selection exactly as before. Unknown paths and
+  incomplete diffs still select every owner. `ci`, `Connections browser
+regression` and `Native Swift tests and builds` keep their aggregation rules.
+- **Draft PRs** run only preflight, the frontend build, core, unit and the
+  aggregators. The `changes` job deselects browser, offline, native, prepared and
+  every ordinary owner only when both the event payload and a live PR read say
+  draft; any doubt runs the full selection. The individual cheap checks report
+  normally, but `ci` validates them and then **fails by design** with "Draft PR:
+  cheap checks passed". A red `ci` on a draft is expected; do not try to fix it.
+  Marking a PR ready starts the full run, which supersedes an in-flight draft run
+  of the same merge candidate.
+- **Main pushes** run the full suite after every merge, because strict
+  protection no longer forces each PR to be validated against the latest main.
+  Main runs are never cancelled, and the recovery and cleanup controllers act
+  only on PR runs. A red main run is a post-merge regression to fix forward.
+
+A ready PR's full run creates its aggregate checks only after its owners finish.
+A draft verdict must never satisfy the required `ci` in that window, so the draft
+`ci` is never green. GitHub refuses to merge drafts, so the red draft result
+costs nothing at merge time. If main advanced, the ready run gets a new test
+merge SHA and the draft run is not cancelled. Its late red `ci` can then
+replace the ready run's green one, and a rerun of `ci` fixes that.
+
+Build output and production-frontend evidence remain scoped to their workflow
+run and candidate identity. Do not relabel PR artifacts as accepted-commit
+artifacts. Recovery and landing reconciliation remain separate trusted
+default-branch workflows, and Centaur's App-bound final LGTM is still required.
 The narrow native-helper workflows retain their existing independent triggers.
+
+### Optional self-hosted macOS runner
+
+The `native`, `ordinary-journey` and `ordinary-joined` jobs stay on `macos-26`
+by default. They use the operator's runner (`[self-hosted, macOS, ARM64,
+mitzo-ci]`) only when the repository variable `MITZO_MACOS_SELF_HOSTED` is
+`true` **and** the run is a push to main or a PR whose head repository is this
+repository. Fork PRs always use hosted macOS.
+
+That workflow guard is defense in depth, not the security boundary: a
+`pull_request` run executes the PR's own workflow file, so a fork could edit
+`runs-on`. Before setting the variable, require approval for workflow runs from
+all outside collaborators in the repository's Actions settings, and never
+approve a fork run that touches `.github/`. The runner host needs
+`/Applications/Xcode_26.6.app`, the iOS simulator runtime, Python 3 and no
+persistent credentials beyond the runner registration. Unset the variable to
+return to hosted runners immediately.
 
 ## One bounded infrastructure retry
 
@@ -373,9 +408,10 @@ stops them; no check result is ignored.
 
 Record initial queue delay, useful runtime, interruption/cleanup time, retries,
 source-fix rounds and final review delay separately. Compare fresh clean runs
-with the measured baseline before claiming a speedup. Preserve strict base
-protection and exact-head review; integrate an advancing base at the actual
-landing turn rather than refreshing every waiting branch.
+with the measured baseline before claiming a speedup. Preserve exact-head review.
+While the operator keeps strict base protection off, rely on the post-merge main
+run instead of refreshing every waiting branch. Where strict protection is on,
+integrate an advancing base at the actual landing turn.
 
 This workflow requires no staging, deployment or live model calls.
 
@@ -462,6 +498,11 @@ for that API. Do not expand or reuse Centaur's status-writing credential.
   Keep `CENTAUR_REVIEWER_LOGIN` consistent with the trusted reviewer configuration.
 - Retain strict required CI and the Centaur App-bound status. Confirm environment
   restrictions and the App's actual permissions before issuing a real request.
+  The controller fails closed with "Missing strict App-bound required protection"
+  whenever strict protection is off. Since 25 November 2026 it is unavailable
+  for Mitzo. Land through `python -m mgmt_lib.pr_merge_gate OWNER/REPO NUMBER
+--merge` until strict protection returns or the controller adopts the
+  strict-off contract in a reviewed change.
 
 Set repository variable `PR_LANDING_APP_ID` to the numeric landing App ID **last**,
 after the App, environment branch policy, private key and other required variables

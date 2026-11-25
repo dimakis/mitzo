@@ -27,9 +27,14 @@ import type {
   AgentDefinition,
   OrdinaryTurnLifecycle,
   OrdinarySdkInterruptTarget,
+  ContextSnapshotOwner,
 } from '@mitzo/protocol';
 
 export interface ManagedSession {
+  /** Installed only by a qualified adapter for this exact native query/turn generation. */
+  contextSnapshotOwner?: ContextSnapshotOwner;
+  /** Attachment fence for read-only inspections; not a native query or usage identity. */
+  contextSnapshotAttachment?: object;
   /** Trusted contributor driver owns exact terminal/drain; viewers only own attachment. */
   contributorExecutionOwner?: true;
   /** Existing permission queue owner only; never an SDK/model execution. */
@@ -304,6 +309,7 @@ export class SessionRegistry {
       startup.abortController.abort();
     this.sessions.set(clientId, {
       ...init,
+      contextSnapshotAttachment: {},
       worktreePaths: new Map(),
       currentSnapshot: null,
       activeSkillPolicy: null,
@@ -351,6 +357,7 @@ export class SessionRegistry {
     if (this.suspended.has(clientId)) return;
 
     this.attached.delete(clientId);
+    session.contextSnapshotAttachment = {};
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
 
@@ -408,6 +415,7 @@ export class SessionRegistry {
     if (!session) return false;
 
     session.transport = transport;
+    session.contextSnapshotAttachment = {};
     this.attached.add(clientId);
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
@@ -608,6 +616,7 @@ export class SessionRegistry {
     // Idempotent: if already suspended, only refresh the grace timer —
     // don't reset the buffer (visibilitychange + pagehide can fire twice).
     if (!this.suspended.has(clientId)) {
+      session.contextSnapshotAttachment = {};
       this.suspended.add(clientId);
       this.suspendBuffers.set(clientId, []);
     }
@@ -654,6 +663,8 @@ export class SessionRegistry {
    */
   resume(clientId: string): Record<string, unknown>[] {
     if (!this.suspended.has(clientId)) return [];
+    const session = this.sessions.get(clientId);
+    if (session) session.contextSnapshotAttachment = {};
     const buffer = this.suspendBuffers.get(clientId) ?? [];
     this.clearSuspendState(clientId);
     return buffer;
