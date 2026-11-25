@@ -9,6 +9,7 @@ import {
   type SpecialistModelPolicy,
 } from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
+import { createBrowserId } from '../lib/browser-crypto';
 import { MotionDetails } from './MotionDetails';
 import { SpecialistAllowanceEditor } from './SpecialistAllowanceEditor';
 
@@ -166,7 +167,7 @@ function SpecialistModelPolicyEditor({ sessionId }: { sessionId: string }) {
   const submit = (policy: SpecialistModelPolicy | null) => {
     if (!view || busy || pending) return;
     void save({
-      requestId: crypto.randomUUID(),
+      requestId: createBrowserId(),
       expectedRevision: view[scope].revision,
       scope,
       policy,

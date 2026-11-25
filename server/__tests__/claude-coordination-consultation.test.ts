@@ -55,10 +55,19 @@ it('executes a bounded consultation through the SDK bridge to a terminal attribu
     transport: {
       isOpen: () => true,
       send: (event) => {
-        if (event.type === 'permission_request')
-          queueMicrotask(() =>
-            resolvePending(event.permId as string, 'once', undefined, event.sessionId as string),
-          );
+        if (event.type === 'permission_request') {
+          // Specialist approvals are operator questions; accept the proposed
+          // allowance or route exactly as offered (its first option).
+          const questions = event.questions as
+            Array<{ id: string; options: Array<{ label: string }> }> | undefined;
+          const answers = questions
+            ? Object.fromEntries(questions.map((q) => [q.id, [q.options[0].label]]))
+            : undefined;
+          queueMicrotask(() => {
+            if (!resolvePending(event.permId as string, 'once', answers, event.sessionId as string))
+              throw Error('Specialist approval answer was refused');
+          });
+        }
       },
     },
   });

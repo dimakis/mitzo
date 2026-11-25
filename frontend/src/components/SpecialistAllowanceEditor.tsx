@@ -6,6 +6,7 @@ import {
   SpecialistAllowanceSchema,
 } from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
+import { createBrowserId } from '../lib/browser-crypto';
 
 type Summary = z.infer<typeof SpecialistAllowanceSummarySchema>;
 type Edit = z.infer<typeof SpecialistAllowanceEditSchema>;
@@ -130,7 +131,7 @@ export function SpecialistAllowanceEditor({
         onClick={() =>
           void save(
             pending ?? {
-              requestId: crypto.randomUUID(),
+              requestId: createBrowserId(),
               expectedRevision: saved.revision,
               maxConsultations: value,
             },

@@ -8,7 +8,55 @@ vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), AUTH_LOST_EVENT: 'aut
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  vi.unstubAllGlobals();
   sessionStorage.clear();
+});
+it('saves policy and allowance edits on remote HTTP without secure-context randomUUID', async () => {
+  const random = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
+  vi.stubGlobal('crypto', { getRandomValues: random });
+  vi.mocked(apiFetch).mockImplementation(async (url, options) => {
+    if (options?.method !== 'PUT') return new Response(JSON.stringify(view));
+    const body = JSON.parse(String(options.body));
+    return new Response(
+      JSON.stringify(
+        String(url).includes('allowance')
+          ? {
+              policyId: '41843ff6-4416-458f-9220-b0398cb34e93',
+              revision: 1,
+              maxConsultations: body.maxConsultations,
+              roles: ['planner'],
+              expiresAt: Date.now() + 60000,
+            }
+          : { revision: 1, policy: body.policy },
+      ),
+    );
+  });
+  render(<SpecialistModelPolicySettings sessionId="chat" />);
+  fireEvent.click(screen.getByText('Model policy'));
+  await screen.findByLabelText('Admission for test-model');
+  fireEvent.click(screen.getByRole('button', { name: 'Save model policy' }));
+  await screen.findByText('Model policy saved. Changes apply to future admissions.');
+  cleanup();
+  render(
+    <SpecialistAllowanceEditor
+      sessionId="chat"
+      policy={{
+        policyId: '41843ff6-4416-458f-9220-b0398cb34e93',
+        revision: 0,
+        maxConsultations: 4,
+        roles: ['planner'],
+        expiresAt: Date.now() + 60000,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save consultation allowance' }));
+  await screen.findByText('Consultation allowance saved.');
+  const writes = vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'PUT');
+  expect(writes).toHaveLength(2);
+  for (const [, options] of writes)
+    expect(JSON.parse(String(options!.body)).requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
 });
 const view = {
   workspace: {

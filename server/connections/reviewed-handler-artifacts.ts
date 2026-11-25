@@ -34,11 +34,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/specialist-model-policy.ts':
     '7f5e00f5d60afb498433322ce231adf2eb32ecbfd943304c4edfec43bc387c4d',
   '../../frontend/src/components/SpecialistModelPolicySettings.tsx':
-    '63e833379ffa3f1cdd7e322db6e6b07c356ff69eef3fb47c7fab773813f30948',
+    'b0a55cd645dabd9f435f9dc6c8dee92d00f1d61b03938deee444525a554d5a75',
   '../../frontend/src/components/SpecialistAllowanceEditor.tsx':
-    'ba9bbee0600fc0deff85260ff28f843009bde9d0273bf07493a208b8599bb0ca',
+    'd3c72b80ae260d0395cc73ab3840a294cad20f1b129f80c015103774ae30f0ee',
   '../../frontend/src/components/__tests__/SpecialistModelPolicySettings.test.tsx':
-    'ac1b3becc2eb7a2e0576d6a5a4d6f34437c18ac550fe2ae8064a39b9e2acc75b',
+    'b87a6ec607562cf3ed521f788724b751fe1dcaf520a51b54f66305137dd2eeeb',
   '../../tests/fixtures/specialist-model-policy.tsx':
     '424dd2ddcf71bf8c2086cdea7d991d6f6b36dc872e9c2ed72feed266b8ad00a6',
   '../../tests/offline/specialist-model-policy.spec.ts':
@@ -2514,7 +2514,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-child-diagnostics.test.ts':
     'c3a7e87a6a63b3b8f97f1bfd7f013e6bf4964d97e90a0b6be2fdf63afc0e5453',
   '../__tests__/claude-coordination-consultation.test.ts':
-    '0acad5e274ebe8ab18b286858669cef6fb4c6fdebb5208de6fe70e7b3b1d3b5b',
+    'fcebed9fe92d20f813edf8bd0303ea72cd9f9ad68ed0f2cce14b4b48cad6c1b4',
   '../__tests__/claude-coordination-tools.test.ts':
     '94a06cb6a8d6349b2730193c5e7c0233dfc3edb1c315dd43976658838b32f372',
   '../__tests__/claude-login-process.test.ts':
