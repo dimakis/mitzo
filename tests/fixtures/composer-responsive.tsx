@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
@@ -18,6 +18,10 @@ function Surface() {
   const [selectedIds, onChange] = useState(['agent-0', 'agent-1']);
   const [stops, setStops] = useState(0);
   const [recording, setRecording] = useState(false);
+  // An ordinary chat has no recipients or shared control above the toolbar.
+  const ordinary = new URLSearchParams(location.search).has('ordinary');
+  // Match useVoice: ChatInput cancels recording whenever this callback changes.
+  const cancelRecording = useCallback(() => setRecording(false), []);
   const voice: UseVoiceReturn = {
     available: true,
     recording,
@@ -30,7 +34,7 @@ function Surface() {
       setRecording(false);
       return '';
     },
-    cancelRecording: () => setRecording(false),
+    cancelRecording,
     ttsAvailable: false,
     speaking: false,
     voices: [],
@@ -59,9 +63,26 @@ function Surface() {
               : undefined
           }
           voice={voice}
-          sharedControl={{ label: 'selected agents', sourceSelected: false, sourceHandled: true }}
-          responders={{ inline: true, members, selectedIds, onChange }}
-          tokenParticipants={members.slice(0, 2)}
+          sharedControl={
+            ordinary
+              ? undefined
+              : { label: 'selected agents', sourceSelected: false, sourceHandled: true }
+          }
+          responders={ordinary ? undefined : { inline: true, members, selectedIds, onChange }}
+          tokenParticipants={ordinary ? undefined : members.slice(0, 2)}
+          tokenState={
+            ordinary
+              ? {
+                  agentContext: 0,
+                  contextCeiling: 0,
+                  sessionTotal: 0,
+                  numTurns: 0,
+                  turnIndex: 0,
+                  numCompactions: 0,
+                  tokenLimits: null,
+                }
+              : undefined
+          }
           collaboration={
             <button type="button" className="chat-input-btn" aria-label="Agents">
               Agents

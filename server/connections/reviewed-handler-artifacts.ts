@@ -62,13 +62,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-sdk-query-adapter.test.ts':
     '9601a0147184fd2adb2a2d430cca1e6bc79b8eb96c85e0ef058dc419957747d9',
   '../../frontend/src/components/ComposerTools.css':
-    'a87d86c028e990131fc0112f7a9337c6a01cee9bbe37b875b804408faafa2eeb',
+    '8a783f229e2bedad083382787fd955775f4ec29057e96531e028a8a9f5fbe7bd',
   '../../frontend/src/components/__tests__/ComposerTools.overflow.test.tsx':
     '6fe05fa7239aff463f1192fcb7e92bbadd70b09adcaac6d2fe5443dcf4deb59c',
   '../../tests/fixtures/composer-responsive.tsx':
-    '9d4a4c05e594838cbd76fc8709e4c55253263682f621c055f0eb6149151ecea4',
+    'f37ca128d2dc4e20c8fb98108d01297367eff933ce47382464bc6403e8e38333',
   '../../tests/offline/composer-responsive.spec.ts':
-    '8334da8b08f7a40c790aba6ea23e3f3e26fe50ee4d42f078d02ac2df0430185a',
+    'c58853f4b5ea62788acef2d174e3b45adc4eb14ec76a187038bfd22494c3cc52',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -394,7 +394,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ComposerStatus.tsx':
     'da4fc2df254abdfbe88dad54b44e302927425fd1dece845b9cea7672fd780d3f',
   '../../frontend/src/components/ComposerTools.tsx':
-    'ef6cf1fe9ca76e9d66146cec16de3dc2c66ccd1c20670d779c8ebe6a91d57439',
+    '899c36441f5774769edfb17c5073ca8035fa8977db091119d107ac3cdf5c3cca',
   '../../frontend/src/components/ConnectionSetupCard.tsx':
     'aa50d51188da08cd8fa6b72435493d93b0063541d799cbd6987e285142c9de25',
   '../../frontend/src/components/ContextInjectionDisclosure.tsx':

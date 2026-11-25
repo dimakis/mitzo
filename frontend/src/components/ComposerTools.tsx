@@ -25,6 +25,13 @@ interface Props {
   wtId?: string;
 }
 
+/** The element an absolutely positioned overflow panel inside `anchor` is placed against. */
+function positioningBoundary(anchor: HTMLElement): HTMLElement {
+  for (let node: HTMLElement | null = anchor; node; node = node.parentElement)
+    if (getComputedStyle(node).position !== 'static') return node;
+  return anchor;
+}
+
 export function ComposerTools({
   children,
   onCommands,
@@ -59,9 +66,11 @@ export function ComposerTools({
     // The container query owns the breakpoint; CSS also reports its layout mode.
     const update = () => {
       const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      // The popover sits above its containing block (the toolbar), which can start
+      // above this anchor when recipients occupy a row. Measure from that boundary.
       anchor.style.setProperty(
         '--composer-tools-space',
-        `${Math.max(0, anchor.getBoundingClientRect().top - viewportTop - 8)}px`,
+        `${Math.max(0, positioningBoundary(anchor).getBoundingClientRect().top - viewportTop - 8)}px`,
       );
       const next =
         getComputedStyle(anchor).getPropertyValue('--composer-tools-layout').trim() !== 'popover';

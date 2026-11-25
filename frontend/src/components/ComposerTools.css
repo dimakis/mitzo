@@ -63,6 +63,11 @@
     --composer-tools-layout: popover;
     position: static;
   }
+  /* Size and anchor the overflow against the full toolbar. Without inline
+     recipients the command strip is otherwise a narrow positioned ancestor. */
+  .chat-input--compact .chat-input-command-strip:has(> .composer-tools-anchor--secondary) {
+    position: static;
+  }
   .chat-input--compact .composer-tools-anchor--secondary .composer-tools-toggle {
     display: inline-flex;
     color: var(--color-muted);

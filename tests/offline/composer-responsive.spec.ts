@@ -38,31 +38,71 @@ async function reachable(page: Page, name: string) {
   ).toBe(true);
 }
 
+async function serve(page: Page, theme: string) {
+  const files = (await bundle).outputFiles!;
+  await page.route('**/*', (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const file = files.find(
+      (f) => path === (f.path.endsWith('.css') ? '/fixture.css' : '/fixture.js'),
+    );
+    if (file)
+      return route.fulfill({
+        body: file.text,
+        contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+      });
+    if (path.startsWith('/api/')) return route.fulfill({ json: [] });
+    if (path !== '/') return route.abort();
+    return route.fulfill({
+      contentType: 'text/html',
+      body: `<!doctype html><html data-theme="${theme}" data-accent="teal" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body,#root{margin:0;height:100%;overflow:hidden}.chat-page{height:100%;min-height:0}.chat-messages{flex:1;min-height:0;overflow:auto}</style><div id="root"></div><script src="/fixture.js"></script></html>`,
+    });
+  });
+}
+
+test('responsive composer overflow spans the toolbar and stays on screen', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await serve(page, 'dark');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const panel = page.locator('.composer-tools[data-expanded="true"]');
+  const more = page.getByRole('button', { name: 'More composer actions' });
+  // Ordinary chats have no recipient row; the overflow must not shrink to the More strip.
+  for (const query of ['/?ordinary=1', '/']) {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.goto(query);
+    await more.click();
+    await expect(panel).toBeVisible();
+    const toolbar = (await page.locator('.composer-toolbar').boundingBox())!;
+    const box = (await panel.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(Math.min(toolbar.width, 24 * 16) - 1);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(320);
+    expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    await reachable(page, 'Attach images or PDF');
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+  }
+  // With recipients on their own row, available height starts at the toolbar,
+  // not at the More button, so the first overflow control stays reachable.
+  await page.setViewportSize({ width: 320, height: 360 });
+  await page.addStyleTag({ content: 'html{font-size:150%}' });
+  await expect(page.getByLabel('Selected recipients')).toBeAttached();
+  await more.click();
+  await expect(panel).toBeVisible();
+  expect((await panel.boundingBox())!.y).toBeGreaterThanOrEqual(0);
+  await panel.evaluate((el) => (el.scrollTop = 0));
+  await reachable(page, 'Commands');
+  expect(errors).toEqual([]);
+});
+
 for (const sourceStop of [false, true])
   for (const theme of ['dark', 'light'])
     test(`responsive composer: narrow, large text and short viewport (${theme}, source Stop ${sourceStop})`, async ({
       page,
     }, info) => {
-      const files = (await bundle).outputFiles!;
       const errors: string[] = [];
       page.on('pageerror', (e) => errors.push(e.message));
-      await page.route('**/*', (route) => {
-        const path = new URL(route.request().url()).pathname;
-        const file = files.find(
-          (f) => path === (f.path.endsWith('.css') ? '/fixture.css' : '/fixture.js'),
-        );
-        if (file)
-          return route.fulfill({
-            body: file.text,
-            contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
-          });
-        if (path.startsWith('/api/')) return route.fulfill({ json: [] });
-        if (path !== '/') return route.abort();
-        return route.fulfill({
-          contentType: 'text/html',
-          body: `<!doctype html><html data-theme="${theme}" data-accent="teal" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body,#root{margin:0;height:100%;overflow:hidden}.chat-page{height:100%;min-height:0}.chat-messages{flex:1;min-height:0;overflow:auto}</style><div id="root"></div><script src="/fixture.js"></script></html>`,
-        });
-      });
+      await serve(page, theme);
       await page.setViewportSize({ width: 320, height: 640 });
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto(sourceStop ? '/?sourceStop=1' : '/');
