@@ -2630,7 +2630,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-user-input-expiry.test.ts':
     '0cdc893036977fe3d1ba9929ad461c744b98f92af63fc6a1fa0b3b4a83f57797',
   '../__tests__/collaboration-application-claude.test.ts':
-    '97d0658f1d65565bc77996f4b6292f700a0bfabe8d7d1267c64faf980d9f92df',
+    '0f8422dc1b1795d936765fa0bc6b1e2e2005ec49144b2e4da20861d885ae7406',
   '../__tests__/collaboration-application-forwarding.test.ts':
     '713e28a52f3d936c6eb41ff5a12bf66c6fa12400924b2cc3b191171052834039',
   '../__tests__/collaboration-application-fresh-agent-ui.test.tsx':
