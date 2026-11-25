@@ -3917,12 +3917,15 @@ export const prMonitorController = createApplicationPrMonitor({
   registry,
   accounts: loadAccountProfiles,
   connections: getConnectionsRuntime,
+  // Resolve authority and transport at call time, like the other app routes,
+  // so composing the monitor during module load never captures stale bindings.
   auth: {
-    hasPersistentRevocationAuthority,
-    isLoginCurrent: isAuthSessionCurrent,
-    isInteractive: isAuthenticatedOperatorSessionId,
+    hasPersistentRevocationAuthority: () => hasPersistentRevocationAuthority(),
+    isLoginCurrent: (session) => isAuthSessionCurrent(session),
+    isInteractive: (sessionId) => isAuthenticatedOperatorSessionId(sessionId),
   },
-  read: executeTrustedGitHubReadResponse,
+  read: (endpoint, signal, assertCurrent) =>
+    executeTrustedGitHubReadResponse(endpoint, signal, assertCurrent),
   eligibleAuthors: (subscription) => [prMonitorReviewer || subscription.github.owner],
 });
 const sessionCapabilityGrants = new SessionCapabilityGrants(
