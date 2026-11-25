@@ -1342,7 +1342,7 @@
 }
 @container (max-width: 360px) {
   .chat-input--compact .composer-toolbar {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 }
 
