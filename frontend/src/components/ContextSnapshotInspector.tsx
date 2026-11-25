@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from 'react';
+import { useCallback, useId, useRef, useState } from 'react';
 import type { ContextSnapshotReason } from '@mitzo/protocol';
 import { useContextSnapshot } from '../hooks/useContextSnapshot';
 import { HomeDialog } from './HomeDialog';
@@ -47,6 +47,10 @@ function Inspector({ sessionId, disabled }: { sessionId: string; disabled: boole
   const [full, setFull] = useState(false);
   const [consent, setConsent] = useState(false);
   const consentId = useId();
+  // Starting a full refresh unmounts its consent section, including the activated
+  // button. Keep keyboard focus (and Escape) inside the dialog rather than letting
+  // it fall to the page, where Escape would also dismiss the opener's popover.
+  const result = useRef<HTMLDivElement>(null);
   const dismiss = useCallback(() => {
     setOpen(false);
     setFull(false);
@@ -84,29 +88,31 @@ function Inspector({ sessionId, disabled }: { sessionId: string; disabled: boole
           className="context-snapshot-dialog"
         >
           <p>Recorded native context evidence. Opening this view only reads the saved snapshot.</p>
-          {state.pending && <p role="status">Loading context snapshot…</p>}
-          {state.error && <p role="alert">{state.error}</p>}
-          {response && (
-            <>
-              <p role={response.status === 'failed' ? 'alert' : 'status'}>
-                Snapshot {response.status}
-              </p>
-              {response.reason && (
-                <>
-                  <p>{reasons[response.reason]}</p>
-                  <small className="context-snapshot-note">Reason: {response.reason}</small>
-                </>
-              )}
-              {response.snapshot ? (
-                <ContextSnapshotFacts
-                  key={`${response.revision}:${response.snapshot.observedAt}`}
-                  snapshot={response.snapshot}
-                />
-              ) : (
-                <p>Occupancy unknown. Capacity unknown.</p>
-              )}
-            </>
-          )}
+          <div ref={result} tabIndex={-1} className="context-snapshot-result">
+            {state.pending && <p role="status">Loading context snapshot…</p>}
+            {state.error && <p role="alert">{state.error}</p>}
+            {response && (
+              <>
+                <p role={response.status === 'failed' ? 'alert' : 'status'}>
+                  Snapshot {response.status}
+                </p>
+                {response.reason && (
+                  <>
+                    <p>{reasons[response.reason]}</p>
+                    <small className="context-snapshot-note">Reason: {response.reason}</small>
+                  </>
+                )}
+                {response.snapshot ? (
+                  <ContextSnapshotFacts
+                    key={`${response.revision}:${response.snapshot.observedAt}`}
+                    snapshot={response.snapshot}
+                  />
+                ) : (
+                  <p>Occupancy unknown. Capacity unknown.</p>
+                )}
+              </>
+            )}
+          </div>
           <div className="context-snapshot-actions">
             <button
               type="button"
@@ -173,6 +179,7 @@ function Inspector({ sessionId, disabled }: { sessionId: string; disabled: boole
                 disabled={!consent || blocked}
                 onClick={() => {
                   if (!consent) return;
+                  result.current?.focus({ preventScroll: true });
                   setFull(false);
                   setConsent(false);
                   void state.request('full');

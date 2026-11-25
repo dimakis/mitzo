@@ -206,7 +206,13 @@ it('requires a separate full-detail consent and sends the exact intent and UUID 
   expect(full).toHaveProperty('disabled', true);
   expect(fetch).toHaveBeenCalledTimes(2);
   fireEvent.click(screen.getByRole('checkbox', { name: /token-count API calls/ }));
+  full.focus();
   fireEvent.click(full);
+  // The activated control unmounts; focus must stay inside the dialog so Escape
+  // closes only the dialog rather than also dismissing the opener's popover.
+  expect(
+    screen.getByRole('dialog', { name: 'Context snapshot' }).contains(document.activeElement),
+  ).toBe(true);
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
   request = (fetch.mock.calls as unknown as [string, RequestInit][])[2][1];
   expect(new Headers(request.headers).get('X-Mitzo-Context-Intent')).toBe('refresh-full');
