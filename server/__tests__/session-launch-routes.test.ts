@@ -6,6 +6,8 @@ import type { AddressInfo } from 'node:net';
 import { createSessionLaunchRouter } from '../session-launch-routes.js';
 import { SessionLaunchError } from '../session-launch-store.js';
 
+const log = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock('../logger.js', () => ({ createLogger: () => log }));
 const authListeners = vi.hoisted(() => new Set<() => void>());
 vi.mock('../auth.js', () => ({
   isAuthSessionCurrent: (auth: { id: string }) => auth.id !== 'revoked',
@@ -366,6 +368,44 @@ describe('reviewed session launch routes', () => {
     expect(list.status).toBe(200);
     expect(list.body.requests[0].allocationId).toBeUndefined();
     expect(f.launches.approve).not.toHaveBeenCalled();
+  });
+  it('logs a refused or failed launch with a stable code and proposal ID, never prompts or causes', async () => {
+    const f = fixture();
+    const approve = () =>
+      request(f.app)
+        .post(`/api/session-launch/requests/${record.proposalId}/approve`)
+        .send({ expectedRevision: 1, title: 'T', prompt: 'Secret handoff text', configuration });
+    f.launches.approve.mockRejectedValueOnce(
+      new SessionLaunchError(
+        'Agent-created sessions start only on a Local Mac Codex or Claude account.',
+        409,
+        { cause: Error('private provider detail') },
+      ),
+    );
+    log.warn.mockClear();
+    expect((await approve()).status).toBe(409);
+    expect(log.warn).toHaveBeenCalledWith('Session launch request refused', {
+      code: 'session_launch_refused',
+      status: 409,
+      method: 'POST',
+      route: '/requests/:proposalId/approve',
+      proposalId: record.proposalId,
+      reason: 'Agent-created sessions start only on a Local Mac Codex or Claude account.',
+    });
+    f.launches.approve.mockRejectedValueOnce(Error('private storage detail: Secret handoff text'));
+    log.error.mockClear();
+    expect((await approve()).status).toBe(503);
+    expect(log.error).toHaveBeenCalledWith('Session launch request failed', {
+      code: 'session_launch_unavailable',
+      status: 503,
+      method: 'POST',
+      route: '/requests/:proposalId/approve',
+      proposalId: record.proposalId,
+      causeType: 'Error',
+    });
+    const logged = JSON.stringify([log.warn.mock.calls, log.error.mock.calls]);
+    for (const secret of ['Secret handoff text', 'private provider detail', 'private storage'])
+      expect(logged).not.toContain(secret);
   });
   it('passes only the complete edited configuration and authenticated authority to startup', async () => {
     const f = fixture();

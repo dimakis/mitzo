@@ -47,6 +47,17 @@ integration, merge order and CI; a feature lead coordinates its slices. A standa
 Runtime kinds do not redefine these levels or prove nested lead/session support.
 Use existing reviewed role/session setup. Creating an item alone does not establish session readiness.
 
+## Test cost — every agent
+
+Follow the **Test cost and coverage** policy in `CLAUDE.md` before adding or
+changing tests. It applies to Codex, Claude, other coding agents, delegated
+subagents, automated fixers and reviewers; include it in delegated task briefs.
+Choose the cheapest adequate layer, reuse existing tests and fixtures, and
+justify each new expensive journey with distinct coverage and observed cost.
+PRs with test changes must complete the template's test-cost section using
+existing evidence, explicitly noting unavailable measurements. Preserve required
+coverage, operation deadlines and authority/ownership/cancellation boundaries.
+
 ## Symposium source selection
 
 Start Symposium work with [the current source guide](docs/features/symposium.md)
@@ -115,6 +126,12 @@ For an explicitly authorized merge, register the durable head/base request in [C
 Production activation requires reviewed, accepted sources. A publication is distinct from consumer adoption: verify the selected knowledge and actual runtime before delivering it between turns. Keep published knowledge separate from writable task roots. Repair only the selected invalid content-addressed knowledge cache under its owning sandbox's lifecycle fence; preserve task data and unrelated views.
 
 Tests that make real model calls must explicitly use a supported Luna model. State the exact model and charged account before live tests; obtain approval if Luna is unavailable or another model is required.
+
+## Reviewed source fingerprints
+
+`server/connections/reviewed-handler-artifacts.ts` pins registered sources by SHA-256. After changing a registered file, review the change and run `npm run fix:reviewed-handler-artifacts`; `npm run check:source-artifacts` verifies the result. The fix only rewrites existing entries, so register a new file by adding its key by hand (any placeholder value) first. Do not bump `reviewedConnectionsRuntimeImplementationRevision` per PR. Its consumers already hash the full fingerprint map, so bump it only to invalidate runtime contracts when no registered source changed.
+
+To resolve a conflict in the manifest, take main's side and regenerate: `git checkout origin/main -- server/connections/reviewed-handler-artifacts.ts`, re-apply every other manifest edit your PR made (added keys, removed registrations, comment changes and any deliberate revision bump), run `npm run fix:reviewed-handler-artifacts`, then `npm run check:source-artifacts`. The fix script only refreshes fingerprints and cannot detect a lost edit, so compare `git diff origin/main -- server/connections/reviewed-handler-artifacts.ts` with your PR's original manifest diff before committing.
 
 ## Playwright on macOS
 
