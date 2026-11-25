@@ -1151,24 +1151,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
     steps:
       - uses: actions/checkout@v7
-      # A cheap draft verdict must never stand in for a ready PR. If the PR left
-      # draft while this run was in flight, fail so the ready run owns the verdict.
-      - name: Require draft-only coverage to still describe a draft PR
-        if: ${{ needs.changes.outputs.draft == 'true' }}
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const { data: live } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number,
-            });
-            if (live.draft !== true) {
-              core.setFailed('PR is no longer a draft; its ready_for_review run must provide full CI');
-            }
+      # Draft runs fail here by design after validating their cheap owners, so a
+      # draft verdict can never satisfy the required check for a ready PR.
       - name: Require every selected CI owner
         env:
           CI_REQUIRED_NEEDS: ${{ toJSON(needs) }}

@@ -100,13 +100,17 @@ it('preserves main candidate concurrency identity and does not cancel its valida
     concurrencyFor('push', 'main-sha').group,
   );
 });
-it('lets the ready_for_review full run supersede an in-flight draft run of the same candidate', () => {
-  // Draft and ready events for one candidate share the group, so the newer
-  // full-suite run cancels the cheap draft run rather than racing it.
-  const draft = concurrencyFor('pull_request', 'candidate-sha', 1200);
-  const ready = concurrencyFor('pull_request', 'candidate-sha', 1200);
-  expect(ready).toEqual(draft);
-  expect(ready.cancel).toBe(true);
+it('groups draft and ready runs by candidate, not by event action or draft state', () => {
+  // ready_for_review on an unchanged merge candidate supersedes the draft run.
+  expect(concurrency.group).not.toMatch(/action|draft/);
+  expect(concurrency['cancel-in-progress']).not.toMatch(/action|draft/);
+  // If main advanced, GitHub's test merge SHA differs and both runs proceed.
+  // That is safe only because a draft run's ci always fails (ci-required-gate).
+  const draft = concurrencyFor('pull_request', 'merge-sha-before-main-advanced', 1200);
+  const ready = concurrencyFor('pull_request', 'merge-sha-after-main-advanced', 1200);
+  expect(ready.group).not.toBe(draft.group);
+  const gate = readFileSync('scripts/ci-required-gate.mjs', 'utf8');
+  expect(gate).toMatch(/if \(draft === 'true'\) \{[^}]*process\.exit\(1\);/);
 });
 
 it('frontend production builds retain failure diagnostics but stop on cancellation', () => {

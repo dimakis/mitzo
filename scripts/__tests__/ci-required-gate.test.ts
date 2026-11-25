@@ -280,16 +280,20 @@ it.each(['ordinary-journey', 'ordinary-supplemental'])(
   },
 );
 
-it('accepts a draft run whose cheap owners pass and every expensive owner was deselected', () => {
-  expect(run(fixture('false', 'false', 'false', 'true')).status).toBe(0);
+it('validates the cheap owners of a draft run and then fails ci by design so it can never be merged', () => {
+  const result = run(fixture('false', 'false', 'false', 'true'));
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Draft PR: cheap checks passed');
 });
 
 it.each(['browser', 'native', 'prepared', 'ordinary'])(
-  'rejects a draft verdict that claims %s coverage was still selected',
+  'rejects a draft selection that claims %s coverage was still selected',
   (owner) => {
     const needs = fixture('false', 'false', 'false', 'true');
     needs.changes.outputs![owner] = 'true';
-    expect(run(needs).status).toBe(1);
+    const result = run(needs);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('inconsistent with selected owners');
   },
 );
 
@@ -302,11 +306,14 @@ it('rejects missing or invalid draft selection', () => {
 });
 
 it.each(['core', 'unit-validation', 'preflight', 'frontend-build'])(
-  'still requires the cheap %s owner for a draft',
+  'reports a failed cheap %s owner on a draft before the draft verdict',
   (owner) => {
     const needs = fixture('false', 'false', 'false', 'true');
-    needs[owner].result = 'skipped';
-    expect(run(needs).status).toBe(1);
+    needs[owner].result = 'failure';
+    const result = run(needs);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Required CI owner incomplete: ' + owner);
+    expect(result.stderr).not.toContain('Draft PR');
   },
 );
 
@@ -320,19 +327,13 @@ it('requires the full selected owner set for a ready PR', () => {
   expect(run(needs).status).toBe(0);
 });
 
-it('fails a draft verdict when the PR has since left draft', () => {
+it('gives the ci job no draft bypass and no extra token scope', () => {
   const job = workflow.jobs.ci as (typeof workflow.jobs)['ci'] & {
     permissions: Record<string, string>;
   };
-  expect(job.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
-  const recheck = job.steps.findIndex(
-    (s) => s.if === "${{ needs.changes.outputs.draft == 'true' }}",
-  );
-  const gate = job.steps.findIndex((s) => s.run === 'node scripts/ci-required-gate.mjs');
-  expect(recheck).toBeGreaterThan(-1);
-  expect(recheck).toBeLessThan(gate);
-  const script = (job.steps[recheck] as { with: { script: string } }).with.script;
-  expect(script).toContain('github.rest.pulls.get');
-  expect(script).toContain('live.draft !== true');
-  expect(script).toContain('core.setFailed');
+  expect(job.permissions).toEqual({ contents: 'read' });
+  expect(job.steps.map((s) => s.run ?? (s as { uses?: string }).uses)).toEqual([
+    'actions/checkout@v7',
+    'node scripts/ci-required-gate.mjs',
+  ]);
 });

@@ -72,7 +72,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'da346ee565d0ac0e78ce47471273a275b02684664da8c5726c1f507889bd166d',
+    '8400e54ef8708e971733bdbc01ab95aad0ceb5433e60477d699f5b064d7a16d8',
   '../../.github/workflows/pr-landing-reconcile.yml':
     'c4f43fcbd69bc4bbd657f2d89982b307c158bc7363d118f436eb2083a6daf91a',
   '../../.github/workflows/pr-landing-request.yml':
@@ -1720,7 +1720,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-build-output.test.ts':
     '7416d91c224789c03debcb8d61e746118d9bee63d263e351aff29ee9fae34f7f',
   '../../scripts/__tests__/ci-cancellation.test.ts':
-    '3e12dbd26af68a14f57c13a748caeb65f1b190006c934157f462b9371f8e8cc7',
+    '82a8f4d6cdfafdbe6343d604f44466c3ae1c67ccfc6d867abdf7ca192d0f9f4c',
   '../../scripts/__tests__/ci-claude-repository-setup.test.ts':
     '5c9a5906e7acb482ced2e7eafda12c51b09fa16b5f62a57c2e17f0d9f019ca48',
   '../../scripts/__tests__/ci-compile-preflight.test.ts':
@@ -1744,7 +1744,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-recovery.test.ts':
     '92559bb14c80de9c28e7879c1bf218bf895cab2d2209958dd0499ddc5feda256',
   '../../scripts/__tests__/ci-required-gate.test.ts':
-    '2956db382d84645769692fa1c8e36dc9deea91fffdc4f29535108a451185c2dd',
+    '7a0e409978f72d2f1ed3fe4e944b6114988b73ba58ea987e0f404f15484c4b92',
   '../../scripts/__tests__/ci-selection.test.ts':
     'd90232a9efbb0e7eeb7d7254eea95161ec3a14aab729a79080f97ff53ec3afa2',
   '../../scripts/__tests__/ci-source-preflight.test.ts':
@@ -1814,7 +1814,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-recovery.mjs':
     'c1e0bc15bbda175a793bf524375870e788a9acc398a7770057d3fa586338214f',
   '../../scripts/ci-required-gate.mjs':
-    '326598045ea9b70ae0a868f17f809aafc9a7cd1ab607635a1cc3ad2f969ecdf4',
+    '9c57b297502abb8fef337376a2d6c38f14b2dff7313a1b63af9dfa8757a357e4',
   '../../scripts/ci-selection.mjs':
     'ba6d6e45427aeff5ac9504c707be88a47e1ca5b86deca2f5be990dd058d98fe7',
   '../../scripts/ci-unit-gate.mjs':

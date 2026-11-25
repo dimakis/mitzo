@@ -282,19 +282,22 @@ regression` and `Native Swift tests and builds` keep their aggregation rules.
 - **Draft PRs** run only preflight, the frontend build, core, unit and the
   aggregators. The `changes` job deselects browser, offline, native, prepared and
   every ordinary owner only when both the event payload and a live PR read say
-  draft; any doubt runs the full selection. `ci` rejects a draft selection that
-  still claims an expensive owner, and fails if the PR has left draft by the
-  time it aggregates. Marking a PR ready starts the full run for the same
-  candidate, which supersedes an in-flight draft run in the same concurrency group.
+  draft; any doubt runs the full selection. The individual cheap checks report
+  normally, but `ci` validates them and then **fails by design** with "Draft PR:
+  cheap checks passed". A red `ci` on a draft is expected; do not try to fix it.
+  Marking a PR ready starts the full run, which supersedes an in-flight draft run
+  of the same merge candidate.
 - **Main pushes** run the full suite after every merge, because strict
   protection no longer forces each PR to be validated against the latest main.
   Main runs are never cancelled, and the recovery and cleanup controllers act
   only on PR runs. A red main run is a post-merge regression to fix forward.
 
 A ready PR's full run creates its aggregate checks only after its owners finish.
-Until then GitHub can still show the earlier draft run's green `ci` for that
-head. MGMT's merge gate refuses any pending check in the status rollup, so the
-queued ready run blocks it. Land through the gate, not the merge button.
+A draft verdict must never satisfy the required `ci` in that window, so the draft
+`ci` is never green. GitHub refuses to merge drafts, so the red draft result
+costs nothing at merge time. If main advanced, the ready run gets a new test
+merge SHA and the draft run is not cancelled. Its late red `ci` can then
+replace the ready run's green one, and a rerun of `ci` fixes that.
 
 Build output and production-frontend evidence remain scoped to their workflow
 run and candidate identity. Do not relabel PR artifacts as accepted-commit
@@ -405,9 +408,10 @@ stops them; no check result is ignored.
 
 Record initial queue delay, useful runtime, interruption/cleanup time, retries,
 source-fix rounds and final review delay separately. Compare fresh clean runs
-with the measured baseline before claiming a speedup. Preserve strict base
-protection and exact-head review; integrate an advancing base at the actual
-landing turn rather than refreshing every waiting branch.
+with the measured baseline before claiming a speedup. Preserve exact-head review.
+While the operator keeps strict base protection off, rely on the post-merge main
+run instead of refreshing every waiting branch. Where strict protection is on,
+integrate an advancing base at the actual landing turn.
 
 This workflow requires no staging, deployment or live model calls.
 
@@ -494,6 +498,11 @@ for that API. Do not expand or reuse Centaur's status-writing credential.
   Keep `CENTAUR_REVIEWER_LOGIN` consistent with the trusted reviewer configuration.
 - Retain strict required CI and the Centaur App-bound status. Confirm environment
   restrictions and the App's actual permissions before issuing a real request.
+  The controller fails closed with "Missing strict App-bound required protection"
+  whenever strict protection is off. Since 25 November 2026 it is unavailable
+  for Mitzo. Land through `python -m mgmt_lib.pr_merge_gate OWNER/REPO NUMBER
+--merge` until strict protection returns or the controller adopts the
+  strict-off contract in a reviewed change.
 
 Set repository variable `PR_LANDING_APP_ID` to the numeric landing App ID **last**,
 after the App, environment branch policy, private key and other required variables
