@@ -1,4 +1,5 @@
 import { retainCallbackOutcome } from './turn-callbacks.js';
+import { parseGitHubReadResponse } from './github-read-response.js';
 import { githubReadProjection, githubReadSummary } from './github-read-summary.js';
 import {
   GITHUB_LOG_SOURCE_LIMIT,
@@ -62,6 +63,7 @@ async function run(
     readOnly?: boolean;
     boundedReadDiagnostics?: boolean;
     preserveWhitespace?: boolean;
+    acceptHttpErrorResponse?: boolean;
   },
 ): Promise<string> {
   await options.assertRuntimeCurrentAsync?.();
@@ -82,6 +84,20 @@ async function run(
       },
       (error, stdout, stderr) => {
         if (error) {
+          if (
+            options.acceptHttpErrorResponse &&
+            options.readOnly &&
+            !options.signal.aborted &&
+            !error.killed &&
+            !error.signal &&
+            typeof error.code === 'number' &&
+            error.code > 0 &&
+            error.code < 128 &&
+            /^HTTP\/\d(?:\.\d)? [45]\d\d(?: |\r?\n)/.test(stdout)
+          ) {
+            resolveRun(stdout);
+            return;
+          }
           // Never echo stderr or stdout: stdout can hold unfiltered CI log text
           // and stderr can hold the signed blob URL. Classify instead.
           const transport =
@@ -175,6 +191,31 @@ export async function executeTrustedGitHubRead(
     return page;
   }
   return view === 'full' ? body : githubReadSummary(body, `https://api.github.com${endpoint}`);
+}
+
+/** Same fixed authenticated read owner, retaining only bounded response metadata.
+ * Caller must bind the selected connection/principal and durable read consent. */
+export async function executeTrustedGitHubReadResponse(
+  endpoint: string,
+  signal: AbortSignal,
+  assertCurrent: () => void,
+) {
+  const home = process.env.HOME;
+  if (!home) throw Error('connection_unavailable');
+  const request = trustedGitHubReadRequest(endpoint, 'full');
+  const raw = await run(request.file, [...request.args, '--include'], {
+    signal,
+    timeoutMs: 20000,
+    maxOutputBytes: 1048576,
+    env: { HOME: home, GH_HOST: 'github.com' },
+    readOnly: true,
+    preserveWhitespace: true,
+    acceptHttpErrorResponse: true,
+    assertRuntimeCurrent: assertCurrent,
+  });
+  assertCurrent();
+  signal.throwIfAborted();
+  return parseGitHubReadResponse(raw);
 }
 
 export function isTrustedGitHubEndpoint(endpoint: string) {

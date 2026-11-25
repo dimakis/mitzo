@@ -6,7 +6,7 @@ import { knowledgeStoreFromEnvironment } from './knowledge-store-config.js';
 import { createDeploymentRuntime } from './deployment-runtime.js';
 import { createDeploymentRouter } from './deployment-routes.js';
 import { getLocalCommit } from './git-version.js';
-import { assertQueueOperator } from './app.js';
+import { assertQueueOperator, prMonitorController } from './app.js';
 import { setSessionActivityObserver } from './session-activity-events.js';
 import { closeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { startKnowledgePrewarming } from './knowledge-prewarming.js';
@@ -709,7 +709,11 @@ const v2Ctx: V2HandlerContext = {
 // Runs alongside WS during migration. Feature-flagged on the client side.
 
 mountApplicationChatTransport(app, chatSseRegistry, v2Ctx);
-const sessionPrompts = initializeSessionPrompts(join(BASE_REPO, '.mitzo', 'events.db'), v2Ctx);
+const sessionPrompts = initializeSessionPrompts(
+  join(BASE_REPO, '.mitzo', 'events.db'),
+  v2Ctx,
+  prMonitorController,
+);
 const deploymentCommit = getLocalCommit();
 const deploymentRuntime = createDeploymentRuntime(v2Ctx, {
   commit: () => {
