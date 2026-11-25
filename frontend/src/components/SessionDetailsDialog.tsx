@@ -2,6 +2,7 @@ import type { Session } from '../types/chat';
 import { HomeDialog } from './HomeDialog';
 import { SessionContextUsage } from './SessionContextUsage';
 import { formatTokens } from '../lib/formatTokens';
+import { PrMonitorSection } from './PrMonitorSection';
 export function SessionDetailsDialog({
   session,
   onClose,
@@ -30,6 +31,7 @@ export function SessionDetailsDialog({
         )}
       </dl>
       <SessionContextUsage usage={session.contextUsage} />
+      <PrMonitorSection sessionId={session.id} />
     </HomeDialog>
   );
 }

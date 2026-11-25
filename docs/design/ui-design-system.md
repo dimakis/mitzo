@@ -28,6 +28,21 @@ on phone/desktop, both themes and alternate appearance; see
 
 # Mitzo UI design contract
 
+## PR monitoring in Session details
+
+Use the existing desktop/mobile `SessionDetailsDialog` and `HomeDialog` with quiet
+grouped PR rows. Show the full observed head, retained CI/review/PR state, refresh
+times and explicit stale/error state. `MotionDetails` holds bounded activity and
+runtime details; `MotionPresence` holds explicit Watch reviews. Keep Watch,
+Auto-fix and Merge when ready independent. Only owner-supported actions can be
+enabled; explain unavailable controls in visible associated text. Registration
+saves paused, and background Watch needs separate scope/duration consent.
+
+Reuse semantic colors, type/spacing/radius tokens, wrapping code heads, labelled
+fields and the shared control-height/focus roles. This extends the existing
+details surface without changing composer layout or navigation. See
+[implementation, provenance and validation limits](../features/pr-monitor-ui-evidence.md).
+
 ## Shared conversation controls — approved revision 3
 
 Preserve the existing Agents menu and icon-only composer. Status and recipients
