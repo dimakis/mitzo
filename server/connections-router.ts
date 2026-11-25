@@ -27,6 +27,8 @@ import {
 import { isAuthSessionCurrent, verifyPassphrase, type AuthSession } from './auth.js';
 import { connectionTemplateRegistry } from './connections/registry.js';
 import type { CapabilityService } from './connections/capabilities/service.js';
+import { recentAuthorizationSession, requireSameOriginJson } from './operator-http-authority.js';
+export { recentAuthorizationSession, requireSameOriginJson } from './operator-http-authority.js';
 
 const OWNER = 'operator',
   TTL = 5 * 60_000,
@@ -137,14 +139,6 @@ export function recentAppReauthorizationHandlers(): express.RequestHandler[] {
   ];
 }
 
-export function recentAuthorizationSession(res: express.Response): AuthSession | undefined {
-  const value = res.locals.authSession as AuthSession | undefined;
-  if (!value || value.expiresAt <= Date.now()) {
-    res.status(401).json({ error: 'Browser authentication required' });
-    return;
-  }
-  return value;
-}
 /** Export only the validity bound of a capability verified in this app process. */
 export function recentAuthorizationExpiry(res: express.Response, csrf: string): number | undefined {
   const auth = res.locals.authSession as AuthSession | undefined;
@@ -175,25 +169,6 @@ export function requireRecentConnectionAuthorization(res: express.Response, csrf
     return false;
   }
   return true;
-}
-export function requireSameOriginJson(
-  req: express.Request,
-  res: express.Response,
-  next: express.NextFunction,
-) {
-  const origin = req.header('origin');
-  const allowed = new Set(
-    (process.env.CORS_ALLOWED_ORIGINS ?? '')
-      .split(',')
-      .map((v) => v.trim())
-      .filter(Boolean),
-  );
-  const host = req.get('host');
-  if (host) allowed.add(`${req.protocol}://${host}`);
-  if (origin && !allowed.has(origin)) return res.status(403).json({ error: 'Untrusted origin' });
-  if (!req.is('application/json'))
-    return res.status(415).json({ error: 'Content-Type must be application/json' });
-  next();
 }
 function missing(res: express.Response) {
   return res.status(404).json({ error: 'Connection not found' });
