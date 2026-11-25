@@ -412,7 +412,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
     '7f291e2b57ccffb5f31da98b809f90d21a5cd2d71949b38c8fb1683a4b4100e4',
   '../../frontend/src/components/ConversationContextSelection.tsx':
-    'ca607c1b693fb5db4731386695fca7d606e3e92c3921c56e8ac29dc6325e8af8',
+    '8f59d857c4d821d3fa8f3e3fff5bf3563e164cd73ebce619267085898a137ddd',
   '../../frontend/src/components/ConversationContextSelection.css':
     '8b0be4558af928988e7f5086c26de28067a34d1c70612fe52803399bbe06824a',
   '../../frontend/src/components/EnmaasAccountSetup.tsx':
@@ -702,7 +702,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx':
     'a22e84b14cdad3990308743da9aa8c6861519e5e45b96caf39d94ddc5a8561ad',
   '../../frontend/src/components/__tests__/ConversationContextSelection.test.tsx':
-    '4172119736a377fda994c29a8e87e74108d9a9ef6137666148a64cb3df134ef2',
+    '8cc83c6d89ab85620c57ff29e6e99542c1125fbc23b1abcf508d6f120531a6c3',
   '../../frontend/src/components/__tests__/ConversationAgents.source-catalog.test.tsx':
     'aa0f350337a9664f112270088f9e6c8f4f58370de3470a4b3de5f0586e55e202',
   '../../frontend/src/components/__tests__/SharedConversation.source-catalog.test.tsx':
@@ -887,8 +887,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '20319ea77217da6fd66e4a38ff6c38dc16a26963f5c62b15e09b3fd67c256e68',
   '../../frontend/src/hooks/useConversationJoiningReview.ts':
     '8e4c67e8cedfad8b9fac6fc67d2ee53177fe914b4a98df9c5b99762c44c300e0',
+  '../../frontend/src/hooks/__tests__/useConversationContextArtifacts.test.tsx':
+    '040bcc9b26398272f5f496ea715b9233a2b7b60e426ce98aafd50a0114375cb5',
   '../../frontend/src/hooks/useConversationContextArtifacts.ts':
-    '2807e5a60127253da8eb41a5aae39edd3ebc78ccc6dfb3e4a5266e154953d424',
+    '5fbfc28bc4c13e65df03638f0e0ec01b0b052dbd7b3fe3fa8c379cb0534227b4',
   '../../frontend/src/hooks/useConversationPresentation.ts':
     '4d0d3e5708dfb7ccea00297124f04f460800721fd222440b939e355aab5f4eb5',
   '../../frontend/src/hooks/useConversationProgress.ts':

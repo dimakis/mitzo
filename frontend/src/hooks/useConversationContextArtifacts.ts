@@ -20,7 +20,13 @@ export function useConversationContextArtifacts(
   useEffect(() => {
     if (!open || !owner?.loadArtifacts || owner.artifacts) return;
     const controller = new AbortController();
-    setState({ owner, loading: true });
+    // Keep the last successful catalog for this owner while refreshing, so a
+    // reopen or retry never presents valid pins as unavailable.
+    setState((previous) => ({
+      owner,
+      loading: true,
+      artifacts: previous?.owner === owner ? previous.artifacts : undefined,
+    }));
     void owner.loadArtifacts(controller.signal).then(
       (artifacts) => {
         if (!controller.signal.aborted) setState({ owner, artifacts, loading: false });
@@ -34,11 +40,12 @@ export function useConversationContextArtifacts(
           status: cause instanceof CollaborationApiError ? cause.status : undefined,
           sourceCode: cause instanceof CollaborationApiError ? cause.code : undefined,
         });
-        setState({
+        setState((previous) => ({
           owner,
           loading: false,
+          artifacts: previous?.owner === owner ? previous.artifacts : undefined,
           error: 'Retained artifacts could not be read. Your selections are unchanged.',
-        });
+        }));
       },
     );
     return () => controller.abort();

@@ -159,12 +159,14 @@ it('retains missing message and exact artifact pins across catalog refresh until
   view.rerender(<Harness {...props} artifacts={undefined} messages={[]} />);
   expect(changed).not.toHaveBeenCalled();
   expect(artifactsChanged).not.toHaveBeenCalled();
-  expect(screen.getByText(/Retained artifact versions are unavailable/)).toBeTruthy();
+  expect(screen.getByText(/not available for new selection right now/)).toBeTruthy();
+  // Without a loaded catalog the pin is unverified, not unavailable.
+  expect(screen.getByRole('status').textContent).toContain('1 selections unavailable');
+  expect(screen.queryByRole('button', { name: /Remove unavailable artifact/ })).toBeNull();
+  expect(screen.getByText(/not yet checked against the retained list/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Remove unavailable message missing' }));
   expect(changed).toHaveBeenLastCalledWith([]);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Remove unavailable artifact report version 2' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Remove artifact report version 2' }));
   expect(artifactsChanged).toHaveBeenLastCalledWith([]);
 });
 

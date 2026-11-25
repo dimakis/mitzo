@@ -104,9 +104,13 @@ export function ConversationContextSelection({
   const availableIds = new Set(rows.map(({ message }) => message.messageId));
   const availableKeys = new Set(artifacts?.map(contextArtifactKey));
   const absentIds = messageIds.filter((id) => !availableIds.has(id));
-  const absentArtifacts = selectedArtifacts.filter(
-    (artifact) => !availableKeys.has(contextArtifactKey(artifact)),
-  );
+  // Without a loaded catalog (still loading, or a failed read), a pin is
+  // unverified rather than unavailable: never invite removing a valid pin.
+  const absentArtifacts =
+    artifacts === undefined
+      ? []
+      : selectedArtifacts.filter((artifact) => !availableKeys.has(contextArtifactKey(artifact)));
+  const unverifiedArtifacts = artifacts === undefined ? selectedArtifacts : [];
   const authors = [...new Map(rows.map((row) => [row.authorId, row.authorLabel])).entries()];
   const search = query.trim().toLocaleLowerCase();
   const visibleRows = rows.filter(
@@ -246,7 +250,7 @@ export function ConversationContextSelection({
       <fieldset className="context-source-group">
         <legend>Retained artifacts</legend>
         {artifacts === undefined ? (
-          <p>Retained artifact versions are unavailable for selection.</p>
+          <p>Retained artifact versions are not available for new selection right now.</p>
         ) : artifacts.length === 0 ? (
           <p>No retained artifacts in this conversation.</p>
         ) : visibleArtifacts.length === 0 ? (
@@ -332,6 +336,28 @@ export function ConversationContextSelection({
               }
             >
               Remove unavailable artifact {artifact.artifactId} version {artifact.revision}
+            </button>
+          </div>
+        ))}
+        {unverifiedArtifacts.map((artifact) => (
+          <div className="context-source-unavailable" key={contextArtifactKey(artifact)}>
+            <span>
+              Selected artifact, not yet checked against the retained list:{' '}
+              <code>{artifact.artifactId}</code> · Saved version {artifact.revision} · SHA-256{' '}
+              <code>{artifact.sha256}</code>
+            </span>
+            <button
+              type="button"
+              className="home-secondary"
+              onClick={() =>
+                onArtifactsChange(
+                  selectedArtifacts.filter(
+                    (selected) => contextArtifactKey(selected) !== contextArtifactKey(artifact),
+                  ),
+                )
+              }
+            >
+              Remove artifact {artifact.artifactId} version {artifact.revision}
             </button>
           </div>
         ))}
