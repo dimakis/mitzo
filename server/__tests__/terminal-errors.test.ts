@@ -1,5 +1,9 @@
 import { expect, it } from 'vitest';
-import { TerminalOperationError, terminalFailureDiagnostic } from '../terminal-errors.js';
+import {
+  TerminalOperationError,
+  sanitizedProcessCause,
+  terminalFailureDiagnostic,
+} from '../terminal-errors.js';
 
 it.each(['EPERM', 'ENOENT', 'EACCES', 'EMFILE', 'ETIMEDOUT'])(
   'retains the safe %s cause through the service boundary without transport secrets',
@@ -32,4 +36,33 @@ it('identifies the native PTY failure without serializing process arguments or a
     terminalFailureDiagnostic(new TerminalOperationError('terminal_open_failed', secretCode))
       .causes,
   ).toEqual(['terminal_open_failed', 'unclassified_error']);
+});
+it('drops transport secrets from retained process causes while keeping the diagnostic code', () => {
+  const processError = Object.assign(
+    new Error('Command failed: ssh -o ProxyCommand=grant-secret'),
+    {
+      code: 'ETIMEDOUT',
+      signal: 'SIGTERM',
+      cmd: 'ssh -o ProxyCommand=grant-secret',
+      stderr: 'grant-secret stderr',
+      stdout: 'grant-secret stdout',
+    },
+  );
+  const cause = sanitizedProcessCause(processError);
+  expect(cause).toMatchObject({ code: 'ETIMEDOUT', signal: 'SIGTERM' });
+  expect(cause.cause).toBeUndefined();
+  const serialized = JSON.stringify({ ...cause, message: cause.message, stack: cause.stack });
+  expect(serialized).not.toContain('grant-secret');
+  const wrapped = new TerminalOperationError(
+    'terminal_open_failed',
+    Error('Terminal transport unavailable', { cause }),
+  );
+  expect(terminalFailureDiagnostic(wrapped).causes).toEqual([
+    'terminal_open_failed',
+    'unclassified_error',
+    'ETIMEDOUT',
+  ]);
+  expect(sanitizedProcessCause(Object.assign(new Error('x'), { code: 255 }))).toMatchObject({
+    code: 255,
+  });
 });

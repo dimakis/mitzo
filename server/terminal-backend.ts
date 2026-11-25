@@ -1,4 +1,4 @@
-import { TerminalSessionMissing } from './terminal-errors.js';
+import { TerminalSessionMissing, sanitizedProcessCause } from './terminal-errors.js';
 import * as pty from 'node-pty';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -195,8 +195,10 @@ export class TmuxTerminalBackend implements TerminalBackend {
       });
     } catch (error) {
       if (isMissingSession(error, record.id, this.namespace)) throw new TerminalSessionMissing();
-      // Process errors include SSH proxy arguments and their short-lived grant token.
-      throw Error('Terminal transport unavailable', { cause: error });
+      // Process errors include SSH proxy arguments and their short-lived grant token;
+      // retain only the sanitized code/exit status for diagnostics.
+      // eslint-disable-next-line preserve-caught-error -- deliberately sanitized cause
+      throw Error('Terminal transport unavailable', { cause: sanitizedProcessCause(error) });
     }
   }
   async start(
@@ -284,8 +286,8 @@ export class TmuxTerminalBackend implements TerminalBackend {
     } catch (error) {
       if (isMissingSession(error, record.id, this.namespace)) return;
       // Process failures may include a short-lived SSH grant in their arguments.
-      // eslint-disable-next-line preserve-caught-error
-      throw Error('Terminal cleanup unavailable');
+      // eslint-disable-next-line preserve-caught-error -- deliberately sanitized cause
+      throw Error('Terminal cleanup unavailable', { cause: sanitizedProcessCause(error) });
     }
   }
 }

@@ -50,6 +50,25 @@ export class TerminalOperationError extends Error {
   }
 }
 
+/**
+ * Process errors can contain SSH proxy arguments and short-lived grant tokens in
+ * their message, stack, cmd, stderr and stdout. Retain only the fields the
+ * diagnostic needs (error code/exit status and signal) on a fresh Error, so no
+ * later log serializer of the cause chain can expose the token.
+ */
+export function sanitizedProcessCause(error: unknown): Error {
+  const field = (name: string) =>
+    error && typeof error === 'object' && name in error
+      ? (error as Record<string, unknown>)[name]
+      : undefined;
+  const code = field('code');
+  const signal = field('signal');
+  return Object.assign(new Error('Terminal transport process failed'), {
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    ...(typeof signal === 'string' ? { signal } : {}),
+  });
+}
+
 /** Process errors can contain SSH grant tokens in message, stack, args and stderr. */
 export function terminalFailureDiagnostic(error: TerminalOperationError) {
   let cause: unknown = error;
