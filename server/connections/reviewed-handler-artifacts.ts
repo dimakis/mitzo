@@ -2312,7 +2312,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/worker-first-completion/vitest.config.ts':
     '006a4943ce2ace645b0121b661c1418a8c30e8ce817cd29cc9dc4be54fb449b7',
   '../../tests/offline/agent-library-builder.spec.ts':
-    '165da8cd8fddf78e1ca61beb2a906a999cba04740130991a724532a3c6714b7f',
+    'b5a46591f942885edc5f96d2a557b0cb2896aff50a38b4adce541a275a448b3a',
   '../../tests/offline/agent-library.spec.ts':
     '978b292de04ee6d69a34d6e4a134b22c67abeed8246f95a8690b7b4f0caf2c99',
   '../../tests/offline/anthropic-account-enrollment.spec.ts':
