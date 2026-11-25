@@ -251,6 +251,27 @@ it('does not block on a task-planted FIFO usage receipt', async () => {
   await assert.rejects(lstat(join(f.store, '.writer')), { code: 'ENOENT' });
 });
 
+it('ignores an oversized usage receipt as a retention claim', async () => {
+  const f = await fixture();
+  const old = Date.now() - 40 * 86400_000;
+  const entry = await publishDependencySet({
+    store: f.store,
+    cwd: f.cwd,
+    runtime,
+    toolchain: f.toolchain,
+    verify: async () => ({ ready: true }),
+    now: old,
+  });
+  await mkdir(join(f.target, '.mitzo-devtools'), { recursive: true });
+  await writeFile(
+    join(f.target, '.mitzo-devtools/dependency-store-use.json'),
+    JSON.stringify({ key: entry.key, padding: 'x'.repeat(2048) }),
+  );
+  assert.deepEqual(await pruneDependencyStore({ store: f.store, usageRoots: [f.target] }), [
+    entry.key,
+  ]);
+});
+
 it('falls back to the isolated install when an entry payload is removed', async () => {
   const f = await fixture();
   const entry = await f.publish();

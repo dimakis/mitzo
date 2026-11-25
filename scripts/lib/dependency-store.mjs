@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -420,6 +421,7 @@ export async function managedDependencyConsumers() {
     .map((entry) => join(root, entry.name));
 }
 
+const receiptLimit = 1024;
 async function usageReceipts(roots, now) {
   const usage = {};
   for (const root of roots) {
@@ -435,9 +437,18 @@ async function usageReceipts(roots, now) {
       // writer locks) before the isFile() check below rejects it.
       file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const info = await file.stat();
-      if (!info.isFile() || info.nlink !== 1 || info.size > 1024 || info.uid !== process.getuid?.())
+      if (
+        !info.isFile() ||
+        info.nlink !== 1 ||
+        info.size > receiptLimit ||
+        info.uid !== process.getuid?.()
+      )
         continue;
-      const receipt = JSON.parse(await file.readFile('utf8'));
+      // Enforce the bound while reading too: the file can grow after stat().
+      const bytes = Buffer.alloc(receiptLimit + 1);
+      const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
+      if (bytesRead > receiptLimit) continue;
+      const receipt = JSON.parse(bytes.subarray(0, bytesRead).toString('utf8'));
       if (keyPattern.test(receipt?.key ?? ''))
         usage[receipt.key] = Math.max(usage[receipt.key] ?? 0, Math.min(now, info.mtimeMs));
     } catch (cause) {
