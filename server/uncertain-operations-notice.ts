@@ -7,11 +7,21 @@ const UncertainOperationsSchema = z
       tool: token,
       toolUseId: token.optional(),
       requestHash: token.optional(),
-      requestId: token.optional(),
+      // Owning tool schemas accept any 1-200 character request ID, including spaces.
+      requestId: z.string().min(1).max(200).optional(),
     }),
   )
   .min(1)
   .max(16);
+
+/** A plain ID is shown as-is; one with whitespace, quotes or control characters
+ * is JSON-quoted so the operator can reuse it exactly and no characters can
+ * reshape the notice text. */
+function formatRequestId(requestId: string): string {
+  return /^[\x21-\x7e]+$/.test(requestId) && !requestId.includes('"')
+    ? requestId
+    : JSON.stringify(requestId);
+}
 
 /** Phone notice for tool calls whose effect Mitzo could not confirm. It names
  * the operation and its ORIGINAL request ID: a retry must reuse that ID so the
@@ -22,7 +32,7 @@ export function uncertainOperationsNotice(value: unknown): string | undefined {
   if (!parsed.success) return undefined;
   const named = parsed.data
     .map(({ tool, requestId }) =>
-      requestId ? `${tool} (request ID ${requestId})` : `${tool} (no request ID)`,
+      requestId ? `${tool} (request ID ${formatRequestId(requestId)})` : `${tool} (no request ID)`,
     )
     .join('; ');
   const reuse = parsed.data.some(({ requestId }) => requestId);

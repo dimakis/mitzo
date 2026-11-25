@@ -19,7 +19,9 @@ export type TurnCallbackRunner = <T>(
 ) => Promise<T>;
 
 const MAX_UNCERTAIN_OPERATIONS = 16;
-const safeRequestId = /^\S{1,200}$/;
+// Owning tool schemas (e.g. TelosSaveArtifact) accept any 1-200 character
+// request ID, including spaces. Keep exactly that range; the notice quotes it.
+const MAX_REQUEST_ID_LENGTH = 200;
 /** `requestId` is taken only from a top-level string field, never a nested value. */
 export function describeToolCall(
   tool: string,
@@ -34,7 +36,11 @@ export function describeToolCall(
     tool,
     ...(identity.toolUseId ? { toolUseId: identity.toolUseId } : {}),
     ...(identity.requestHash ? { requestHash: identity.requestHash } : {}),
-    ...(typeof requestId === 'string' && safeRequestId.test(requestId) ? { requestId } : {}),
+    ...(typeof requestId === 'string' &&
+    requestId.length >= 1 &&
+    requestId.length <= MAX_REQUEST_ID_LENGTH
+      ? { requestId }
+      : {}),
   };
 }
 const effectOwners = new AsyncLocalStorage<() => void>();

@@ -151,8 +151,11 @@ it('describes a tool call by its top-level request ID only, never other input va
   });
   expect(JSON.stringify(described)).not.toContain('private plan');
   expect(JSON.stringify(described)).not.toContain('inner');
-  for (const requestId of [42, 'has space', '', 'x'.repeat(201), { a: 1 }])
+  for (const requestId of [42, '', 'x'.repeat(201), { a: 1 }])
     expect(describeToolCall('Tool', { requestId }, {})).not.toHaveProperty('requestId');
+  // Owning tool schemas accept spaces, so the original recovery identity is kept.
+  for (const requestId of ['save draft 1', ' padded ', 'x'.repeat(200)])
+    expect(describeToolCall('TelosSaveArtifact', { requestId }, {})).toMatchObject({ requestId });
 });
 it('retains which operations are uncertain, with their original request IDs, and never replays them', async () => {
   const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });

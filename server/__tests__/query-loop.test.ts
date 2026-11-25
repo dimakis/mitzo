@@ -992,6 +992,63 @@ describe('runQueryLoop', () => {
     });
   });
 
+  it('logs the diagnostic for a runtime failure thrown after an abort removed session ownership', async () => {
+    queryLoopLogs.length = 0;
+    const stream: AsyncIterable<Record<string, unknown>> = {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          // registry.abort() drops ownership before the SDK rethrows the refusal.
+          (registry as unknown as { _drop(): void })._drop();
+          abortController.abort(new SessionRuntimeError('input_not_dispatched'));
+          throw new SessionRuntimeError('input_not_dispatched');
+        },
+      }),
+    };
+    await runQueryLoop(stream, clientId, registry, abortController);
+    const entry = queryLoopLogs.find((log) => log.context?.code === 'query_loop_stream_failed');
+    expect(entry).toBeDefined();
+    expect(entry!.level).toBe('warn');
+    expect(entry!.context).toMatchObject({
+      stage: 'provider_stream',
+      clientId,
+      runtimeCode: 'input_not_dispatched',
+      correlationId: expect.any(String),
+    });
+  });
+
+  it('logs a coded first-event timeout diagnostic', async () => {
+    queryLoopLogs.length = 0;
+    vi.useFakeTimers();
+    try {
+      const signal = abortController.signal;
+      const stalled: AsyncIterable<Record<string, unknown>> = {
+        [Symbol.asyncIterator]: () => ({
+          next: () =>
+            new Promise((_, reject) =>
+              signal.addEventListener('abort', () => reject(new Error('aborted'))),
+            ),
+        }),
+      };
+      const run = runQueryLoop(stalled, clientId, registry, abortController);
+      await vi.advanceTimersByTimeAsync(90_001);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+    const entry = queryLoopLogs.find(
+      (log) => log.context?.code === 'query_loop_first_event_timeout',
+    );
+    expect(entry).toBeDefined();
+    expect(entry!.level).toBe('warn');
+    expect(entry!.context).toMatchObject({
+      stage: 'provider_first_event',
+      clientId,
+      seconds: expect.any(Number),
+      correlationId: expect.any(String),
+    });
+    expect(queryLoopLogs.some((log) => log.context?.code === 'query_loop_aborted')).toBe(false);
+  });
+
   it('reports an error result before the provider stream closes', async () => {
     let releaseStream!: () => void;
     const hangingStream = async function* () {

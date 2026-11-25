@@ -3240,7 +3240,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-standalone-repository-observation.test.ts':
     'de3c7ae943e87a97165186f5ca8a6e099548a9c341a9fddf31f6b0ca5f8b1855',
   '../__tests__/query-loop.test.ts':
-    'cd2a3ece83af5efbcf1eb82ec69c9329879d5a6336995beef0fa9030be410b57',
+    '5570d228bbc990a10741d0f8d9ed1b8c739f9c8ec9430022d6ef87d195851af5',
   '../__tests__/read-only-git.test.ts':
     'f25212a013ea287948f5651a75d2a3aacfe5593ba668cf26ae1f83e6a8e326d2',
   '../__tests__/reconnect-delivery.integration.test.ts':
@@ -3661,7 +3661,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/trusted-native-operation.test.ts':
     'f8d0e30eefdef0cf06ae9be4958cccf17413bcca533689dabc16e5124cf127b2',
   '../__tests__/turn-callbacks.test.ts':
-    '72b424c5fb32f858dad46a58bb31ac5ff7ac318f7f7f7943d5c49f2029590bd4',
+    '83a34220bc71878d214f2e2ce8034c57a1f698aa3230edc9386a846ff63b7843',
   '../__tests__/unified-inbox-routes.test.ts':
     '88a0b4cec1c4257e1a24005ed965b86e05f5f98b202ad756ebc2b46d948e2d1a',
   '../__tests__/unselected-headless-session.test.ts':
@@ -4397,7 +4397,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
-  '../query-loop.ts': 'ab9b8bb166ab99e1f724da3a34d642d6fcb634e48c5ef4a4a731f378fff9f99e',
+  '../query-loop.ts': '002aa224d15a461115bcc6d847337c2fdb07cc7156e11ae0dbb9a9ea8ef3cefa',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',
@@ -4875,9 +4875,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
   '../trusted-native-operation.ts':
     'ade67d1ee380b44f1dd5100743aac957159ba9e9168c91416953d75132110cf5',
-  '../turn-callbacks.ts': 'a35c5eeefc0df994e56605deb283c9cf918ae7b20dd3f9b09b1617531b5ef3dc',
+  '../turn-callbacks.ts': 'bad67067384ef3674731651cceef0be0f18f2828b591d43fa7f66866a85f0fa5',
   '../uncertain-operations-notice.ts':
-    '278ca1ce43b4355dd4d2db9b60c51826f3758f28b1b58da9764f766c9f77cd4e',
+    '3c0924a089a03e6ac9bfffe32bb01e7c8c99ba68e880334f167eb15c5b5d2053',
   '../unified-inbox-routes.ts': '6413398c77b9f1c62fbb1c597d5cf7c857b65338b23592ce9751cf6755e271d4',
   '../unified-inbox.ts': '6ca474e1069e33341bfe53f87b3022372645e250beffa0d7082b138bf90911df',
   '../unselected-headless-session.ts':

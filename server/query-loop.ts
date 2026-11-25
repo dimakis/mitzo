@@ -2290,17 +2290,34 @@ async function _runQueryLoopInner(
         code: SpanStatusCode.ERROR,
         message: err instanceof Error ? err.message : 'unknown',
       });
-      // Every caught stream failure leaves a structured diagnostic. An expected
-      // abort (user Stop, owner close, retirement) is not an error, but it still
-      // gets a named reason: a silent end hid the cause of a dead chat.
+      // Every caught stream failure leaves a structured diagnostic, whether or
+      // not this loop still owns a registered session (an abort can remove
+      // ownership before the throw arrives). An expected abort (user Stop, owner
+      // close, retirement) is not an error, but it still gets a named reason: a
+      // silent end hid the cause of a dead chat.
       const failureCorrelationId = randomUUID();
-      if (abortController.signal.aborted && !timedOut && !findSessionRuntimeError(err)) {
+      const runtimeFailure = findSessionRuntimeError(err);
+      const failureMessage =
+        runtimeFailure?.publicMessage() ?? (err instanceof Error ? err.message : 'Unknown error');
+      const failureDiagnostic = {
+        clientId,
+        sessionId: resolvedSessionId ?? currentOwnerSession()?.sessionId,
+        stage: 'provider_stream',
+        errorName: err instanceof Error ? err.name : typeof err,
+        correlationId: failureCorrelationId,
+      };
+      if (timedOut) {
+        log.warn('query loop timed out waiting for first event', {
+          ...failureDiagnostic,
+          code: 'query_loop_first_event_timeout',
+          stage: 'provider_first_event',
+          seconds: Math.round(QUERY_FIRST_EVENT_TIMEOUT_MS / 1000),
+        });
+      } else if (abortController.signal.aborted && !runtimeFailure) {
         const reason: unknown = abortController.signal.reason;
         log.info('query loop stopped by abort', {
+          ...failureDiagnostic,
           code: 'query_loop_aborted',
-          stage: 'provider_stream',
-          clientId,
-          sessionId: resolvedSessionId,
           reason:
             findSessionRuntimeError(reason)?.code ??
             (reason instanceof Error
@@ -2308,8 +2325,13 @@ async function _runQueryLoopInner(
               : reason === undefined
                 ? 'unspecified'
                 : typeof reason),
-          errorName: err instanceof Error ? err.name : typeof err,
-          correlationId: failureCorrelationId,
+        });
+      } else {
+        log.warn('query loop error', {
+          ...failureDiagnostic,
+          error: failureMessage,
+          code: 'query_loop_stream_failed',
+          ...(runtimeFailure ? { runtimeCode: runtimeFailure.code } : {}),
         });
       }
       const currentSession = currentOwnerSession();
@@ -2331,23 +2353,10 @@ async function _runQueryLoopInner(
         };
         if (timedOut) {
           const seconds = Math.round(QUERY_FIRST_EVENT_TIMEOUT_MS / 1000);
-          const message = `Agent did not respond within ${seconds}s — the selected model may be unavailable on this provider.`;
-          log.warn('query loop timed out waiting for first event', { clientId, seconds });
-          sendFailure(message);
-        } else if (!abortController.signal.aborted || findSessionRuntimeError(err)) {
-          const runtimeFailure = findSessionRuntimeError(err);
-          const message =
-            runtimeFailure?.publicMessage() ??
-            (err instanceof Error ? err.message : 'Unknown error');
-          log.warn('query loop error', {
-            clientId,
-            error: message,
-            code: 'query_loop_stream_failed',
-            stage: 'provider_stream',
-            sessionId: failureSessionId,
-            errorName: err instanceof Error ? err.name : typeof err,
-            correlationId: failureCorrelationId,
-          });
+          sendFailure(
+            `Agent did not respond within ${seconds}s — the selected model may be unavailable on this provider.`,
+          );
+        } else if (!abortController.signal.aborted || runtimeFailure) {
           if (runtimeFailure && initialPromptAccepted && failureSessionId && store)
             reportRetainedRuntimeFailure({
               store,
@@ -2357,7 +2366,7 @@ async function _runQueryLoopInner(
               deliver: (event) =>
                 deliverRetainedSessionEvent(event, clientId, registry, connRegistry),
             });
-          else sendFailure(message);
+          else sendFailure(failureMessage);
         }
       }
     } finally {
