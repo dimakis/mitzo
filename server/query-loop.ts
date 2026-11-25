@@ -256,6 +256,8 @@ export interface QueryLoopOptions {
   onInitialPrompt?: (sessionId: string) => void;
   /** Called when a parent provider turn starts, including later queued turns. */
   onTurnStart?: (clientId: string) => void;
+  /** Allowlisted trace-only identity from the resolved runtime/command owner. */
+  turnTraceAttributes?: () => Readonly<Record<string, string>>;
   /** Called at the provider's terminal result, after all renderer messages. */
   onTurnEnd?: (clientId: string) => void;
   /** Owned SDK queries qualify replays against their exact submitted input. */
@@ -1445,6 +1447,8 @@ async function _runQueryLoopInner(
 
             // Start turn child span under the session span
             currentTurnSpan = tracer.startSpan('turn', {}, context.active());
+            if (options?.turnTraceAttributes)
+              currentTurnSpan.setAttributes(options.turnTraceAttributes());
             currentTurnSpan.setAttribute('turn.index', turnIndex);
             currentTurnSpan.setAttribute(
               'turn.message_id',

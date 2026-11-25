@@ -52,7 +52,9 @@ async function fixture(path = ':memory:') {
     selectionRevision: 'selection',
     profileRevision: 'profile',
   };
-  let connection = {
+  let connection: NonNullable<
+    ReturnType<Parameters<typeof createPrMonitorController>[0]['connection']>
+  > = {
     id: connectionId,
     ownerId: 'operator',
     templateId: 'github-readonly',
