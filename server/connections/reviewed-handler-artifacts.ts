@@ -66,7 +66,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-sdk-query-adapter.test.ts':
     '9601a0147184fd2adb2a2d430cca1e6bc79b8eb96c85e0ef058dc419957747d9',
   '../../frontend/src/components/SymposiumComposer.css':
-    '59c686c3e52d1f5cb5c56ec7241801fb08fca911c607678438e7bcc9e46d7be1',
+    'fd45c17c80ea1a22e85ec1da1f152fc2f42b677e2a65d52af93ccda85abd5f47',
   '../../tests/fixtures/composer-responsive.tsx':
     'f11043b10b6685e3b4b1c34a4f8ab3721668e9f6ec6cd29badddacea5190c11e',
   '../../tests/offline/composer-responsive.spec.ts':

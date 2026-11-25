@@ -47,6 +47,9 @@
     order: 3;
     flex: 1 0 0;
     height: 0;
+    /* The spacer must not cost a column gap, or five actions no longer fit
+       on the second row at 280px. */
+    margin-inline-end: -4px;
   }
   .chat-input--compact .composer-toolbar[data-symposium] .composer-actions > * {
     order: 4;
