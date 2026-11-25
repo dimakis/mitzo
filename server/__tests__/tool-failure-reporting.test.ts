@@ -14,6 +14,9 @@ import { isIntrinsicRecoveryRead } from '../builtin-tool-behavior.js';
 import { qualifyToolResult, reportToolFailure } from '../tool-failure-reporting.js';
 import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
 import { annotateAuthorityFailure } from '../runtime-failure-diagnostics.js';
+import { AgentCommunicationError } from '../agent-message-runtime.js';
+import { runGuardedTool, ToolGuardRetiredError } from '@mitzo/harness';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 it.each([
   ['ReadKnowledge', {}],
@@ -120,4 +123,38 @@ it('retains annotated SDK authority checks without leaking the original error', 
     authorityChecks: ['sdk.command_tool'],
   });
   expect(JSON.stringify(logged.at(-1))).not.toContain('private upstream payload');
+});
+
+it('logs a stable code and stage when a callback reaches a settled tool guard', async () => {
+  logged.length = 0;
+  let captured!: ReturnType<typeof AsyncLocalStorage.snapshot>;
+  await runGuardedTool({ signal: new AbortController().signal }, async () => {
+    // A resource created inside a call keeps that call's async context.
+    captured = AsyncLocalStorage.snapshot();
+  });
+  const error = await captured(() =>
+    runGuardedTool({ signal: new AbortController().signal }, async () => 'late'),
+  ).catch((cause: unknown) => cause);
+  expect(error).toBeInstanceOf(ToolGuardRetiredError);
+  reportToolFailure(error, {
+    sessionId: 'peer-started',
+    tool: 'AgentCommunication',
+    signal: new AbortController().signal,
+  });
+  expect(logged.at(-1)).toMatchObject({
+    causes: [{ name: 'ToolGuardRetiredError', code: 'tool_callback_retired', stage: 'tool_guard' }],
+  });
+});
+
+it('logs the code-owned stage of an agent communication refusal', () => {
+  logged.length = 0;
+  reportToolFailure(
+    new AgentCommunicationError('sender_authority_changed', 'authorization', 'Changed.'),
+    { sessionId: 'session', tool: 'AgentCommunication', signal: new AbortController().signal },
+  );
+  expect(logged.at(-1)).toMatchObject({
+    causes: [
+      { name: 'AgentCommunicationError', code: 'sender_authority_changed', stage: 'authorization' },
+    ],
+  });
 });

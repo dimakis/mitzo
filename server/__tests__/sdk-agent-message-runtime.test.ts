@@ -22,6 +22,12 @@ import request from 'supertest';
 import { createCodexQueueRouter } from '../codex-queue-routes.js';
 import { lateSteerHold } from '../sdk-late-steer-hold.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
+// Settlement failures must stay observable, so capture the warning rather than
+// letting it reach the root logger.
+const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', () => ({
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() }),
+}));
 
 const cleanup: Array<() => void> = [];
 const defaultEchoTimeout = lateSteerHold.echoTimeoutMs;
@@ -97,6 +103,11 @@ function fixture(prepareWorker?: (events: EventStore) => void) {
       return events;
     },
     reopen: () => {
+      // A restart is a process boundary: the previous process's controller and
+      // every abort listener bound to it die with it. Handing the registered
+      // session a fresh controller keeps teardown from aborting a runtime that
+      // has already outlived the store it was created with.
+      session.abortController = new AbortController();
       events.close();
       events = new EventStore(path);
     },
@@ -568,8 +579,10 @@ it.each(['exact', 'wrong-text', 'foreign-uuid'] as const)(
     expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original']);
     expect(f.resultIds).toEqual([]);
     expect(f.state().completing).toBe(false);
+    // A mismatched echo makes delivery unknown. A foreign echo is not this
+    // message's ACK: the claimed admission is still awaiting its provider ACK.
     expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe(
-      ack === 'exact' ? 'delivered' : 'uncertain',
+      ack === 'exact' ? 'delivered' : ack === 'wrong-text' ? 'uncertain' : 'pending',
     );
     if (ack !== 'exact') {
       expect(await f.runtime.steer(f.message, () => {}, f.session.abortController.signal)).toBe(
@@ -660,7 +673,8 @@ it('keeps the original command unsettled and never replays it when recipient aut
 it('uses priority-next stdin input (now would abort the running turn), and accepts only its exact replay ACK without consuming the original command input or result', async () => {
   const f = fixture();
   const runtime = f.create();
-  expect(await runtime.steer(f.message, () => {}, new AbortController().signal)).toBe('uncertain');
+  // Held by the live query's input stream: queued until its exact replay ACK.
+  expect(await runtime.steer(f.message, () => {}, new AbortController().signal)).toBe('queued');
   const input = f.push.mock.calls[0][0];
   expect(input).toMatchObject({
     uuid: f.message.messageId,
@@ -717,17 +731,52 @@ it.each(['revoked', 'expired', 'stopped', 'successor'] as const)(
 it('leaves a lost ACK uncertain and reconciles the exact retained replay after restart without resending', async () => {
   const f = fixture();
   const runtime = f.create();
-  await runtime.steer(f.message, () => {}, new AbortController().signal);
+  expect(await runtime.steer(f.message, () => {}, new AbortController().signal)).toBe('queued');
+  // As the AgentCommunication admission owner records it.
+  f.events.agentCommunication.settleAdmission(f.message.messageId, 'queued');
   const input = f.push.mock.calls[0][0];
   runtime.beforeInput(input);
-  expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe('uncertain');
+  expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe('queued');
   f.reopen();
+  // The process that held the steer is gone without its ACK: unknown, not queued.
+  expect(f.events.agentCommunication.read('sender', f.message.messageId)).toMatchObject({
+    status: 'uncertain',
+    reason: 'admission_uncertain',
+  });
   const restarted = f.create();
   expect(
     restarted.observe({ type: 'user', uuid: f.message.messageId, message: input.message }),
   ).toBe(true);
   expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe('delivered');
   expect(f.push).toHaveBeenCalledTimes(1);
+});
+
+it('reports a peer receipt it cannot settle on abort instead of leaving it looking queued', async () => {
+  const f = fixture();
+  const runtime = f.create();
+  expect(await runtime.steer(f.message, () => {}, new AbortController().signal)).toBe('queued');
+  f.events.agentCommunication.settleAdmission(f.message.messageId, 'queued');
+  // Shutdown can abort a session after its durable store is already closed. The
+  // receipt outcome is then unknown, and the failed settlement is still visible.
+  const controller = f.session.abortController;
+  f.reopen();
+  warn.mockClear();
+  controller.abort();
+  expect(warn).toHaveBeenCalledWith(
+    'Unacknowledged SDK peer input receipt not settled',
+    expect.objectContaining({
+      code: 'peer_receipt_settlement_failed',
+      stage: 'session_abort',
+      messageId: f.message.messageId,
+      causeType: 'TypeError',
+    }),
+  );
+  // The receipt never appears to have succeeded: restart recovery leaves it
+  // unknown rather than delivered or queued.
+  expect(f.events.agentCommunication.read('sender', f.message.messageId)).toMatchObject({
+    status: 'uncertain',
+    reason: 'admission_uncertain',
+  });
 });
 
 it('passes peer replay through the SDK adapter and real query consumer without changing original result correlation', async () => {

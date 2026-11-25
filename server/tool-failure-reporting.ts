@@ -26,8 +26,11 @@ export function qualifyToolResult<T extends CodexToolResult>(
   return result;
 }
 
-type CauseEntry = { name: string; code?: string; kind?: string; reason?: string };
+type CauseEntry = { name: string; code?: string; stage?: string; kind?: string; reason?: string };
 const codeOwnedReason = /^[a-z0-9-]{1,64}$/;
+/** Constant failure stages declared by host error classes (for example
+ * AgentCommunicationError or ToolGuardRetiredError), never message text. */
+const codeOwnedStage = /^[a-z][a-z_]{0,63}$/;
 
 /** Class names, errno codes and code-owned refusal reasons only: messages may
  * carry paths or upstream payloads. */
@@ -39,9 +42,11 @@ function causeChain(error: unknown): CauseEntry[] {
       break;
     }
     const code = (current as NodeJS.ErrnoException).code;
+    const stage = Object.getOwnPropertyDescriptor(current, 'stage')?.value;
     chain.push({
       name: current.name,
       ...(typeof code === 'string' && /^[A-Za-z_]{1,64}$/.test(code) ? { code } : {}),
+      ...(typeof stage === 'string' && codeOwnedStage.test(stage) ? { stage } : {}),
       ...(current instanceof LocalRepositoryGitInspectionError &&
       codeOwnedReason.test(current.reason)
         ? { kind: current.kind, reason: current.reason }
