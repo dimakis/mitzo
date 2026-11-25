@@ -6,7 +6,12 @@ import { tmpdir } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { EventStore } from '../src/event-store.js';
 import { PR_MONITOR_CLAIM_TTL_MS } from '../src/pr-monitor-lease.js';
-import { subscription, snapshot, finding, watch } from './fixtures/pr-monitor.js';
+import {
+  subscription,
+  snapshot,
+  finding,
+  watch,
+} from '../../../server/__tests__/fixtures/pr-monitor.js';
 
 const cleanup: (() => void | Promise<unknown>)[] = [];
 afterEach(async () => {

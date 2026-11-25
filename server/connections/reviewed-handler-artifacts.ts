@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1275-pr-monitor-runtime';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1277-pr-monitor-lease';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4917,11 +4917,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/__tests__/github-read-quota.test.ts':
     '275b4d35b6dcf2f7fa1a5a7e1e7f9d1c1a87c10c9c7fd22647e2d95c063196fb',
   '../../packages/protocol/__tests__/pr-monitor-store.test.ts':
-    '33eea4e70581de163d36a7b8e3f6e6c8addd099b21e32b592335650b626437af',
+    '1e18e7a7b955bb1c04c23c8b79a7b2c808751dffdc04b05c77c3af011af0aca7',
   '../../packages/protocol/src/github-read-quota.ts':
     '79bd186c0b212512f546605af9e5adfbd8752caa566637127862b55fd091f640',
   '../../packages/protocol/src/pr-monitor-store.ts':
-    '7b5d2e357188d6a0ea9cad5c1e0817074be5f1bfb2e1cb22527ec4a4ad8175e4',
+    'f4eeb808ebf88a672e204d06f93b9b86fb2846ce7910e6920b05a8a90025d51a',
   '../../packages/protocol/src/pr-monitor.ts':
     '9ae0ce58688aeeb47472ffac588c5e606a911b923a8776e28306a9117c66cfa9',
   '../__tests__/pr-monitor-consent.test.ts':
@@ -4935,7 +4935,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-read-response.ts': 'f4cd0cdf394a46b54e6589cfb035249529d02d7adc5fd36d72ab4448b00773d8',
   '../pr-monitor-consent.ts': '39000037736a7df4b0fd5a5914b382351c79ad7556596f61615417ea8f6eb388',
   '../pr-monitor-github.ts': 'cfde967e77e2a566fc031eba96e2e575f80774f58920cb843f42c45079b3264e',
-  '../pr-monitor-observer.ts': '9b7788569af08f7e97a7032fa5dc0c1e0b7cddc6161f3e71979c9a95491a2beb',
+  '../pr-monitor-observer.ts': '51d872179e4bcc94a29d9cd20a9891cca90ea5c3a0c8fea679d092e3364803c2',
   '../pr-monitor-runtime.ts': 'cb340e94d1c0cd10ff2556ea7f75a70ab7fc9888423c621ce6046910077c7bf3',
   '../__tests__/pr-monitor-application.test.ts':
     '0a3127bebf18c5404b7e6aca03277c7e025afb06120cb6547b088d697cef4562',
@@ -4949,4 +4949,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '933a790188920368ef2a48738c0dfa46a51fd6fc325223cc5815c694acdf3e7d',
   '../pr-monitor-centaur.ts': '2ae376ef41f1ff6f7c6f4dcd7e7029a6b1445145985fa544f21a1f1bf27e5e47',
   '../pr-monitor-controller.ts': '77d67deedce12416dadd68fd22ddb3b73bc0f5a929561e00725bafa67d68fb42',
+  '../../packages/protocol/src/pr-monitor-lease.ts':
+    '7ef9b0e252395e6c0401ef763202d144c511520b500b4b6b6688e7274c8b5599',
+  '../../packages/protocol/__tests__/pr-monitor-lease.test.ts':
+    '05170566ed76b3098c83f3f13a8b92632b91d66d33b9d0b03679695bd3869ffc',
+  '../__tests__/pr-monitor-observer-lease.test.ts':
+    '977c07a967cd72ee080db6df569fdc8ed433eea6b75134b002339d43500db5c8',
+  '../__tests__/fixtures/pr-monitor.ts':
+    'd3b1cdb02be58f931387a884f923bbbee641f4094569d44db7b723f5068f83f6',
 });

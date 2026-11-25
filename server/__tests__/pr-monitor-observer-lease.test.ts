@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../packages/protocol/src/event-store.js';
-import { subscription, watch } from '../../packages/protocol/__tests__/fixtures/pr-monitor.js';
+import { subscription, watch } from './fixtures/pr-monitor.js';
 import { PR_MONITOR_CLAIM_TTL_MS } from '../../packages/protocol/src/pr-monitor-lease.js';
 import { PrMonitorObserver, type PrMonitorReadPort } from '../pr-monitor-observer.js';
 import { PrMonitorConsent } from '../pr-monitor-consent.js';
@@ -29,7 +29,9 @@ function fixture() {
     b.close();
   });
   const sql = new Database(path);
-  cleanup.push(() => sql.close());
+  cleanup.push(() => {
+    sql.close();
+  });
   for (const store of [a, b])
     (store as unknown as { db: Database.Database }).db.pragma('busy_timeout=0');
   let now = Date.now();

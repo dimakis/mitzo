@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { PrMonitorSubscription } from '../../src/pr-monitor.js';
-import type { EventStore } from '../../src/event-store.js';
+import type { PrMonitorSubscription } from '../../../packages/protocol/src/pr-monitor.js';
+import type { EventStore } from '../../../packages/protocol/src/event-store.js';
 
 export const subscription = (id = randomUUID()): PrMonitorSubscription => ({
   version: 1,
