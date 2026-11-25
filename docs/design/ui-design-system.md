@@ -746,6 +746,22 @@ empty search/collection, readable tabs and session isolation. Captures show
 
 ## Token usage
 
+The existing usage details include **Inspect context**, which opens `HomeDialog`
+with the native snapshot contract. The ring, its recorded counters and composer
+placement retain their existing owners. Per-agent inspection remains scoped to
+that agent; the legacy recorded-usage endpoint is not a snapshot substitute.
+Use quiet definition rows, semantic tokens and `MotionPresence` disclosures for
+categories, source contributions and explicit full-detail consent. Show exact
+numeric token values, observation time, accounting basis and freshness. Unknown
+occupancy/capacity never becomes zero or a percentage. Contributions are not added
+to occupancy, and opaque references do not open sources.
+
+Opening reads saved evidence only. Summary refresh is explicit; full detail has
+a separate unchecked consent for token-count API/network overhead and possible
+charges. Close, chat change and authentication changes retire reads. There is no
+automatic retry or polling. See [implementation checks and visual verification
+limits](../evidence/context-snapshot-inspector.md).
+
 The conversation token popover groups latest context/request capacity separately
 from cumulative usage, with short explanatory notes. Native request totals and
 session input-context observations retain their distinct labels. Runtime-reported
