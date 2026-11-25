@@ -319,10 +319,29 @@ That workflow guard is defense in depth, not the security boundary: a
 `pull_request` run executes the PR's own workflow file, so a fork could edit
 `runs-on`. Before setting the variable, require approval for workflow runs from
 all outside collaborators in the repository's Actions settings, and never
-approve a fork run that touches `.github/`. The runner host needs
-`/Applications/Xcode_26.6.app`, the iOS simulator runtime, Python 3 and no
-persistent credentials beyond the runner registration. Unset the variable to
-return to hosted runners immediately.
+approve a fork run that touches `.github/`. Unset the variable to return to
+hosted runners immediately.
+
+Workflows and composite actions never hardcode the hosted runner home or tool
+cache; `scripts/__tests__/ci-macos-runner.test.ts` enforces this. Use
+`$RUNNER_TEMP`, `$HOME` or `runner.temp`. Steps that depend on the hosted image
+branch on `runner.environment`. The self-hosted runner host needs:
+
+- **Xcode with Swift 6.3 or newer.** The `native` job uses
+  `MITZO_CI_DEVELOPER_DIR` from the runner's `.env` file, or else the
+  `xcode-select -p` default, and fails clearly below Swift 6.3. Hosted runs keep
+  `/Applications/Xcode_26.6.app`. The iOS simulator runtime must also be
+  installed.
+- **`python3.13` on the runner service PATH**, for example from Homebrew. Set it
+  in the runner's `.path` or `.env`. `actions/setup-python` only runs on hosted
+  runners, because its macOS builds install under the hosted runner home.
+- **`gh`, `git`, `shasum` and Node download access** on the runner PATH.
+  `setup-node` installs into the runner's own tool cache.
+- No persistent credentials beyond the runner registration.
+
+The native repository job's real OS-sandbox and Keychain checks run as the
+runner's user. Diagnose a failure there from its job log before enabling the
+variable again.
 
 ## One bounded infrastructure retry
 
