@@ -27,6 +27,27 @@ import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.j
 import { SharedAuthorityProof } from './shared-authority-proof.js';
 import type { AuthSession } from './auth.js';
 const unavailable = () => Error('Owned Local Claude runtime unavailable');
+/**
+ * Startup dispatches currently owned by this process. A command is durably
+ * `uncertain` from its dispatch claim until the SDK accepts its input, which
+ * spans workspace preparation and SDK startup. Read-only status uses this to
+ * tell that expected in-flight window apart from an orphaned dispatch (for
+ * example after a restart). It grants no dispatch or admission authority.
+ */
+const startupDispatches = new Map<
+  string,
+  { commandId: string; owner: OrdinaryLocalVertexOwnedRuntime }
+>();
+export function ownedLocalVertexStartupInFlight(sessionId: string, authSessionId: string): boolean {
+  const startup = startupDispatches.get(sessionId);
+  return (
+    !!startup &&
+    !startup.owner.signal.aborted &&
+    ordinaryOperatorOwnsConversation(startup.owner.authSessionId, authSessionId) &&
+    // Any other uncertain command is not this startup's and keeps its warning.
+    !eventStore.hasUncertainOrdinaryCommand(sessionId, startup.commandId)
+  );
+}
 export async function continueOwnedLocalVertexQueue(
   sessionId: string,
   authorization: AuthSession | undefined,
@@ -379,8 +400,10 @@ export async function startOwnedLocalVertexCommand(
   options.signal?.addEventListener('abort', abortPreparation, { once: true });
   if (options.signal?.aborted) abortPreparation();
   let release: (() => void) | undefined;
+  const startup = { commandId: command.clientMsgId, owner };
   try {
     release = eventStore.reserveOrdinaryStartup([sessionId]);
+    startupDispatches.set(sessionId, startup);
     const result = await (options.resume
       ? owner.admitResume(options.command, options.sdkRetrySourceCommandId)
       : owner.admit(options.command));
@@ -393,6 +416,7 @@ export async function startOwnedLocalVertexCommand(
       'claude.owned_startup',
     );
   } finally {
+    if (startupDispatches.get(sessionId) === startup) startupDispatches.delete(sessionId);
     options.signal?.removeEventListener('abort', abortPreparation);
     release?.();
   }

@@ -11,6 +11,10 @@ export function assertTurnCallbackEffects(): void {
   assertToolGuardCurrent();
   effectOwners.getStore()?.();
 }
+/** See runOutsideToolGuard: a runtime resource never borrows its creator's turn. */
+export function runOutsideTurnCallbackEffects<T>(work: () => T): T {
+  return effectOwners.exit(work);
+}
 const outcomes = new WeakMap<object, 'settled' | 'unknown'>();
 /** Original trusted callback results only: JSON, spreads and database copies cannot carry this receipt. */
 export function retainCallbackOutcome<T extends object>(

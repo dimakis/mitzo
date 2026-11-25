@@ -179,10 +179,11 @@ it('publishes the same durable events live and stops watching when the owner clo
     { turnId: 'turn', callId: 'call' },
     { requestId: randomUUID(), recipientConversationId: 'b', text: 'Visible immediately' },
   );
+  // An in-flight claim keeps the public receipt pending; it publishes nothing.
   store.agentCommunication.claim(sent.messageId);
   store.agentCommunication.recordForHost(sent.messageId, 'queued');
   await new Promise<void>((resolve) => queueMicrotask(resolve));
-  expect(published).toHaveLength(3);
+  expect(published).toHaveLength(2);
   expect(reads).toHaveBeenCalledTimes(1);
   expect(
     published.every(
@@ -195,7 +196,7 @@ it('publishes the same durable events live and stops watching when the owner clo
   unwatch();
   store.agentCommunication.recordForHost(sent.messageId, 'delivered');
   await new Promise<void>((resolve) => queueMicrotask(resolve));
-  expect(published).toHaveLength(3);
+  expect(published).toHaveLength(2);
   expect(reads).toHaveBeenCalledTimes(1);
 });
 
@@ -220,7 +221,7 @@ it('does not lose a receipt update created during a coalesced wakeup', async () 
   expect(seen).toEqual(['queued', 'delivered']);
   expect(
     store.getSessionEvents('b').filter((event) => event.type === 'agent_message'),
-  ).toHaveLength(4);
+  ).toHaveLength(3);
   unwatch();
 });
 

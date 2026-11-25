@@ -26,6 +26,9 @@ extensions:
 receivers:
   otlp:
     protocols:
+      # Internal self-tracing uses the SDK default gRPC exporter.
+      grpc:
+        endpoint: 127.0.0.1:4317
       http:
         endpoint: 0.0.0.0:4318
 

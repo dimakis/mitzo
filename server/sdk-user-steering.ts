@@ -15,6 +15,8 @@ type Pending = {
   attempted: boolean;
   rejected?: boolean;
   query?: object;
+  /** Time of the stdin release whose provider echo can accept this input. */
+  releasedAt?: number;
   /** This input already kept one terminal result open for its follow-up turn. */
   heldTurn?: boolean;
   waiters: Set<(status: Outcome) => void>;
@@ -24,6 +26,10 @@ type Pending = {
  * follow-up turn when it arrives during the final request. Verified live against
  * the bundled CLI on 17 November 2026 (claude-haiku-5-5). */
 export const SDK_STEER_PRIORITY = 'next' as const;
+/** Initial receipt window, echo wait after an in-window stdin release, and the
+ * overall cap for the initial HTTP receipt. Silence stays `uncertain`. */
+export const RECEIPT_ECHO_WAIT_MS = 1500;
+export const RECEIPT_MAX_WAIT_MS = 4000;
 function sameContent(actual: unknown, expected: unknown) {
   const text = (value: unknown) =>
     typeof value === 'string'
@@ -153,14 +159,29 @@ export class SdkUserSteering {
     if (status !== 'uncertain') return Promise.resolve({ status });
     const pending = this.pending.get(receipt.uuid);
     if (!pending) return Promise.resolve({ status: 'uncertain' });
+    // Pre-stdin admission checks can take about a second before release, and the
+    // provider echo follows it (longer with screenshots). A release inside the
+    // initial window earns a full echo wait from that release, within a cap, so a
+    // prompt ACK is not reported as unconfirmed. Later silence stays `uncertain`.
+    const started = Date.now();
     return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout>;
       const finish = (status: Outcome) => {
         clearTimeout(timer);
         pending.waiters.delete(finish);
         resolve({ status });
       };
-      const timer = setTimeout(() => finish('uncertain'), 1500);
+      const expire = () => {
+        const now = Date.now();
+        const deadline =
+          pending.releasedAt === undefined
+            ? now
+            : Math.min(started + RECEIPT_MAX_WAIT_MS, pending.releasedAt + RECEIPT_ECHO_WAIT_MS);
+        if (now >= deadline) finish('uncertain');
+        else timer = setTimeout(expire, deadline - now);
+      };
       pending.waiters.add(finish);
+      timer = setTimeout(expire, RECEIPT_ECHO_WAIT_MS);
     });
   }
   beforeInput(
@@ -199,6 +220,7 @@ export class SdkUserSteering {
     }
     events.userSteering.transition(sessionId, operator, pending.input, 'submitted');
     pending.attempted = true;
+    pending.releasedAt = Date.now();
     pending.query = query;
     log.info('SDK correction released to provider stdin', {
       code: 'sdk_correction_submitted',

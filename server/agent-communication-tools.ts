@@ -665,6 +665,20 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         };
         assertAdmissionCurrent();
         if (!owners.events.agentCommunication.claim(message.messageId)) return reconcile(message);
+        // The receipt stays pending while this admission is in flight. Only an
+        // admission that ends without a delivery fact becomes uncertain.
+        const settled = () => {
+          const result = reconcile(
+            owners.events.agentCommunication.read(owners.conversationId, message.messageId),
+          );
+          if (result.status !== 'pending') return result;
+          owners.events.agentCommunication.settleAdmission(
+            message.messageId,
+            'uncertain',
+            'admission_uncertain',
+          );
+          return owners.events.agentCommunication.read(owners.conversationId, message.messageId);
+        };
         try {
           const adapter = agentMessageRuntime(target.session, captured.auth.id);
           if (adapter) {
@@ -676,31 +690,30 @@ export function sessionAgentCommunicationTools(owners: Owners) {
                   : 'rejected';
             if (result === 'accepted')
               owners.events.agentCommunication.recordForHost(message.messageId, 'delivered');
-            else if (
-              result === 'queued' &&
-              owners.events.agentCommunication.forHost(message.messageId).message.status !==
-                'delivered'
-            )
-              owners.events.agentCommunication.recordForHost(message.messageId, 'queued');
             else if (result === 'rejected' || result === 'inactive')
-              owners.events.agentCommunication.recordForHost(
+              owners.events.agentCommunication.settleAdmission(
                 message.messageId,
                 'failed',
                 'steering_rejected',
               );
+            // Queued is a claim about a live recipient, not a delivery fact.
+            // Recheck synchronously first: if the recipient ended meanwhile, its
+            // abort cleanup already ran and this admission settles uncertain.
             assertAdmissionCurrent();
-            return reconcile(message);
+            if (result === 'queued')
+              owners.events.agentCommunication.settleAdmission(message.messageId, 'queued');
+            return settled();
           }
           const steering = await owners.steer?.(target.session, message, assertAdmissionCurrent);
           if (steering && steering !== 'inactive') {
             if (steering === 'rejected')
-              owners.events.agentCommunication.recordForHost(
+              owners.events.agentCommunication.settleAdmission(
                 message.messageId,
                 'failed',
                 'steering_rejected',
               );
             assertAdmissionCurrent();
-            return reconcile(message);
+            return settled();
           }
           assertAdmissionCurrent();
           if (!driver.admitAgentMessage)
@@ -717,25 +730,32 @@ export function sessionAgentCommunicationTools(owners: Owners) {
           );
           assertAdmissionCurrent();
           if (result.dispatched) {
-            owners.events.agentCommunication.recordForHost(message.messageId, 'queued');
+            owners.events.agentCommunication.settleAdmission(message.messageId, 'queued');
             await owners.startQueued(target.session);
             current();
           }
         } catch (error) {
-          // Claim is already uncertain. Only an exact native ACK may repair
-          // delivery, never a second enqueue or optimistic success response.
+          // The claim is never re-admitted. Without an exact native ACK this
+          // admission settles as uncertain, never as a second enqueue or an
+          // optimistic success response.
+          try {
+            owners.events.agentCommunication.settleAdmission(
+              message.messageId,
+              'uncertain',
+              'admission_uncertain',
+            );
+          } finally {
+            log.warn('Agent message delivery not confirmed', {
+              ...agentCommunicationDiagnostic(error),
+              messageId: message.messageId,
+              commandId: message.commandId,
+              senderConversationId: message.senderConversationId,
+              recipientConversationId: message.recipientConversationId,
+            });
+          }
           current();
-          log.warn('Agent message delivery not confirmed', {
-            ...agentCommunicationDiagnostic(error),
-            messageId: message.messageId,
-            commandId: message.commandId,
-            senderConversationId: message.senderConversationId,
-            recipientConversationId: message.recipientConversationId,
-          });
         }
-        return reconcile(
-          owners.events.agentCommunication.read(owners.conversationId, message.messageId),
-        );
+        return settled();
       } catch (error) {
         if (error instanceof Error && !effectsStarted && !externalSignal.aborted)
           retainCallbackOutcome(error, 'settled');

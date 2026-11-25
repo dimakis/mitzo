@@ -14,6 +14,7 @@ import { observeAssistantFollowUp, withUncertainOutcomeNotice } from './turn-cal
 import { SdkQueryUsage } from './sdk-query-usage.js';
 import { sdkQueryRetiredEvent } from './sdk-query-retirement.js';
 import { createLogger } from './logger.js';
+import { createRuntimeOwnerContext } from './runtime-owner-context.js';
 
 const log = createLogger('sdk-turn-query');
 
@@ -97,29 +98,33 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
       yield input.value;
       await promptFinished;
     };
-    const native = owners.create({
-      prompt: prompt(),
-      options: {
-        ...options,
-        ...(!first ? { sessionId: undefined, resume: owners.sdkSessionId } : {}),
-        ...sdkCallbackOptions(options, owners.lifetime, () => state),
-        spawnClaudeCodeProcess: (request) => {
-          signal.throwIfAborted();
-          if (closed || state.retired) throw new SessionRuntimeError('turn_completed');
-          const child = options.spawnClaudeCodeProcess
-            ? options.spawnClaudeCodeProcess(request)
-            : spawn(request.command, request.args, {
-                cwd: request.cwd,
-                env: request.env,
-                signal: request.signal,
-                stdio: ['pipe', 'pipe', 'pipe'],
-                windowsHide: true,
-              });
-          processClose = observeOrdinarySdkProcessClose(child as ProtectedSdkProcess);
-          return child;
+    // Per turn: this runtime creates a successor query for every later input,
+    // so the trace must be the one that admitted this turn, not the first one.
+    const native = createRuntimeOwnerContext()(() =>
+      owners.create({
+        prompt: prompt(),
+        options: {
+          ...options,
+          ...(!first ? { sessionId: undefined, resume: owners.sdkSessionId } : {}),
+          ...sdkCallbackOptions(options, owners.lifetime, () => state),
+          spawnClaudeCodeProcess: (request) => {
+            signal.throwIfAborted();
+            if (closed || state.retired) throw new SessionRuntimeError('turn_completed');
+            const child = options.spawnClaudeCodeProcess
+              ? options.spawnClaudeCodeProcess(request)
+              : spawn(request.command, request.args, {
+                  cwd: request.cwd,
+                  env: request.env,
+                  signal: request.signal,
+                  stdio: ['pipe', 'pipe', 'pipe'],
+                  windowsHide: true,
+                });
+            processClose = observeOrdinarySdkProcessClose(child as ProtectedSdkProcess);
+            return child;
+          },
         },
-      },
-    });
+      }),
+    );
     first = false;
     let retired = false;
     return {

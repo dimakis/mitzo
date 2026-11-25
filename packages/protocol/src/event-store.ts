@@ -3403,6 +3403,9 @@ export class EventStore {
         getProviderAttempts: (token) => this.getProviderAttempts(token),
         toClientState,
       });
+      this.agentCommunication.recoverInterruptedAdmissions(
+        (commandId) => !!this.getSendCommand(commandId),
+      );
       this.agentCommunication.backfillTranscript();
       owner.seal();
     } catch (error) {

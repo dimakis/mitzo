@@ -167,6 +167,13 @@ export interface MitzoStoreState {
   // Pending session (for "Start Session" from inbox/todo)
   pendingSession: PendingSession | null;
   pendingSessionSending: boolean;
+  /**
+   * The session this client just created by sending without a session (a new
+   * chat), for the lifetime of that startup view only: cleared as soon as a
+   * different conversation is selected, so a later reopen is never "just
+   * created". Presentation only; grants no delivery or history authority.
+   */
+  startedSession: { id: string; shown: boolean } | null;
   chatDraftRevision: number;
   /** Active-session queue metadata invalidation; contains no message content. */
   queueRevision: number;
@@ -1399,6 +1406,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     modeChangeReady: true,
     pendingSession: null,
     pendingSessionSending: false,
+    startedSession: null,
     chatDraftRevision: 0,
     queueRevision: 0,
     sessionMetadataRevision: 0,
@@ -1572,7 +1580,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       localCommandScope = null;
       visibleLocalCommandId = undefined;
       ++launchGeneration;
-      set({ pendingSession: null, pendingSessionSending: false });
+      // A new chat ends any earlier startup view, shown or not.
+      set({ pendingSession: null, pendingSessionSending: false, startedSession: null });
       unconfirmedPermissionResponses.clear();
       ++historyRequest;
       recoveryInFlight = false;
@@ -2163,6 +2172,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.sendSuspend();
     },
   }));
+  // The creation record lives only for its startup view. Selecting it marks it
+  // shown; selecting any other conversation (or leaving it after it was shown)
+  // retires it, so reopening that chat later keeps the retained-history gate.
+  store.subscribe((state) => {
+    const started = state.startedSession;
+    if (!started) return;
+    const active = state.sessions.active;
+    if (active === started.id) {
+      if (!started.shown) store.setState({ startedSession: { ...started, shown: true } });
+    } else if (started.shown || active !== null) store.setState({ startedSession: null });
+  });
 
   function assignCommand(id: string, sessionId: string, hint?: Record<string, unknown>) {
     options.sendHandoff?.assign(id, sessionId, hint);
@@ -2186,6 +2206,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         deliveryOrigin.sessionId === parserState.currentSessionId &&
         deliveryOrigin.historyRequest === historyRequest &&
         deliveryOrigin.launchGeneration === launchGeneration;
+    // A send made without a session created this one here; record that
+    // explicitly rather than inferring creation from a view's id transition.
+    // Only the original foreground launch qualifies: an assignment arriving
+    // after navigation (new chat, other conversation) is not this view's start.
+    if (origin && foreground && store.getState().startedSession?.id !== sessionId)
+      store.setState({
+        startedSession: {
+          id: sessionId,
+          shown: store.getState().sessions.active === sessionId,
+        },
+      });
     // HTTP delivery can precede session_id. Retain the draft identity until that event.
     if (consume) unassignedDeliveries.delete(id);
     if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);

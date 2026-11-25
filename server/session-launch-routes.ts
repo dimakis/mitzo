@@ -1,6 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 import { z, ZodError } from 'zod';
-import { SessionLaunchApprovalSchema, SessionLaunchDefaultSaveSchema } from '@mitzo/protocol';
+import {
+  ORDINARY_COMMAND_STARTUP_TIMEOUT_MS,
+  SessionLaunchApprovalSchema,
+  SessionLaunchDefaultSaveSchema,
+} from '@mitzo/protocol';
 import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import { SessionLaunchDefaultsConflict, SESSION_LAUNCH_OWNER } from './session-launch-defaults.js';
@@ -21,10 +25,13 @@ export function createSessionLaunchRouter(deps: {
     signal: AbortSignal,
     action: (authority: SessionLaunchAuthority) => Promise<T>,
   ): Promise<T>;
+  /** Test seam; production shares New chat's ordinary startup deadline. */
+  startupTimeoutMs?: number;
 }) {
   const router = Router();
   const { defaults, launches } = deps.controller;
   const owner = SESSION_LAUNCH_OWNER;
+  const startupTimeoutMs = deps.startupTimeoutMs ?? ORDINARY_COMMAND_STARTUP_TIMEOUT_MS;
   router.use((_req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     const auth = res.locals.authSession as AuthSession | undefined;
@@ -32,23 +39,39 @@ export function createSessionLaunchRouter(deps: {
       return res.status(403).json({ error: 'Sign in to manage sessions.' });
     next();
   });
-  const act = async (
+  type Action = (auth: AuthSession, signal: AbortSignal) => Promise<unknown> | unknown;
+  const perform = async (
     req: Request,
     res: Response,
-    action: (auth: AuthSession, signal: AbortSignal) => Promise<unknown> | unknown,
-    respond: (value: unknown) => void = (value) => {
-      res.json(value);
-    },
+    action: Action,
+    options: { lifetime: 'request' | 'startup'; respond?: (value: unknown) => void },
   ) => {
     const auth = res.locals.authSession as AuthSession;
+    const respond =
+      options.respond ??
+      ((value: unknown) => {
+        res.json(value);
+      });
     const controller = new AbortController();
     const abort = () => controller.abort();
     const close = () => {
       if (!res.writableEnded) abort();
     };
     const unregister = registerAuthSession(auth, abort);
-    req.once('aborted', abort);
-    res.once('close', close);
+    const deadline =
+      options.lifetime === 'startup'
+        ? setTimeout(
+            () =>
+              controller.abort(
+                new DOMException('Session launch startup deadline exceeded', 'TimeoutError'),
+              ),
+            startupTimeoutMs,
+          )
+        : undefined;
+    if (options.lifetime === 'request') {
+      req.once('aborted', abort);
+      res.once('close', close);
+    }
     try {
       if (!isAuthSessionCurrent(auth))
         throw new SessionLaunchError('Session authorization expired.', 403);
@@ -78,11 +101,22 @@ export function createSessionLaunchRouter(deps: {
               : 'Review the complete session configuration.',
       });
     } finally {
+      clearTimeout(deadline);
       unregister();
       req.off('aborted', abort);
       res.off('close', close);
     }
   };
+  /** Reads and local record edits end with their client. */
+  const act = (req: Request, res: Response, action: Action, respond?: (value: unknown) => void) =>
+    perform(req, res, action, { lifetime: 'request', respond });
+  /** Start, approve, resume and release commit workspace, session, provider and
+   * Telos effects. A phone backgrounding mid-request is not a cancellation:
+   * aborting there leaves an unconfirmed command that blocks the child chat.
+   * Login revocation and New chat's startup deadline still bound the work, and
+   * the retained record reports its outcome on the client's next read. */
+  const commit = (req: Request, res: Response, action: Action) =>
+    perform(req, res, action, { lifetime: 'startup' });
   const withAuthority = async <T>(
     auth: AuthSession,
     signal: AbortSignal,
@@ -115,7 +149,7 @@ export function createSessionLaunchRouter(deps: {
     act(req, res, () => defaults.save(owner, SessionLaunchDefaultSaveSchema.parse(req.body))),
   );
   router.post('/requests/start', requireSameOriginJson, (req, res) =>
-    act(req, res, (auth, signal) =>
+    commit(req, res, (auth, signal) =>
       withAuthority(auth, signal, async (authority) => {
         const { sourceSessionId, requestId, saveAsDefault, ...edits } =
           SessionLaunchApprovalSchema.omit({ expectedRevision: true })
@@ -234,7 +268,7 @@ export function createSessionLaunchRouter(deps: {
     ),
   );
   router.post('/requests/:proposalId/approve', requireSameOriginJson, (req, res) =>
-    act(req, res, async (auth, signal) => {
+    commit(req, res, async (auth, signal) => {
       const id = z.uuid().parse(req.params.proposalId);
       const record = source(id);
       const { expectedRevision, saveAsDefault, ...edits } = SessionLaunchApprovalSchema.parse(
@@ -266,7 +300,7 @@ export function createSessionLaunchRouter(deps: {
     }),
   );
   router.post('/requests/:proposalId/resume', requireSameOriginJson, (req, res) =>
-    act(req, res, async (auth, signal) => {
+    commit(req, res, async (auth, signal) => {
       const id = z.uuid().parse(req.params.proposalId);
       const record = source(id);
       const { expectedRevision } = z
@@ -293,7 +327,7 @@ export function createSessionLaunchRouter(deps: {
     }),
   );
   router.post('/requests/:proposalId/release', requireSameOriginJson, (req, res) =>
-    act(req, res, async (auth, signal) => {
+    commit(req, res, async (auth, signal) => {
       const id = z.uuid().parse(req.params.proposalId),
         record = source(id);
       const { expectedRevision } = z
