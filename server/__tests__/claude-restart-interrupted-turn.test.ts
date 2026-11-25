@@ -12,6 +12,9 @@ import { replayEventsToMessages } from '../conversation-transcript.js';
 import { readClaudeAccountHistory } from '../claude-account-history.js';
 import { getSessionInfo, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 
+// Each case builds a real repository workspace and owned SDK route; bound it
+// like the sibling owned-runtime suites rather than the 5s default.
+vi.setConfig({ testTimeout: 20_000 });
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
 // Same offline host harness as claude-repository-deploy-continuity.test.ts.
 vi.mock('../claude-account-history.js', () => ({

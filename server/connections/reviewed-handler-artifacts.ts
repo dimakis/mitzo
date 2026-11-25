@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1275-restart-interrupted-turns';
+  'v1.0.1278-restart-interrupted-turns';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-cli-restart-resume-offline.test.ts':
     '6d036d15be2e409f2e5addc207cab41304303b8e3dea5fba4d64f26347529356',
   '../__tests__/claude-restart-interrupted-turn.test.ts':
-    '8106e8984b7e465783d64c7ebc7ebf2aa4c9f60bb19ab12cefbbec9d47118b48',
+    'd5acb021cc475c75f66f17f006433c7cc7cb3b4f710453b6c818629e69c0a6d6',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -1543,7 +1543,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/deployment-store.ts':
     '06980f353fa11edc16a5e8f75fb8de4b4679853b979d71a1e3d819f76007e04a',
   '../../packages/protocol/src/event-store.ts':
-    '542ea0aabe9c7203b6e5fb665620cdd39563d85f77a34597515c4e6dfffa6cfc',
+    '5e1487b5724cd3c9c0a46f7e429f897d1818fb2a8dd46fa1fb5380c5cd09a146',
   '../../packages/protocol/src/execution-ledger.ts':
     '1399fe4c7ffcebea20fa4374083d0e14b90aba619f3b3349439882ba01851b88',
   '../../packages/protocol/src/index.ts':
@@ -3623,7 +3623,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-work-delegation.test.ts':
     'e6bb4337a3fedc2171eab88c7fbe11eefcd16a9f13303b6b17e5413ee6658067',
   '../__tests__/telos-work-observation.test.ts':
-    '219e8a8e40add74436c13a952396d043f85c6c27f5de7e36e3efcc2bd42cfd4a',
+    '845c8a0a85b76cdf0c0fa4ad4f2437d06f323ab597250234209d0645b6e6db39',
   '../__tests__/telos-work-role-host.test.ts':
     'b98939239e3a98b58983843aa1aa2e35765022d9d47d6d5ca60fc215546adfe6',
   '../__tests__/telos-work-role-setup.test.ts':
@@ -3743,7 +3743,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../api-tool-router.ts': '2b95fa7fa918be7ea1b59e04293d7fbbd80e55ef719d1b0a90e65ffb2e0b3eef',
   '../api-tool-runtime.ts': 'b81ed9f222e6b6aea47425b4fa33511c26235e02e5c548221522bd2cae43ed6c',
   '../api-tool-template.ts': '32908a45ddeacada75dfb4a1d0e8d2370b3fe441fabf8dad3d2fd3edb8eb8c51',
-  '../app.ts': '20e11b4626a1bf8879eb3b26fb570c37c32b340406d49cfac8c20b547b59725d',
+  '../app.ts': 'dbbbbc6c595a2358cc481faa5c213d5d21cf75f7ec0a6493fccd43df98800ad9',
   '../approved-url-fetch.ts': '523bbd692e74a9c16b7fd851b6b4b1cdc6be5581e083c04f9549662e11548ee3',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../auth-route-boundary.ts': '9b853baf795f6c65a7cf956311787d049c961291cf4817ad53ad9e22ec62dd4c',
@@ -4819,7 +4819,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '50e9126e67121fd28e1d00f225cf90310addafe9d3caa0f2ada25cd3394ca146',
   '../telos-work-lifecycle.ts': '64150df427908d95609feb3e149ec79bfe36263fd1a00fae1917538c5be2cdb9',
   '../telos-work-observation.ts':
-    '13665dc9b0b3003523135569f471c90b79602112c95b1fcdbd605b4cc8c5fdee',
+    'd84625a4972ef4bc1fa867d6b1fbc410465ef69f60db4a146cc3397583677feb',
   '../telos-work-overview.ts': '5292f40110c80c317f90be4afb75fa131440a1fca6c09fea833f28cc91e78b68',
   '../telos-work-record.ts': 'd4dd614b57f74c5ddfb5386a1ea252abc4f1210d12a633b60dc538f4712b2b31',
   '../telos-work-role-context.ts':
