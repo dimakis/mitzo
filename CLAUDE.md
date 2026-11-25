@@ -301,11 +301,12 @@ Mitzo lives at `~/tools/mitzo/` and is pointed at the `mgmt` workspace via the `
 
 ## Test-Driven Development (Required)
 
-All feature work follows TDD. This is not optional.
+All feature work follows TDD. This is not optional. The test-cost policy below
+applies to every coding agent, delegated subagent, automated fixer and reviewer.
 
 ### The Cycle
 
-1. **Write test first** — the test defines the API contract (function names, params, return types). The test file is the first artifact.
+1. **Write the focused regression first** — define the observable behavior or API contract by extending an existing test when suitable. A new test file or complete integration journey is not required for each change.
 2. **Run test — see it fail (Red)** — confirm the test fails for the right reason (`ModuleNotFoundError`, `AssertionError`, etc.). If it passes without implementation, the test is wrong.
 3. **Implement the feature** — write the minimum code to make the test pass. Follow the contract the test defined.
 4. **Run test — see it pass (Green)** — all assertions must pass. If the test fails, fix the implementation, not the test.
@@ -319,6 +320,34 @@ All feature work follows TDD. This is not optional.
 - Committing tests separately from their implementation.
 - Skipping the red phase (the test must fail first to prove it tests something real).
 - Structuring plans with "Implementation" and "Tests" as separate phases — each step is test-first.
+
+### Test cost and coverage
+
+- Identify the missing behavior or failure before adding a test. Use the cheapest
+  adequate layer and extend existing tests and shared fixtures first. Avoid tests
+  that merely mirror implementation or add no behavioral coverage.
+- Retain representative real consumer-path coverage for each distinct integration
+  or trust boundary. Exercise variants with focused unit/contract tests when they
+  prove the behavior; do not mock away the boundary being claimed.
+- Justify each added browser, native, subprocess, large persistent-database or
+  complete-app journey by the distinct coverage cheaper tests cannot provide.
+  Reuse setup within a valid fixture lifetime; preserve isolation, fresh authority,
+  ownership, revocation, custody, cancellation and delivery checks.
+- Keep fixtures small and deterministic. Consolidate repeated setup and batch
+  fixture writes when commit visibility/durability is not the behavior under test.
+  Additional stress/profiling samples need an explicit purpose and selection;
+  preserve all existing required CI coverage and gates.
+- PRs with test changes must state added behavior, existing coverage/fixtures
+  reused, expensive-journey justification and setup/test/CI cost from existing
+  focused results or CI reports. State unavailable measurements and why. Do not
+  invent timings or add mandatory full-suite runs just to populate the report.
+  Separate runner execution from queue time; test/file/line counts alone do not
+  establish runtime cost.
+- Reviewers must flag duplicated expensive journeys and unexplained material cost
+  growth with concrete evidence. Diagnose setup, I/O and isolation failures before
+  increasing timeouts; never hide regressions by weakening assertions, required
+  coverage or operation deadlines. Pure prose/reversible low-impact changes need
+  no new tests unless they change a behavioral contract requiring verification.
 
 ### Running Tests
 
@@ -334,7 +363,7 @@ When creating build plans, each step must be structured as:
 
 ```
 Step N: Build <component> (test-first)
-  - Test file is the first artifact
+  - Focused regression in an existing or new test is the first artifact
   - Implementation follows
   - Both committed together
 ```
