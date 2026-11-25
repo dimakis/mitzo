@@ -85,6 +85,42 @@ function open() {
   fireEvent.click(screen.getByRole('button', { name: 'Inspect context' }));
   return screen.getByRole('dialog', { name: 'Context snapshot' });
 }
+it('keeps the token popover open when Escape follows a full refresh', async () => {
+  const fetch = respond();
+  render(
+    <TokenBar
+      sessionId="one"
+      alwaysVisible
+      tokenState={{
+        agentContext: 0,
+        contextCeiling: 0,
+        sessionTotal: 0,
+        numTurns: 0,
+        turnIndex: 0,
+        numCompactions: 0,
+        tokenLimits: null,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+  open();
+  await screen.findByText('Snapshot partial');
+  fireEvent.click(screen.getByRole('button', { name: 'Full detail…' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: /token-count API calls/ }));
+  const full = screen.getByRole('button', { name: 'Refresh full detail' });
+  full.focus();
+  fireEvent.click(full);
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  await screen.findByText('Snapshot partial');
+  // Escape belongs to the dialog. It must not reach the token wheel's document
+  // listener, which would unmount the opener that focus is restored to.
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+  expect(screen.getByRole('button', { name: 'Token usage' }).getAttribute('aria-expanded')).toBe(
+    'true',
+  );
+  expect(screen.getByRole('button', { name: 'Inspect context' })).toBeTruthy();
+});
+
 it('restores focus to Inspect context rather than an earlier composer control', async () => {
   respond();
   render(
