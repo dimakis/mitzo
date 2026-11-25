@@ -40,7 +40,11 @@ manifests, `sqlite-file-owner` native source, lifecycle scripts and vendored sou
 Generated native output and dependency directories are excluded from source
 hashing. A full content inventory verifies the cloned payload before installing
 it into a task. External/absolute symlinks, hard-linked files and special files
-are rejected.
+are rejected. Each entry records the host build's original file and directory
+modes; a hit restores those exact modes, because the copied toolchain receipt
+hashes them. Entries from the earlier schema without recorded modes are never
+restored and are removed by the next host retention run. A hit skips `npm ci`,
+so setup then runs only the checkout-local root `prepare` lifecycle (Git hooks).
 
 A miss follows the existing isolated network install. To make that identity
 available to later sessions, run the trusted host setup above; this deliberately
@@ -57,7 +61,10 @@ Each host setup prunes to at most **eight entries**, removing entries unused for
 **30 days**. These bounds are enforced when host setup runs, not by a background
 timer. This is an entry/age bound, not a byte quota. Session hits write an advisory
 usage receipt inside their own `.mitzo-devtools`; the host records those times in
-its private LRU ledger. APFS access times are not used.
+its private LRU ledger. Publishing or re-publishing an identity also records a
+use, so host setup never prunes the entry it has just verified. Usage receipts are
+opened without blocking, so a planted FIFO cannot stall host setup. APFS access
+times are not used.
 
 The host discovers immediate physical `repo-*` and `ordinary-*` task roots under
 its ordinary-tasks directory, with a 10,000-child scan bound. It reads only bounded,

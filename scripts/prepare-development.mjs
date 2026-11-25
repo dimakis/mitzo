@@ -503,6 +503,16 @@ export async function prepareDevelopment({
           storeResult = { ...storeResult, status: 'rejected', reason: 'native_probe_failed' };
       }
     }
+    if (reused && storeResult.status === 'hit') {
+      // A cache hit skips npm ci and so the root prepare lifecycle, which installs
+      // this checkout's Git hooks (Husky). Run only that checkout-local step.
+      phase = 'lifecycle';
+      try {
+        await run(npm, ['run', 'prepare', '--if-present'], options);
+      } catch (cause) {
+        throw failure(phase, cause, 'Checkout lifecycle setup failed.', effectStatus);
+      }
+    }
     if (install && !reused) {
       phase = 'dependencies';
       effectStatus = 'may_have_changed';

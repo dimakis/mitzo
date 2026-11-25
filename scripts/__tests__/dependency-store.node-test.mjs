@@ -206,5 +206,84 @@ it('retains the recently read entry and expires old entries without touching oth
   await pruneDependencyStore({ store: f.store, now: Date.now() + 31 * 86400_000 });
   assert.deepEqual(await readdir(join(f.store, 'entries')), []);
 });
+it('restores the host build modes that the copied toolchain receipt hashes', async () => {
+  const f = await fixture();
+  // A host installation created under umask 077.
+  await chmod(join(f.cwd, f.toolchain, 'receipt.json'), 0o600);
+  await chmod(join(f.cwd, f.toolchain), 0o700);
+  await f.publish();
+  assert.equal((await restoreDependencySet({ store: f.store, cwd: f.target })).status, 'hit');
+  const mode = async (path) => (await lstat(join(f.target, path))).mode & 0o777;
+  assert.equal(await mode(f.toolchain), 0o700);
+  assert.equal(await mode(`${f.toolchain}/receipt.json`), 0o600);
+  assert.equal(await mode('node_modules/value'), 0o644 & ~process.umask());
+});
+
+it('refreshes host usage when re-publishing so retention keeps the verified identity', async () => {
+  const f = await fixture();
+  const old = Date.now() - 40 * 86400_000;
+  const entry = await publishDependencySet({
+    store: f.store,
+    cwd: f.cwd,
+    runtime,
+    toolchain: f.toolchain,
+    verify: async () => ({ ready: true }),
+    now: old,
+  });
+  const republished = await f.publish();
+  assert.equal(republished.key, entry.key);
+  assert.deepEqual(await pruneDependencyStore({ store: f.store }), []);
+  assert.deepEqual(await readdir(join(f.store, 'entries')), [entry.key]);
+});
+
+it('does not block on a task-planted FIFO usage receipt', async () => {
+  const f = await fixture();
+  await f.publish();
+  await mkdir(join(f.target, '.mitzo-devtools'), { recursive: true });
+  await promisify(execFile)('mkfifo', [
+    join(f.target, '.mitzo-devtools/dependency-store-use.json'),
+  ]);
+  const outcome = await Promise.race([
+    pruneDependencyStore({ store: f.store, usageRoots: [f.target] }).then(() => 'completed'),
+    new Promise((settle) => setTimeout(() => settle('blocked'), 5_000).unref()),
+  ]);
+  assert.equal(outcome, 'completed');
+  await assert.rejects(lstat(join(f.store, '.writer')), { code: 'ENOENT' });
+});
+
+it('falls back to the isolated install when an entry payload is removed', async () => {
+  const f = await fixture();
+  const entry = await f.publish();
+  const payload = join(f.store, 'entries', entry.key, 'payload');
+  await chmod(join(f.store, 'entries', entry.key), 0o755);
+  const writable = async (path) => {
+    const info = await lstat(path);
+    if (info.isSymbolicLink()) return;
+    await chmod(path, info.isDirectory() ? 0o755 : 0o644);
+    if (info.isDirectory())
+      for (const name of await readdir(path)) await writable(join(path, name));
+  };
+  await writable(payload);
+  await rm(payload, { recursive: true });
+  const result = await restoreDependencySet({ store: f.store, cwd: f.target });
+  assert.equal(result.status, 'invalid');
+  assert.equal(result.reason, 'entry_removed');
+  await assert.rejects(readFile(join(f.target, 'node_modules/value')), { code: 'ENOENT' });
+});
+
+it('skips schema 1 entries on restore and retention removes them', async () => {
+  const f = await fixture();
+  const entry = await f.publish();
+  const path = join(f.store, 'entries', entry.key, 'entry.json');
+  const metadata = JSON.parse(await readFile(path, 'utf8'));
+  await chmod(path, 0o644);
+  await writeFile(path, JSON.stringify({ ...metadata, schema: 1, modes: undefined }));
+  assert.equal((await restoreDependencySet({ store: f.store, cwd: f.target })).status, 'miss');
+  assert.deepEqual(await pruneDependencyStore({ store: f.store }), [entry.key]);
+});
 import process from 'node:process';
 import { performance } from 'node:perf_hooks';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { lstat } from 'node:fs/promises';
+import { setTimeout } from 'node:timers';

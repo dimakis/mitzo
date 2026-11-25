@@ -110,7 +110,7 @@ export async function dependencyIdentity(cwd, runtime) {
   }
   return hash(
     JSON.stringify({
-      schema: 1,
+      schema: 2,
       lock: await fileDigest(join(cwd, 'package-lock.json')),
       runtime,
       manifests,
@@ -137,7 +137,16 @@ async function clone(source, target) {
   if (process.platform === 'darwin') {
     // libuv's COPYFILE_FICLONE_FORCE is ENOSYS on macOS. The system cp -c
     // uses clonefile(2); -P preserves symlinks rather than following them.
-    await promisify(execFile)('/bin/cp', ['-cR', '-P', source, target]);
+    try {
+      await promisify(execFile)('/bin/cp', ['-cR', '-P', source, target]);
+    } catch (cause) {
+      // cp reports a missing source (for example an entry pruned while it was
+      // read) as exit status 1, not ENOENT. Translate only that case into the
+      // missing-entry contract; unsupported cloning and other failures stay explicit.
+      if (!(await exists(source)) || /No such file or directory/.test(String(cause.stderr ?? '')))
+        throw Object.assign(error('source_missing'), { code: 'ENOENT', cause });
+      throw cause;
+    }
     return;
   }
   await cp(source, target, {
@@ -151,14 +160,46 @@ async function clone(source, target) {
   });
 }
 
-async function permissions(root, rows, writable) {
+// Published entries are read-only. Restoration reapplies the exact modes the
+// host build had, because the copied toolchain receipt hashes full modes.
+async function permissions(root, rows, writable, modes) {
   for (const [name, kind, executable] of [...rows].reverse()) {
-    if (kind !== 'link')
-      await chmod(
-        join(root, name),
-        kind === 'directory' ? (writable ? 0o755 : 0o555) : (writable ? 0o644 : 0o444) | executable,
-      );
+    if (kind === 'link') continue;
+    if (writable) await chmod(join(root, name), modes[name]);
+    else await chmod(join(root, name), kind === 'directory' ? 0o555 : 0o444 | executable);
   }
+}
+
+async function originalModes(root, rows) {
+  const modes = {};
+  for (const [name, kind] of rows)
+    if (kind !== 'link') modes[name] = (await lstat(join(root, name))).mode & 0o777;
+  return modes;
+}
+
+function validModes(modes, rows) {
+  if (!modes || typeof modes !== 'object' || Array.isArray(modes)) return false;
+  const named = rows.filter(([, kind]) => kind !== 'link');
+  return (
+    Object.keys(modes).length === named.length &&
+    named.every(([name, kind]) => {
+      const mode = modes[name];
+      // The task must be able to read, traverse, move and later remove its clone.
+      const owner = kind === 'directory' ? 0o700 : 0o400;
+      return Number.isInteger(mode) && mode >= 0 && mode <= 0o777 && (mode & owner) === owner;
+    })
+  );
+}
+
+// The host ledger is the retention source of truth. Publishing (or re-publishing)
+// an identity is a use, so retention cannot prune what it just verified.
+async function recordLedgerUse(store, key, now) {
+  const ledgerPath = join(store, 'usage.json');
+  const previous = (await exists(ledgerPath)) ? JSON.parse(await readFile(ledgerPath, 'utf8')) : {};
+  previous[key] = Math.max(Number.isFinite(previous[key]) ? previous[key] : 0, now);
+  const pending = join(store, `.usage-${randomUUID()}`);
+  await writeFile(pending, JSON.stringify(previous), { flag: 'wx' });
+  await rename(pending, ledgerPath);
 }
 
 async function removeOwned(path) {
@@ -216,6 +257,7 @@ export async function publishDependencySet({
   runtime,
   toolchain,
   verify,
+  now = Date.now(),
 }) {
   store = resolve(store);
   cwd = await realpath(cwd);
@@ -235,7 +277,10 @@ export async function publishDependencySet({
         await clone(join(cwd, part), join(payload, part));
       }
       const rows = await inventory(payload);
-      const metadata = { schema: 1, key, runtime, parts, inventory: rows, createdAt: Date.now() };
+      // Record the build's own modes (not the clone's umask-adjusted ones).
+      const modes = await originalModes(cwd, rows);
+      if (!validModes(modes, rows)) throw error('unsupported_mode');
+      const metadata = { schema: 2, key, runtime, parts, inventory: rows, modes, createdAt: now };
       await writeFile(join(pending, 'entry.json'), JSON.stringify(metadata), { flag: 'wx' });
       await permissions(pending, await inventory(pending), false);
       const destination = join(entries, key);
@@ -254,6 +299,7 @@ export async function publishDependencySet({
         await rename(pending, destination);
         await chmod(destination, 0o555);
       }
+      await recordLedgerUse(store, key, now);
       return { key, status: 'published' };
     } catch (cause) {
       primary = cause;
@@ -279,13 +325,17 @@ export async function restoreDependencySet({ store = dependencyStoreRoot(), cwd 
     try {
       if (!(await lstat(entry)).isDirectory()) throw error('invalid_entry');
       const metadata = JSON.parse(await readFile(join(entry, 'entry.json'), 'utf8'));
+      // Schema 1 entries lack original modes and can never match the schema 2
+      // identity; host retention removes them.
+      if (metadata?.schema === 1) continue;
       if (
-        metadata?.schema !== 1 ||
+        metadata?.schema !== 2 ||
         metadata.key !== key ||
         !metadata.runtime ||
         !Array.isArray(metadata.parts) ||
         !metadata.parts.every((part) => typeof part === 'string') ||
-        !Array.isArray(metadata.inventory)
+        !Array.isArray(metadata.inventory) ||
+        !validModes(metadata.modes, metadata.inventory)
       )
         throw error('invalid_entry');
       if (metadata.runtime.platform !== process.platform || metadata.runtime.arch !== process.arch)
@@ -316,7 +366,7 @@ export async function restoreDependencySet({ store = dependencyStoreRoot(), cwd 
       const rows = await inventory(payload);
       if (JSON.stringify(rows) !== JSON.stringify(metadata.inventory))
         throw error('integrity_mismatch');
-      await permissions(payload, rows, true);
+      await permissions(payload, rows, true, metadata.modes);
       for (const part of metadata.parts) {
         const target = join(cwd, part);
         await ownedDirectory(cwd, dirname(target));
@@ -381,7 +431,9 @@ async function usageReceipts(roots, now) {
     if ((await realpath(directory)) !== resolve(directory)) continue;
     let file;
     try {
-      file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      // O_NONBLOCK: a task-planted FIFO must not block host setup (and its
+      // writer locks) before the isFile() check below rejects it.
+      file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const info = await file.stat();
       if (!info.isFile() || info.nlink !== 1 || info.size > 1024 || info.uid !== process.getuid?.())
         continue;
@@ -428,22 +480,27 @@ export async function pruneDependencyStore({
       const path = join(entries, key);
       if (!(await lstat(path)).isDirectory()) throw error('invalid_entry');
       const metadata = JSON.parse(await readFile(join(path, 'entry.json'), 'utf8'));
-      if (metadata.schema !== 1 || metadata.key !== key) throw error('invalid_entry');
+      if (![1, 2].includes(metadata.schema) || metadata.key !== key) throw error('invalid_entry');
       if (!Number.isFinite(metadata.createdAt)) throw error('invalid_entry');
+      // Schema 1 entries are unusable by restore; retention always removes them.
+      const legacy = metadata.schema === 1;
       candidates.push({
         key,
         path,
-        used: Math.max(
-          Math.min(now, metadata.createdAt),
-          Number.isFinite(previous[key]) ? Math.min(now, previous[key]) : 0,
-          usage[key] ?? 0,
-        ),
+        legacy,
+        used: legacy
+          ? 0
+          : Math.max(
+              Math.min(now, metadata.createdAt),
+              Number.isFinite(previous[key]) ? Math.min(now, previous[key]) : 0,
+              usage[key] ?? 0,
+            ),
       });
     }
     candidates.sort((a, b) => b.used - a.used || b.key.localeCompare(a.key));
     const removed = [];
     for (const [index, item] of candidates.entries()) {
-      if (index < maxEntries && now - item.used <= maxAgeMs) continue;
+      if (!item.legacy && index < maxEntries && now - item.used <= maxAgeMs) continue;
       await removeOwned(item.path);
       removed.push(item.key);
     }

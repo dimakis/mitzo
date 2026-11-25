@@ -148,10 +148,44 @@ it('a verified host miss becomes an offline hit in a fresh task, including its t
   assert.ok(performance.now() - started < 60_000);
   assert.ok(!f.calls.some(({ args }) => ['ci', 'install'].includes(args[0])));
   assert.ok(f.calls.some(({ args }) => args[0] === '-e'));
+  // The skipped npm ci would have run the root prepare lifecycle (Git hooks).
+  const lifecycle = f.calls.filter(({ args }) => args[0] === 'run' && args[1] === 'prepare');
+  assert.equal(lifecycle.length, 1);
   assert.ok(
     JSON.parse(await readFile(join(target, '.mitzo-devtools/readiness.json'), 'utf8'))
       .installationIdentity,
   );
+});
+
+it('a restrictive host toolchain stays verified after a cache hit without reinstalling', async () => {
+  const f = await fixture();
+  const first = await prepareDevelopment(f.options);
+  const toolchain = resolve(first.toolchainPath, '../..');
+  // Host setup under umask 077.
+  await chmod(join(toolchain, 'package-lock.json'), 0o600);
+  await chmod(toolchain, 0o700);
+  // Re-establish the host's receipt for those exact modes.
+  await prepareDevelopment({ ...f.options, dependencyStore: false });
+  await publishDependencySet({
+    store: f.store,
+    cwd: f.cwd,
+    runtime: { platform: first.platform, arch: first.arch, abi: first.abi },
+    toolchain: relative(f.cwd, toolchain),
+    verify: () => prepareDevelopment({ ...f.options, install: false }),
+  });
+  const target = join(f.root, 'session');
+  await f.source(target);
+  f.calls.length = 0;
+  f.goOffline();
+  const result = await prepareDevelopment({ ...f.options, cwd: target });
+  assert.equal(result.dependencyStore.status, 'hit');
+  assert.ok(!f.calls.some(({ args }) => ['ci', 'install'].includes(args[0])));
+});
+
+it('a fresh store miss does not run the lifecycle separately from npm ci', async () => {
+  const f = await fixture();
+  await prepareDevelopment(f.options);
+  assert.ok(!f.calls.some(({ args }) => args[0] === 'run' && args[1] === 'prepare'));
 });
 
 it('a failed cache native probe falls back to the isolated install and reports the rejection', async () => {
