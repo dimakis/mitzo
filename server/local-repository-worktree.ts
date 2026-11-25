@@ -3,7 +3,7 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { detectDefaultBranch, fetchWorktreeBase } from './worktree.js';
-import { readOnlyGitExecutable } from './read-only-git.js';
+import { readOnlyGitExecutable, readOnlyGitExecutableAsync } from './read-only-git.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
 
 const unavailable = () => Error('Original local repository is unavailable');
@@ -35,7 +35,12 @@ const git = (cwd: string, ...args: string[]) =>
  * reads cannot run hooks, fsmonitor or lazy-fetch helpers. Leave mutation and
  * default-fetch execution with their existing owners. Join close: execFile's
  * abort callback alone does not establish that its child has been collected. */
-function captureGit(cwd: string, signal: AbortSignal, ...args: string[]): Promise<string> {
+async function captureGit(cwd: string, signal: AbortSignal, ...args: string[]): Promise<string> {
+  signal.throwIfAborted();
+  // Resolve the selected developer Git without blocking the event loop. A bare
+  // `git` on macOS re-enters the xcrun shim on every spawn, which is slow or
+  // fails in the fenced child environment (no HOME/TMPDIR).
+  const executable = await readOnlyGitExecutableAsync();
   signal.throwIfAborted();
   const deadline = new AbortController();
   const timeout = setTimeout(
@@ -47,10 +52,8 @@ function captureGit(cwd: string, signal: AbortSignal, ...args: string[]): Promis
   return new Promise<string>((resolve, reject) => {
     let failure: unknown;
     let output = '';
-    // Do not call the synchronous xcrun resolver on this request path. Git's
-    // normal executable discovery now happens in the asynchronous subprocess.
     const child = execFile(
-      'git',
+      executable,
       gitArgs(cwd, args),
       {
         ...gitOptions,

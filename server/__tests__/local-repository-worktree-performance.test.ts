@@ -11,7 +11,10 @@ import {
 
 vi.mock('node:child_process', { spy: true });
 // Count Git probes independently of macOS's optional executable resolver.
-vi.mock('../read-only-git.js', () => ({ readOnlyGitExecutable: () => 'git' }));
+vi.mock('../read-only-git.js', () => ({
+  readOnlyGitExecutable: () => 'git',
+  readOnlyGitExecutableAsync: async () => 'git',
+}));
 const roots: string[] = [];
 afterEach(() => {
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));

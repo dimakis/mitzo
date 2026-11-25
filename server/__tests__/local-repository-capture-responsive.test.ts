@@ -22,7 +22,10 @@ import type { AccountBinding, SessionRuntimeBindingV2 } from '@mitzo/protocol';
 // Delay the real Git subprocess boundary, not a promise standing in for Git.
 // Both implementations use the same fixture so the pre-change test measures blocking.
 const probe = vi.hoisted(() => ({ script: '', repo: '', enabled: false }));
-vi.mock('../read-only-git.js', () => ({ readOnlyGitExecutable: () => 'git' }));
+vi.mock('../read-only-git.js', () => ({
+  readOnlyGitExecutable: () => 'git',
+  readOnlyGitExecutableAsync: async () => 'git',
+}));
 vi.mock('node:child_process', async (original) => {
   const actual = await original<typeof import('node:child_process')>();
   const selected = (args: readonly string[]) => probe.enabled && args.includes(probe.repo);
