@@ -86,9 +86,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'dc326fd2a6da1f56125bdb999dd1d43acf275746131bfcc86376cf973cefdae4',
   '../../docker-compose.yml': '874cf8bf94ea403c20993707b49ec0d958f8310c788e217421db50cae8754f9c',
   '../../.github/actions/ci-canonical-browser/action.yml':
-    '9d8078c37f814b4a1b6d00768f33c8c5a114c962afb31156735f6ece4d477a99',
+    '09088462ac53f1a715931851432a51dd59b25e280df7abfeaf4ee922f5b195cb',
   '../../.github/actions/ci-native-fixture/action.yml':
-    'f8c24df3203636c7292fa1d0d8994ee5b9db53301c49fe43eab3e355907b6f05',
+    '4aa960b7db2665f7a3809e764f2f7f30b74564357440a8b7ba855e05a595d1d1',
   '../../.github/actions/ci-node/action.yml':
     '3bba8f0c494f15a3c2cacd7ddd9e8556a650352fd29761dfa65f7c4a7b5de887',
   '../../.github/actions/ci-playwright/action.yml':
@@ -102,7 +102,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'cf8f6d3da76d59f43da888031e306579bd9aa8e29ada48ac98a2fe93c303c1f7',
+    'd6eb0e0f6aa82b33b5dbe3f135d14e6959788a2e379f486767e551fae85c8a80',
   '../../.github/workflows/pr-landing-reconcile.yml':
     'c4f43fcbd69bc4bbd657f2d89982b307c158bc7363d118f436eb2083a6daf91a',
   '../../.github/workflows/pr-landing-request.yml':
@@ -1758,7 +1758,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-joined-shards.test.ts':
     'f2cdb8ab0baccd739425180e0685c783e8074e59e15fd9b2b4c65e846860b30e',
   '../../scripts/__tests__/ci-macos-runner.test.ts':
-    '9f4dfe6e621e2997a1f64c12f35a7f3ab602dbc12444c8d234818406a418d1f5',
+    '89778f715fedcd05c32fe276b72f8cdfec2dc49df965b82e0d1897bd23a9293a',
   '../../scripts/__tests__/ci-native-authorization.test.ts':
     '675faddc40c1496c6a9108c4e3d676573995144140c3e8c90bef73be54d492a4',
   '../../scripts/__tests__/ci-native-operator.test.ts':
