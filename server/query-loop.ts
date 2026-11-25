@@ -2,6 +2,7 @@ import type { ContextCompaction, SourceSnapshot } from '@mitzo/protocol';
 import type { SubagentDiagnostic } from '@mitzo/protocol';
 import { bindClaudeChildDiagnostic } from './claude-child-diagnostics.js';
 import { isSdkQueryRetiredEvent } from './sdk-query-retirement.js';
+import { replayUnstreamedAssistantMessages } from './unstreamed-assistant-replay.js';
 import {
   retainSdkPersistenceFailure,
   sdkPersistenceDiagnostic,
@@ -255,6 +256,8 @@ export interface QueryLoopOptions {
   onInitialPrompt?: (sessionId: string) => void;
   /** Called when a parent provider turn starts, including later queued turns. */
   onTurnStart?: (clientId: string) => void;
+  /** Allowlisted trace-only identity from the resolved runtime/command owner. */
+  turnTraceAttributes?: () => Readonly<Record<string, string>>;
   /** Called at the provider's terminal result, after all renderer messages. */
   onTurnEnd?: (clientId: string) => void;
   /** Owned SDK queries qualify replays against their exact submitted input. */
@@ -859,7 +862,27 @@ async function _runQueryLoopInner(
   try {
     // outer try ensures span.end() always fires
     try {
-      for await (const msg of q) {
+      for await (const msg of replayUnstreamedAssistantMessages(q, {
+        replayed: ({ messageId, blockCount, duplicateBlockCount, skippedBlockTypes }) => {
+          const detail = {
+            clientId,
+            code: 'sdk_unstreamed_assistant_replayed',
+            nativeMessageId: messageId,
+            blockCount,
+            ...(duplicateBlockCount ? { duplicateBlockCount } : {}),
+            ...(skippedBlockTypes.length ? { skippedBlockTypes } : {}),
+          };
+          if (skippedBlockTypes.length)
+            log.warn('Unstreamed assistant message has unsupported blocks', detail);
+          else log.info('Replayed unstreamed assistant message', detail);
+        },
+        suppressedLateStream: ({ messageId }) =>
+          log.warn('Dropped late stream for replayed assistant message', {
+            clientId,
+            code: 'sdk_late_stream_suppressed',
+            nativeMessageId: messageId,
+          }),
+      })) {
         if (isSdkQueryRetiredEvent(msg)) {
           const session = currentOwnerSession();
           if (!session) break;
@@ -1424,6 +1447,8 @@ async function _runQueryLoopInner(
 
             // Start turn child span under the session span
             currentTurnSpan = tracer.startSpan('turn', {}, context.active());
+            if (options?.turnTraceAttributes)
+              currentTurnSpan.setAttributes(options.turnTraceAttributes());
             currentTurnSpan.setAttribute('turn.index', turnIndex);
             currentTurnSpan.setAttribute(
               'turn.message_id',

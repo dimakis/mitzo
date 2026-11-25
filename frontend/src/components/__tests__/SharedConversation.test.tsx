@@ -727,3 +727,120 @@ it('observes the existing login owner without starting another authentication re
   expect(request).not.toHaveBeenCalled();
   expect(screen.getByText('Ordinary conversation')).toBeTruthy();
 });
+
+it('keeps an ordinary transcript visible while a reconnected transport re-checks its collaboration source', async () => {
+  // An iOS stream reconnect assigns a new connection ID and repeats the source
+  // check. It must not blank rendered history while launch cards, owned by a
+  // separate read, remain on screen.
+  const pending: Array<(value: Response) => void> = [];
+  const fetch = vi.fn(async (url: string) => {
+    if (!url.includes('source-setup')) throw Error('Unexpected read: ' + url);
+    return new Promise<Response>((resolve) => pending.push(resolve));
+  });
+  const api = new MitzoApiClient(fetch);
+  const proof = () => 'login';
+  const surface = (clientId: string | undefined) => (
+    <MemoryRouter>
+      <SharedConversationHost
+        sourceConversationId="ordinary"
+        api={api}
+        clientId={clientId}
+        authScope="login"
+        getVerifiedAuthScope={proof}
+      >
+        <SharedConversationBody
+          sourceConversationId="ordinary"
+          ordinaryComposer={
+            <ChatInput
+              sessionId="ordinary"
+              running={false}
+              onSend={() => false}
+              onStop={() => {}}
+            />
+          }
+          chat={{
+            messages: [
+              {
+                messageId: 'operator',
+                role: 'user',
+                timestamp: 500,
+                blocks: [{ blockId: 'q', blockType: 'text', content: 'Operator instruction' }],
+              },
+              {
+                messageId: 'reply',
+                role: 'assistant',
+                timestamp: 2000,
+                blocks: [{ blockId: 'a', blockType: 'text', content: 'Lead reply retained' }],
+              },
+            ],
+            current: null,
+            running: false,
+            permission: null,
+            onPermissionRespond: () => {},
+            launchRequests: [
+              {
+                proposalId: 'proposal',
+                requestId: 'request',
+                sourceSessionId: 'ordinary',
+                title: 'Child chat',
+                prompt: 'Handoff',
+                revision: 1,
+                state: 'cancelled',
+                childSessionId: null,
+                createdAt: 1000,
+                updatedAt: 1000,
+                configuration: {
+                  version: 1,
+                  runtime: {
+                    version: 1,
+                    account: null,
+                    agentProfile: null,
+                    execution: { location: 'local', targetId: null },
+                  },
+                  mode: 'ask',
+                  isolation: true,
+                  repositoryWorkspaceId: null,
+                  contextBlocks: [],
+                  extraTools: [],
+                },
+              },
+            ],
+          }}
+        >
+          Ordinary fallback
+        </SharedConversationBody>
+      </SharedConversationHost>
+    </MemoryRouter>
+  );
+  const transcriptVisible = () => {
+    expect(screen.getByText('Operator instruction')).toBeTruthy();
+    expect(screen.getByText('Lead reply retained')).toBeTruthy();
+    expect(screen.getByText('Child chat')).toBeTruthy();
+    expect(screen.queryByText('Checking retained discussion history…')).toBeNull();
+  };
+  const rendered = render(surface('first'));
+  await waitFor(() => expect(pending).toHaveLength(1));
+  // An unclassified source defers its whole transcript as loading, never as cards only.
+  expect(screen.getByText('Checking retained discussion history…')).toBeTruthy();
+  expect(screen.queryByText('Lead reply retained')).toBeNull();
+  expect(screen.queryByText('Child chat')).toBeNull();
+  await act(async () =>
+    pending[0](Response.json({ state: 'unstarted', sourceConversationId: 'ordinary' })),
+  );
+  transcriptVisible();
+
+  // The transport closes (no connection ID), then reopens with a new one.
+  rendered.rerender(surface(undefined));
+  transcriptVisible();
+  rendered.rerender(surface('second'));
+  await waitFor(() => expect(pending).toHaveLength(2));
+  expect(fetch.mock.calls[1][0]).toContain('clientId=second');
+  transcriptVisible();
+
+  // A failed re-check keeps the confirmed transcript and reports the failure.
+  await act(async () =>
+    pending[1](Response.json({ error: 'Collaboration check failed' }, { status: 500 })),
+  );
+  transcriptVisible();
+  expect(screen.getAllByText(/Collaboration|collaboration/).length).toBeGreaterThan(0);
+});

@@ -77,6 +77,25 @@ export function claudeSdkExecutable(): string {
     `@anthropic-ai/claude-agent-sdk-darwin-${process.arch}/claude`,
   );
 }
+/** This release's installed SDK binary. Only Darwin hosts install one; elsewhere
+ * reopen keeps the retained identity, which must still match exactly. */
+export const claudeSdkInstallation = {
+  executable(): string | undefined {
+    return process.platform === 'darwin' ? claudeSdkExecutable() : undefined;
+  },
+};
+/** First identity this process observed for each SDK binary path. Durable chat
+ * custody can name an earlier release, so the current release's binary is pinned
+ * here instead: every later capture or reopen must observe the same file, and an
+ * in-place replacement after first use fails closed. */
+const pinnedExecutables = new Map<string, ReturnType<typeof identity>>();
+function pinnedExecutable(path: string) {
+  const current = identity(path, false);
+  const pinned = pinnedExecutables.get(path);
+  if (!pinned) pinnedExecutables.set(path, current);
+  else if (JSON.stringify(pinned) !== JSON.stringify(current)) throw unavailable();
+  return current;
+}
 function identity(path: string, directory: boolean) {
   if (!isAbsolute(path) || realpathSync(path) !== path) throw unavailable();
   const stat = lstatSync(path, { bigint: true });
@@ -133,14 +152,37 @@ export class ClaudeSubscriptionCustody {
         kind: 'claude-host-login',
         version: 1,
         ...selected,
-        executable: identity(realpathSync(executable), false),
+        executable: pinnedExecutable(realpathSync(executable)),
       }),
     );
   }
-  static reopen(value: unknown, env: Readonly<NodeJS.ProcessEnv>) {
-    const custody = new ClaudeSubscriptionCustody(ClaudeSubscriptionCustodySchema.parse(value));
+  /** The account and config root are durable chat custody. The SDK binary is the
+   * current server's execution authority: each deploy installs it under a new
+   * release path, so a chat admitted by an earlier release runs this release's
+   * own binary, pinned for this process. An in-place change at either the
+   * retained or the installed path fails closed. */
+  static reopen(
+    value: unknown,
+    env: Readonly<NodeJS.ProcessEnv>,
+    executable: string | undefined = claudeSdkInstallation.executable(),
+  ) {
+    const retained = ClaudeSubscriptionCustodySchema.parse(value);
+    const current = executable === undefined ? undefined : realpathSync(executable);
+    const custody = new ClaudeSubscriptionCustody(
+      current !== undefined && current !== retained.executable.path
+        ? ClaudeSubscriptionCustodySchema.parse({
+            ...retained,
+            executable: pinnedExecutable(current),
+          })
+        : retained,
+    );
     custody.assertCurrent(env);
     return custody;
+  }
+  /** Credential identity without the per-release executable attestation. */
+  accountIdentity() {
+    const { kind, version, email, planType, config } = this.retained;
+    return structuredClone({ kind, version, email, planType, config });
   }
   snapshot() {
     return structuredClone(this.retained);

@@ -451,10 +451,12 @@ function replaySingleEventsToTranscript(
         messageId = owners?.size === 1 ? [...owners][0] : activeMessageId;
       }
       // Resumed legacy providers may repeat results for calls absent from
-      // the durable stream. There is no block to display them on. Leave the
-      // stored event intact and restore the rest of the conversation.
+      // the durable stream, and Claude SDK replies delivered only through the
+      // CLI's non-streaming fallback stored their results (stamped with the
+      // active message) without the call. There is no block to display them
+      // on. Leave the stored event intact and restore the rest of the
+      // conversation. Results for a call recorded elsewhere stay strict.
       if (
-        !messageId &&
         event.seatId === undefined &&
         event.symposiumProvenance === undefined &&
         !recordedToolIds.has(p.toolId)

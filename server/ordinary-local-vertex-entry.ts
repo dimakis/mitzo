@@ -24,8 +24,30 @@ import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { OrdinaryLocalVertexCommandRequestSchema } from './ordinary-local-codex-admission.js';
 import { assertOwnedVertexQueueControl } from './ordinary-local-vertex-queue.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { SharedAuthorityProof } from './shared-authority-proof.js';
 import type { AuthSession } from './auth.js';
 const unavailable = () => Error('Owned Local Claude runtime unavailable');
+/**
+ * Startup dispatches currently owned by this process. A command is durably
+ * `uncertain` from its dispatch claim until the SDK accepts its input, which
+ * spans workspace preparation and SDK startup. Read-only status uses this to
+ * tell that expected in-flight window apart from an orphaned dispatch (for
+ * example after a restart). It grants no dispatch or admission authority.
+ */
+const startupDispatches = new Map<
+  string,
+  { commandId: string; owner: OrdinaryLocalVertexOwnedRuntime }
+>();
+export function ownedLocalVertexStartupInFlight(sessionId: string, authSessionId: string): boolean {
+  const startup = startupDispatches.get(sessionId);
+  return (
+    !!startup &&
+    !startup.owner.signal.aborted &&
+    ordinaryOperatorOwnsConversation(startup.owner.authSessionId, authSessionId) &&
+    // Any other uncertain command is not this startup's and keeps its warning.
+    !eventStore.hasUncertainOrdinaryCommand(sessionId, startup.commandId)
+  );
+}
 export async function continueOwnedLocalVertexQueue(
   sessionId: string,
   authorization: AuthSession | undefined,
@@ -185,6 +207,37 @@ export async function startOwnedLocalVertexCommand(
       !isDeepStrictEqual(custody.binding, selected.expected.binding)
     )
       throw unavailable();
+    const ownerProof = new SharedAuthorityProof();
+    // Synchronous fences run on every call. Concurrent callers of the same
+    // depth join one in-flight proof for the command; a settled proof is never
+    // reused, so later boundaries prove again. The deep proof (workspace
+    // reservation and repository credential digest) runs at admission and
+    // prompt release; per-tool callbacks use the Codex tool check.
+    const prove = async (signal: AbortSignal, depth: 'deep' | 'tool') => {
+      signal.throwIfAborted();
+      const active = queue?.activeCommandId();
+      if (active || !queue) {
+        const commandId = active ?? selected.commandId;
+        owner.assertStart(commandId);
+        await ownerProof.run(
+          `${depth}:effect:${commandId}`,
+          depth === 'deep'
+            ? () => owner.assertEffect(commandId)
+            : () => owner.assertToolEffect(commandId),
+          signal,
+        );
+      } else {
+        const commandId = owner.activeCommandId() ?? selected.commandId;
+        owner.assertIdleSync(commandId);
+        await ownerProof.run(
+          `${depth}:idle:${commandId}`,
+          depth === 'deep'
+            ? () => owner.assertIdle(commandId)
+            : () => owner.assertToolIdle(commandId),
+          signal,
+        );
+      }
+    };
     const authority = new OrdinaryLocalVertexSdkAuthority({
       store: eventStore,
       signal: owner.signal,
@@ -192,12 +245,8 @@ export async function startOwnedLocalVertexCommand(
       commandId: selected.commandId,
       ownerAuthSessionId: owner.authSessionId,
       environment: () => owner.environment(),
-      assertCurrent: async (signal) => {
-        signal.throwIfAborted();
-        const active = queue?.activeCommandId();
-        if (active || !queue) await owner.assertEffect(active ?? selected.commandId);
-        else await owner.assertIdle(owner.activeCommandId() ?? selected.commandId);
-      },
+      assertCurrent: (signal) => prove(signal, 'deep'),
+      assertToolCurrent: (signal) => prove(signal, 'tool'),
       assertCurrentSync: (signal) => {
         signal.throwIfAborted();
         const active = queue?.activeCommandId();
@@ -242,7 +291,7 @@ export async function startOwnedLocalVertexCommand(
           queue = new OrdinaryLocalVertexCommandOwner({
             store: eventStore,
             sessionId,
-            assertCurrent: () => authority.assertCurrent(owner.signal),
+            assertCurrent: () => authority.assertCurrent(owner.signal, 'command_owner'),
             assertCurrentSync: () => authority.assertCurrentSync(owner.signal),
             turnEvidence: new OrdinarySdkTurnEvidence(
               eventStore,
@@ -303,6 +352,7 @@ export async function startOwnedLocalVertexCommand(
               stop: (requestId) => queue!.stop(requestId),
               stopBeforeInput: (commandId, requestId) =>
                 queue!.stopBeforeInput(commandId, requestId),
+              escalateStop: () => queue!.escalateStop(),
               resumeQueue: () => queue!.resumeQueue(),
               captureInterruptTarget: () => queue!.captureInterruptTarget(),
               interruptIfCurrent: (requestId, target) =>
@@ -350,8 +400,10 @@ export async function startOwnedLocalVertexCommand(
   options.signal?.addEventListener('abort', abortPreparation, { once: true });
   if (options.signal?.aborted) abortPreparation();
   let release: (() => void) | undefined;
+  const startup = { commandId: command.clientMsgId, owner };
   try {
     release = eventStore.reserveOrdinaryStartup([sessionId]);
+    startupDispatches.set(sessionId, startup);
     const result = await (options.resume
       ? owner.admitResume(options.command, options.sdkRetrySourceCommandId)
       : owner.admit(options.command));
@@ -364,6 +416,7 @@ export async function startOwnedLocalVertexCommand(
       'claude.owned_startup',
     );
   } finally {
+    if (startupDispatches.get(sessionId) === startup) startupDispatches.delete(sessionId);
     options.signal?.removeEventListener('abort', abortPreparation);
     release?.();
   }

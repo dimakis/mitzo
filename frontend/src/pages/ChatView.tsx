@@ -1874,17 +1874,16 @@ function ChatViewContent() {
           <ChatStatusMessage status="Loading conversation…" busy />
         )}
         {historyError && (
-          <div role="alert">
-            {historyError}{' '}
-            <button
-              type="button"
-              onClick={() => {
+          <ChatStatusMessage
+            error={historyError}
+            action={{
+              label: 'Retry loading conversation',
+              disabled: !sessionId || historyLoading,
+              onClick: () => {
                 if (sessionId) void storeSwitchSession(sessionId);
-              }}
-            >
-              Retry loading conversation
-            </button>
-          </div>
+              },
+            }}
+          />
         )}
         {!roleIntent && (
           <ChatWelcome
@@ -1965,6 +1964,7 @@ function ChatViewContent() {
               !isSymposium && activeSessionId && !controlsBlocked
                 ? (message) => setReplySelection({ session: activeSessionId, message })
                 : undefined,
+            hideEmptyState: historyLoading || !!historyError,
             beforeMessages: !isSymposium ? (
               <SessionLaunchOrigin origin={sessionLaunch.origin} />
             ) : undefined,

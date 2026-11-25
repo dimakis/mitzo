@@ -3,6 +3,8 @@ import {
   ordinarySdkTelosTools,
 } from './ordinary-sdk-helper-registration.js';
 import { createTelosSdkServer, telosSdkPermission } from './telos-sdk-tools.js';
+import { ClaudeTurnAttribution } from './claude-turn-attribution.js';
+import { diagnosticReleaseRevision } from './codex-diagnostic-release.js';
 import { telosBacklogInstructions } from './telos-backlog-tools.js';
 import { createSdkToolLibrary } from './tool-library-sdk.js';
 import { CONNECTION_ACCESS_INSTRUCTIONS } from './session-connection-tools.js';
@@ -83,6 +85,10 @@ import { getOrdinarySessionPromptPort } from './session-prompt-runtime.js';
 import { agentMessagePrompt } from '@mitzo/protocol';
 import type { AccountBinding, OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { OrdinaryLocalVertexSdkAuthority } from './ordinary-local-vertex-sdk-authority.js';
+import {
+  perToolSdkAuthorityCallers,
+  type SdkAuthorityCaller,
+} from './sdk-authority-observation.js';
 import { claudeSdkInferenceEnvironment } from './claude-sdk-credentials.js';
 import {
   OrdinaryLocalResponsesOwnedRuntime,
@@ -995,7 +1001,8 @@ function buildOnDemandCreate(
   return async (absolutePath: string, signal?: AbortSignal) => {
     const current = async () => {
       signal?.throwIfAborted();
-      if (sdkAuthority) await sdkAuthority.assertCurrent(signal ?? new AbortController().signal);
+      if (sdkAuthority)
+        await sdkAuthority.assertCurrent(signal ?? new AbortController().signal, 'host_effect');
       signal?.throwIfAborted();
     };
     await current();
@@ -1499,7 +1506,7 @@ export async function startChat(
         !options.ordinarySdkCommandOwner
       )
         throw Error('Original SDK authority unavailable');
-      await options.ordinarySdkAuthority.assertCurrent(new AbortController().signal);
+      await options.ordinarySdkAuthority.assertCurrent(new AbortController().signal, 'startup');
     }
     for (const sessionId of [
       options.resume,
@@ -1964,7 +1971,7 @@ async function _startChatInner(
       ownedWorkspace.directory !== options.cwd
     )
       throw Error('Original SDK repository workspace unavailable');
-    await options.ordinarySdkAuthority.assertCurrent(abortController.signal);
+    await options.ordinarySdkAuthority.assertCurrent(abortController.signal, 'startup');
   } else if (options.repositoryWorkspaceId) {
     if (
       options.resume ||
@@ -2402,7 +2409,7 @@ async function _startChatInner(
         eventStore,
         session.sessionId,
         abortController.signal,
-        () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal),
+        () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal, 'startup'),
       );
       assertStartupCurrent();
       for (const [name, entry] of reopened) {
@@ -2616,7 +2623,8 @@ async function _startChatInner(
             session,
             cwd,
             preserveProfile: agentContext?.source === 'packs',
-            assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
+            assertCurrent: (signal) =>
+              options.ordinarySdkAuthority!.assertCurrent(signal, 'startup'),
           })
         : undefined;
     let sdkStartupContextPrepared = false;
@@ -2764,6 +2772,7 @@ async function _startChatInner(
 
     // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
     let liveOrdinarySdkOwner: OrdinaryLocalVertexCommandOwner | undefined;
+    let sdkTurnAttribution: ClaudeTurnAttribution | undefined;
     let isCommandInputEcho:
       ReturnType<typeof createOrdinaryLocalVertexSdkQuery>['isCommandInputEcho'] | undefined;
     let sdkPeerMessages: SdkAgentMessageRuntime | undefined;
@@ -3003,7 +3012,8 @@ async function _startChatInner(
               defaultMcpServers: mcpServers,
               cwd,
               env: nativeExecutionEnv(),
-              assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
+              assertCurrent: (signal) =>
+                options.ordinarySdkAuthority!.assertToolCurrent(signal, 'mcp'),
               assertCurrentSync: (signal) =>
                 options.ordinarySdkAuthority!.assertCurrentSync(signal),
             }),
@@ -3023,7 +3033,10 @@ async function _startChatInner(
               conversationId: session.sessionId!,
               assertRuntimeCurrent: async () => {
                 assertToolCurrent?.();
-                await options.ordinarySdkAuthority!.assertCurrent(abortController.signal);
+                await options.ordinarySdkAuthority!.assertToolCurrent(
+                  abortController.signal,
+                  'mcp',
+                );
                 assertToolCurrent?.();
               },
               assertRuntimeCurrentSync: () => {
@@ -3071,7 +3084,7 @@ async function _startChatInner(
           },
           assertCurrent: async (signal) => {
             if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
-            await options.ordinarySdkAuthority!.assertCurrent(signal);
+            await options.ordinarySdkAuthority!.assertToolCurrent(signal, 'mcp');
             if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
           },
         });
@@ -3085,7 +3098,8 @@ async function _startChatInner(
               connectionBoundary: 'sdk-callback',
               agentCommunication: sdkAgentCommunication,
               historyEvents: eventStore,
-              assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
+              assertCurrent: (signal) =>
+                options.ordinarySdkAuthority!.assertToolCurrent(signal, 'mcp'),
               assertCurrentSync: (signal) =>
                 options.ordinarySdkAuthority!.assertCurrentSync(signal),
             }
@@ -3094,9 +3108,13 @@ async function _startChatInner(
       const packBoundSdk = agentContext?.source === 'packs' || !!options.ordinarySdkAuthority;
       const contextStopReason = 'Accepted agent context is no longer authorized; start a new chat.';
       const sdkHookLifetime = new SdkHookLifetime();
+      // Hooks, permission decisions and in-process MCP handlers are per-tool
+      // callbacks: they use the reviewed Codex per-tool check. Startup, command
+      // setup, prompt release and turn results keep the deep proof.
       const authorizeSdkContext = async (
         signal: AbortSignal,
         beforeRefusal?: (cause: unknown) => never,
+        caller: SdkAuthorityCaller = 'startup',
       ) => {
         const joined = AbortSignal.any([abortController.signal, signal]);
         let check = 'sdk.adviser';
@@ -3107,7 +3125,9 @@ async function _startChatInner(
           check = 'sdk.context';
           await prepareAgentContext?.(joined);
           check = 'sdk.authority';
-          await options.ordinarySdkAuthority?.assertCurrent(joined);
+          if (perToolSdkAuthorityCallers.has(caller))
+            await options.ordinarySdkAuthority?.assertToolCurrent(joined, caller);
+          else await options.ordinarySdkAuthority?.assertCurrent(joined, caller);
           if (sdkStartupContextPrepared) {
             check = 'sdk.published_context';
             sdkStartupContext?.assertCurrent();
@@ -3132,7 +3152,7 @@ async function _startChatInner(
         }
       };
       const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
-        if (packBoundSdk) await authorizeSdkContext(opts.signal);
+        if (packBoundSdk) await authorizeSdkContext(opts.signal, undefined, 'decide');
         if (sdkCredentialBoundary && name === 'Bash' && input.dangerouslyDisableSandbox === true)
           return {
             behavior: 'deny',
@@ -3171,7 +3191,7 @@ async function _startChatInner(
             : await existingDecision(name, input, opts);
         } finally {
           // Permissions can wait for a human while accepted Knowledge changes.
-          if (packBoundSdk) await authorizeSdkContext(opts.signal);
+          if (packBoundSdk) await authorizeSdkContext(opts.signal, undefined, 'decide');
         }
       };
       const sdkHooks = buildSessionPermissionHooks(decide, hooks);
@@ -3185,13 +3205,13 @@ async function _startChatInner(
           };
           signal.addEventListener('abort', abortOwner, { once: true });
           try {
-            await authorizeSdkContext(signal);
+            await authorizeSdkContext(signal, undefined, 'hook');
             try {
               return await hook(input, id, { ...opts, signal });
             } finally {
               // Every matched callback owns its final fence. Concurrent SDK
               // matchers cannot outrun a slower hook or its source changes.
-              await authorizeSdkContext(signal);
+              await authorizeSdkContext(signal, undefined, 'hook');
             }
           } catch (error) {
             if (abortController.signal.aborted)
@@ -3258,7 +3278,7 @@ async function _startChatInner(
         session,
         async () => {
           assertTurnCallbackEffects();
-          await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
+          await options.ordinarySdkAuthority?.assertCurrent(abortController.signal, 'host_effect');
           assertTurnCallbackEffects();
         },
         // Ordinary owned queries must present their per-call native fence.
@@ -3268,6 +3288,10 @@ async function _startChatInner(
         once: true,
       });
       const exactSdkModelId = accountBinding?.provider === 'anthropic-api';
+      sdkTurnAttribution = new ClaudeTurnAttribution(
+        () => liveOrdinarySdkOwner?.activeCommandId(),
+        diagnosticReleaseRevision,
+      );
       const createSdkWebAccess = (state?: {
         retired: boolean;
         completing: boolean;
@@ -3282,7 +3306,7 @@ async function _startChatInner(
           assertWebTool();
           assertTurnCallbackEffects();
           if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
-          await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
+          await options.ordinarySdkAuthority?.assertToolCurrent(abortController.signal, 'mcp');
           assertTurnCallbackEffects();
           if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
           assertWebTool();
@@ -3427,7 +3451,12 @@ async function _startChatInner(
               'mitzo-web-access': webAccess,
               ...(sdkToolLibrary
                 ? {
-                    'mitzo-tool-library': sdkToolLibrary.createServer(options.ordinarySdkAuthority),
+                    'mitzo-tool-library': sdkToolLibrary.createServer({
+                      assertCurrent: (signal) =>
+                        options.ordinarySdkAuthority!.assertToolCurrent(signal, 'mcp'),
+                      assertCurrentSync: (signal) =>
+                        options.ordinarySdkAuthority!.assertCurrentSync(signal),
+                    }),
                   }
                 : {}),
               telos: sdkTelos(),
@@ -3461,6 +3490,9 @@ async function _startChatInner(
           sdkSessionId: options.ordinarySdkAuthority.sdkSessionId(),
           cwd,
           controller: abortController,
+          stopping: () =>
+            !!session.sessionId &&
+            eventStore.getSession(session.sessionId)?.executionPhase === 'STOPPING',
           onUnsent: (message, error) =>
             reportRetainedRuntimeFailure({
               store: eventStore,
@@ -3503,7 +3535,7 @@ async function _startChatInner(
                     assertCurrent: async (signal) => {
                       if (state.retired || state.completing)
                         throw Error('Completed SDK query retired');
-                      await options.ordinarySdkAuthority!.assertCurrent(signal);
+                      await options.ordinarySdkAuthority!.assertToolCurrent(signal, 'mcp');
                       if (state.retired || state.completing)
                         throw Error('Completed SDK query retired');
                     },
@@ -3541,7 +3573,7 @@ async function _startChatInner(
                 },
                 assertCurrent: async (signal) => {
                   if (state.retired || state.completing) throw Error('Completed SDK query retired');
-                  await options.ordinarySdkAuthority!.assertCurrent(signal);
+                  await options.ordinarySdkAuthority!.assertToolCurrent(signal, 'mcp');
                   if (state.retired || state.completing) throw Error('Completed SDK query retired');
                 },
               },
@@ -3571,6 +3603,11 @@ async function _startChatInner(
                     undefined,
                   );
             session.model = _admission.selection.model;
+            sdkTurnAttribution!.select(
+              id,
+              _admission,
+              parseModelSpec(_admission.selection.model, exactSdkModelId).model,
+            );
             if (!eventStore.agentCommunication.forCommand(id))
               echoOwnedSdkCommand(session.sessionId!, id, frozenPayload);
             ownedQuery.push(
@@ -3679,7 +3716,7 @@ async function _startChatInner(
                         },
                         assertCurrent: async (signal) => {
                           assertTurnCallbackEffects();
-                          await authorizeSdkContext(signal);
+                          await authorizeSdkContext(signal, undefined, 'mcp');
                           assertTurnCallbackEffects();
                         },
                       },
@@ -3833,6 +3870,9 @@ async function _startChatInner(
         onTurnStart: notifyTurnStart,
         onTurnEnd: notifyTurnEnd,
         isCommandInputEcho,
+        ...(sdkTurnAttribution
+          ? { turnTraceAttributes: sdkTurnAttribution.attributes.bind(sdkTurnAttribution) }
+          : {}),
         onUserInput: (cId, inputUuid) => {
           const active = registry.get(cId);
           if (active) markFallbackCloseoutInputObserved(active, inputUuid);
@@ -3894,7 +3934,12 @@ async function _startChatInner(
       accountBinding?.provider === 'openai' ||
       options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority;
     const publicMessage = native
-      ? publicCodexStartupError(err instanceof Error ? err : new Error(message))
+      ? publicCodexStartupError(
+          err instanceof Error ? err : new Error(message),
+          options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority
+            ? 'Claude'
+            : 'Codex',
+        )
       : message;
     try {
       // Admission rejection is also a client/span boundary. Never forward the
@@ -6358,26 +6403,113 @@ export function stopOrdinaryChat(clientId: string): void {
   const turns = session?.ordinaryRuntimeOwner?.sdkTurns;
   if (turns && session.sessionId) {
     const sessionId = session.sessionId;
-    const phase = eventStore.getSession(sessionId)?.executionPhase;
-    // Keep the original query alive to observe its settled result. Closing it
-    // here loses the only evidence that permits the next SDK command to run.
-    if (phase === 'STOPPING') return;
-    if (phase && phase !== 'TERMINAL') {
-      const target = turns.captureInterruptTarget();
-      const report = (cause: unknown) =>
+    const meta = eventStore.getSession(sessionId);
+    const phase = meta?.executionPhase;
+    const requestId = randomUUID();
+    const commandId = eventStore.getCurrentExecutionCommandId(sessionId);
+    const outcome = (result: OrdinarySdkStopOutcome, extra: Record<string, unknown> = {}) => {
+      const fields = {
+        code: `ordinary_sdk_stop_${result}`,
+        stage: 'turn_stop',
+        sessionId,
+        commandId,
+        requestId,
+        executionPhase: phase,
+        ...extra,
+      };
+      if (result === 'failed' || result === 'escalation_failed')
+        log.warn('Ordinary SDK Stop outcome', fields);
+      else log.info('Ordinary SDK Stop outcome', fields);
+    };
+    const escalate = (trigger: 'repeat_stop' | 'timeout') => {
+      try {
+        const escalated = turns.escalateStop?.();
+        if (!escalated) return false;
+        outcome('escalated', {
+          trigger,
+          commandId: escalated.commandId,
+          inputAcknowledged: escalated.inputAcknowledged,
+        });
+        return true;
+      } catch (cause) {
+        outcome('escalation_failed', { trigger, ...runtimeFailureDiagnostics(cause) });
         reportRetainedRuntimeFailure({
           store: eventStore,
           sessionId,
-          commandId: target?.commandId,
+          commandId,
           session,
           error: new SessionRuntimeError('unsettled_effects', { cause }),
         });
-      void turns.stop(randomUUID()).catch(report);
+        return true;
+      }
+    };
+    // Keep the original query alive for one bounded window to observe its
+    // settled result; that result is the evidence that permits the next SDK
+    // command. A repeated Stop, or that window elapsing, closes the native
+    // process instead so the chat never stays wedged in STOPPING.
+    if (phase === 'STOPPING') {
+      if (!escalate('repeat_stop')) outcome('already_stopping');
       return;
     }
+    if (phase && phase !== 'TERMINAL') {
+      const execution = meta?.executionId;
+      const timer = setTimeout(() => {
+        // Only the same live owner may escalate; a closed or replaced runtime
+        // (or a store closed at shutdown) has nothing left to stop.
+        if (registry.get(clientId)?.ordinaryRuntimeOwner?.sdkTurns !== turns) return;
+        try {
+          const current = eventStore.getSession(sessionId);
+          if (current?.executionPhase === 'STOPPING' && current.executionId === execution)
+            if (!escalate('timeout')) outcome('already_stopping', { trigger: 'timeout' });
+        } catch (cause) {
+          outcome('escalation_failed', { trigger: 'timeout', ...runtimeFailureDiagnostics(cause) });
+        }
+      }, ordinarySdkStopEscalation.timeoutMs);
+      timer.unref?.();
+      outcome('requested');
+      void turns.stop(requestId).then(
+        () => outcome('accepted'),
+        (cause: unknown) => {
+          // Stop already moved this execution to STOPPING before awaiting the
+          // native interrupt, so a rejected or uncertain report must not drop
+          // the escalation bound: keep it while that exact execution is still
+          // stopping, and clear it only once something else has settled it.
+          let stillStopping = true;
+          try {
+            const current = eventStore.getSession(sessionId);
+            stillStopping =
+              current?.executionPhase === 'STOPPING' && current.executionId === execution;
+          } catch {
+            // Unknown state: the timer's own guards make a late escalation safe.
+          }
+          if (!stillStopping) clearTimeout(timer);
+          outcome('failed', runtimeFailureDiagnostics(cause));
+          reportRetainedRuntimeFailure({
+            store: eventStore,
+            sessionId,
+            commandId,
+            session,
+            error: new SessionRuntimeError('unsettled_effects', { cause }),
+          });
+        },
+      );
+      return;
+    }
+    outcome('not_running');
   }
   stopChat(clientId);
 }
+type OrdinarySdkStopOutcome =
+  | 'requested'
+  | 'accepted'
+  | 'already_stopping'
+  | 'escalated'
+  | 'escalation_failed'
+  | 'failed'
+  | 'not_running';
+/** Bound for a stopped SDK turn to settle before its native process is closed.
+ * Exported as a mutable object so tests shorten it instead of faking timers. */
+export const ordinarySdkStopEscalation = { timeoutMs: 30_000 };
 export function stopChat(clientId: string) {
   withSpan('session.stop', { 'session.clientId': clientId }, () => {
     const session = registry.get(clientId);

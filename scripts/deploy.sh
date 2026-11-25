@@ -75,7 +75,7 @@ done
 launchctl bootstrap "gui/$(id -u)" "$PODMAN_PLIST_DEST"
 
 echo "Ensuring observability stack is running..."
-docker compose -p mitzo up -d
+./scripts/ensure-observability.sh
 
 echo "Restarting service..."
 launchctl bootout "gui/$(id -u)/com.mitzo.server" 2>/dev/null || true

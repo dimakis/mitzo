@@ -706,6 +706,63 @@ it('retains explicit empty-composer Local intent across responsive remount and r
   );
   expect(state.intent!.execution.location).toBe('openshell');
 });
+it('keeps a chat selected while it starts loading instead of reporting unavailable settings', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    let started = false;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (String(path).endsWith('/meta'))
+        return started
+          ? new Response(
+              JSON.stringify({
+                runtimeCommandScope: 'conversation',
+                runtimeBinding: {
+                  version: 2,
+                  account: localInventoryFixture().accounts[0].account,
+                  harness: { implementation: 'codex' },
+                  execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+                },
+              }),
+            )
+          : new Response('{}', { status: 404 });
+      return new Response(JSON.stringify(localInventoryFixture()));
+    });
+    const { result } = renderHook(() =>
+      useExplicitLocalChat('draft', null, 'starting-session', true),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(1600));
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/meta')).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(result.current.metadataUnavailable).toBe(false);
+    expect(result.current.metadataPending).toBe(true);
+    expect(result.current.reason).toBe('Loading conversation settings…');
+    started = true;
+    await act(async () => vi.advanceTimersByTimeAsync(2100));
+    expect(result.current.bound).toBe(true);
+    expect(result.current.metadataPending).toBe(false);
+    expect(result.current.metadataUnavailable).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('reports a session that never starts once the startup window is exhausted', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    vi.mocked(apiFetch).mockImplementation(async (path) =>
+      String(path).endsWith('/meta')
+        ? new Response('{}', { status: 404 })
+        : new Response(JSON.stringify(localInventoryFixture())),
+    );
+    const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'missing', true));
+    for (let elapsed = 0; elapsed < 95_000; elapsed += 1_000)
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(result.current.metadataUnavailable).toBe(true);
+    expect(result.current.reason).toBe('Conversation settings are unavailable. Retry to continue.');
+  } finally {
+    vi.useRealTimers();
+  }
+});
 it('keeps unknown session metadata fail-closed with visible retry, then recovers actual bound identity', async () => {
   let failed = true;
   vi.mocked(apiFetch).mockImplementation(async (path) => {

@@ -534,10 +534,15 @@ export function publicCodexRuntimeError(error: Error): string {
     return message;
   return 'Codex turn failed. Inspect queued work before retrying.';
 }
-export function publicCodexStartupError(error: Error): string {
+/** Ordinary Claude SDK startup shares this sanitizer; `engine` names the runtime
+ * that failed so a Claude chat is never reported as a Codex failure. */
+export function publicCodexStartupError(
+  error: Error,
+  engine: 'Codex' | 'Claude' = 'Codex',
+): string {
   const diagnostic = publicCodexRuntimeError(error);
   return diagnostic === 'Codex turn failed. Inspect queued work before retrying.'
-    ? 'Codex could not start this chat. Check runtime and account configuration before continuing.'
+    ? `${engine} could not start this chat. Check runtime and account configuration before continuing.`
     : diagnostic;
 }
 let privateStore: CodexConversationStore | undefined;

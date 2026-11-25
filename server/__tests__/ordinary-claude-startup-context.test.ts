@@ -170,6 +170,7 @@ async function fixture(personal: boolean, consumeInput = false) {
       environment: () => owner.environment(),
       sourceWriteRoots: [],
       assertCurrent: () => owner.assertEffect(currentCommand),
+      assertToolCurrent: () => owner.assertToolEffect(currentCommand),
       assertCurrentSync: () => owner.assertStart(currentCommand),
     });
     let resolveAdmission!: () => void;
@@ -546,6 +547,74 @@ it('revalidates workspace authority only at startup boundaries before creating t
   expect(beforeProvider).toHaveLength(5);
 }, 20_000);
 
+it('runs the deep proof at prompt release and none in per-tool SDK callbacks', async () => {
+  const x = await fixture(false, true);
+  const { resetSdkAuthorityCheckCounts, sdkAuthorityCheckCounts } =
+    await import('../sdk-authority-observation.js');
+  resetSdkAuthorityCheckCounts();
+  const deep = vi.spyOn(x.owner, 'assertEffect');
+  const tool = vi.spyOn(x.owner, 'assertToolEffect');
+  await x.owner.admit(x.f.request);
+  await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
+  // The input reached the native process only after its deep proof.
+  expect(sdkAuthorityCheckCounts()['deep:prompt_release']).toBeGreaterThanOrEqual(1);
+  expect(sdkAuthorityCheckCounts()['tool:hook']).toBeUndefined();
+  resetSdkAuthorityCheckCounts();
+  deep.mockClear();
+  tool.mockClear();
+  const options = x.calls[0];
+  const signal = new AbortController().signal;
+  const cwd = x.f.reserved.directory!;
+  const file = join(cwd, 'task.txt');
+  const base = { session_id: x.f.reservation.conversationId, transcript_path: '', cwd };
+  const hooks = async (event: string, input: Record<string, unknown>) => {
+    for (const matcher of options.hooks?.[event as 'PreToolUse'] ?? [])
+      for (const hook of matcher.hooks)
+        await hook({ ...base, hook_event_name: event, ...input } as never, 'tool-1', { signal });
+  };
+  // One native tool call as the SDK drives it, plus one in-process MCP call.
+  await hooks('PreToolUse', {
+    tool_name: 'Read',
+    tool_input: { file_path: file },
+    tool_use_id: 'tool-1',
+  });
+  await options.canUseTool!(
+    'Read',
+    { file_path: file },
+    { signal, toolUseID: 'tool-1', requestId: 'tool-1' },
+  );
+  await hooks('PostToolUse', {
+    tool_name: 'Read',
+    tool_input: { file_path: file },
+    tool_response: {},
+    tool_use_id: 'tool-1',
+  });
+  await hooks('PostToolBatch', {});
+  const server = options.mcpServers!['mitzo-connections'];
+  if (server.type !== 'sdk') throw Error('Expected in-process SDK tools');
+  const client = new Client({ name: 'offline-per-tool', version: '1' });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.instance.connect(a);
+  await client.connect(b);
+  try {
+    await client.callTool({
+      name: 'ReadKnowledge',
+      arguments: { action: 'published', path: 'memory/Observations/lesson.md' },
+    });
+  } finally {
+    await client.close();
+  }
+  const counts = sdkAuthorityCheckCounts();
+  expect(Object.keys(counts).filter((key) => key.startsWith('deep:'))).toEqual([]);
+  expect(counts['tool:hook']).toBeGreaterThan(0);
+  expect(counts['tool:decide']).toBeGreaterThan(0);
+  expect(counts['tool:mcp']).toBeGreaterThan(0);
+  expect(deep).not.toHaveBeenCalled();
+  expect(tool).toHaveBeenCalled();
+  // The chat stays usable: callbacks did not retire the provider.
+  expect(x.chat.registry.get('startup-context')!.abortController.signal.aborted).toBe(false);
+}, 20_000);
+
 it('prepares startup context while Tool Library discovery is still pending', async () => {
   const x = await fixture(false, true);
   const library = await import('../tool-library-sdk.js');
@@ -632,6 +701,34 @@ it('starts Claude through the owned entry after the sending stream closed before
   expect(session.ownerConnectionId).toBe(closedStream);
   expect(session.ownedLocalAuthSessionId).toBe(x.f.auth.id);
   await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
+}, 20_000);
+
+it('identifies only its own in-flight startup dispatch while the SDK is still starting', async () => {
+  const x = await fixture(false, true);
+  const library = await import('../tool-library-sdk.js');
+  let finishDiscovery!: () => void;
+  const discovery = new Promise<undefined>((resolve) => {
+    finishDiscovery = () => resolve(undefined);
+  });
+  vi.spyOn(library, 'createSdkToolLibrary').mockReturnValue(discovery);
+  const start = await ownedEntry(x, 'conn-startup-status');
+  const entry = await import('../ordinary-local-vertex-entry.js');
+  const sessionId = x.f.reservation.conversationId;
+  expect(entry.ownedLocalVertexStartupInFlight(sessionId, x.f.auth.id)).toBe(false);
+  const started = start();
+  await vi.waitFor(() => expect(x.chat.registry.findBySessionId(sessionId)).toBeDefined());
+  // The first command is durably uncertain from its dispatch claim until the
+  // SDK accepts its input; the claim follows registration.
+  await vi.waitFor(() =>
+    expect(x.chat.eventStore.hasUncertainOrdinaryCommand(sessionId)).toBe(true),
+  );
+  expect(entry.ownedLocalVertexStartupInFlight(sessionId, x.f.auth.id)).toBe(true);
+  expect(entry.ownedLocalVertexStartupInFlight(sessionId, 'other-login')).toBe(false);
+  expect(entry.ownedLocalVertexStartupInFlight('other-conversation', x.f.auth.id)).toBe(false);
+  finishDiscovery();
+  await started;
+  expect(x.chat.eventStore.hasUncertainOrdinaryCommand(sessionId)).toBe(false);
+  expect(entry.ownedLocalVertexStartupInFlight(sessionId, x.f.auth.id)).toBe(false);
 }, 20_000);
 
 it('keeps the original cause and failing stage when owned Claude startup fails', async () => {

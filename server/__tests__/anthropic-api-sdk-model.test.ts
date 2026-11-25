@@ -152,6 +152,7 @@ it.each([true, false])(
         environment: () => owner.environment(),
         sourceWriteRoots: [],
         assertCurrent: () => owner.assertEffect(currentCommand),
+        assertToolCurrent: () => owner.assertToolEffect(currentCommand),
         assertCurrentSync: () => owner.assertStart(currentCommand),
       });
       let resolveAdmission!: () => void;
@@ -239,6 +240,10 @@ it.each([true, false])(
         title: 'Selected slice',
         prompt: 'Reviewed work',
       };
+      // Per-tool callbacks verify the API key as Codex API logins do, without
+      // the deep workspace reservation proof.
+      const keychainReads = keychain.read.mock.calls.length;
+      const reserve = vi.spyOn(f.workspace, 'reserveHostTask');
       for (const [name, args] of [
         ['mcp__mitzo-connections__TelosCreateSession', input],
         ['mcp__mitzo-connections__CaptureMemoryCandidate', { action: 'sources' }],
@@ -286,6 +291,9 @@ it.each([true, false])(
           expect(result).not.toMatchObject({ continue: false });
         }
       }
+      expect(keychain.read.mock.calls.length).toBeGreaterThan(keychainReads);
+      expect(reserve).not.toHaveBeenCalled();
+      reserve.mockRestore();
       expect(
         await options.canUseTool!(
           'mcp__mitzo-connections__ListConnections',
