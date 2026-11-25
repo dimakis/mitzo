@@ -742,7 +742,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ShareButton.test.tsx':
     '3b849a970077e021d448ba319494d6171a411be1fe586fa7b18e4a49394c7e70',
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
-    '572580d84f3f008548b46a6422693218396439ad6a7f04da79d24002572b4f94',
+    '3e306bde995a7b6e2f69ae2a9fd419adc7e8ce5c59d1449adc12d9bc652cdd44',
   '../../frontend/src/components/__tests__/SharedConversationStatus.test.tsx':
     '3a123b0cb83eb3ba23f476dc7d07ca827a3bc0fe6b20930c8c021bb7f0463a46',
   '../../frontend/src/components/__tests__/SlashPicker.test.ts':

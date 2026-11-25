@@ -607,8 +607,11 @@ it('qualifies linked participant history without showing another agent or allowi
   fireEvent.change(input, { target: { value: 'Keep this history draft' } });
   input.focus();
   input.setSelectionRange(2, 6);
-  await screen.findByText(view.messages[0].text);
-  expect(screen.getAllByText(view.messages[0].text)).toHaveLength(1);
+  await screen.findAllByText(view.messages[0].text);
+  // The retained answer quotes its exact prompt; the prompt itself renders once.
+  const prompts = screen.getAllByText(view.messages[0].text);
+  expect(prompts.filter((node) => !node.closest('.chat-reply-link'))).toHaveLength(1);
+  expect(prompts.filter((node) => node.closest('.chat-reply-link'))).toHaveLength(1);
   expect(screen.getAllByText('Reviewer retained answer')).toHaveLength(1);
   expect(screen.queryByText('Encoded reviewer native packet')).toBeNull();
   expect(screen.queryByText(view.messages[1].text)).toBeNull();
