@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type Database from 'better-sqlite3';
 import { EventStore } from '../src/event-store.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -69,6 +70,24 @@ describe('EventStore', () => {
     it('creates tables on initialization', () => {
       const seq = store.append('sess-1', 'message_start', { messageId: 'm1' });
       expect(seq).toBe(1);
+    });
+
+    it('indexes both ends of the ordinary admission ledger for a single session', () => {
+      const db = (store as unknown as { db: Database.Database }).db;
+      const prepare = vi.spyOn(db, 'prepare');
+      expect(store.getOrdinaryInitialCommandId('legacy-session')).toBeUndefined();
+      expect(store.getLatestOrdinaryCommandAdmission('legacy-session')).toBeUndefined();
+      const queries = prepare.mock.calls
+        .map(([sql]) => sql)
+        .filter((sql) => sql.includes('FROM send_commands'));
+      prepare.mockRestore();
+      expect(queries).toHaveLength(2);
+      for (const sql of queries) {
+        const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).get('legacy-session') as {
+          detail: string;
+        };
+        expect(plan.detail).toContain('USING INDEX idx_send_commands_ordinary_admission');
+      }
     });
 
     it('calls logger on initialization', () => {
