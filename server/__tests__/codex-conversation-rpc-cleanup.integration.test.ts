@@ -17,12 +17,12 @@ import { copyCallbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js
 import { SessionRegistry } from '@mitzo/harness';
 import { NativeHooks } from '../native-hooks.js';
 import { createNativeToolExecutor } from '../native-tool-executor.js';
-import { executeTrustedGitHubRead } from '../trusted-native-operation.js';
+import { executeAdmittedGitHubRead as executeTrustedGitHubRead } from '../trusted-native-operation.js';
 import { createHash } from 'node:crypto';
 
 vi.mock('../trusted-native-operation.js', async (importOriginal) => ({
   ...(await importOriginal()),
-  executeTrustedGitHubRead: vi.fn(async () => {
+  executeAdmittedGitHubRead: vi.fn(async () => {
     throw new Error('No GitHub request may execute in this offline fixture');
   }),
 }));

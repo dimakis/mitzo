@@ -53,6 +53,41 @@ it('keeps one pending check while busy and sends it once after the existing turn
   expect(f.port.deliver).toHaveBeenCalledTimes(1);
   expect(f.store.get(timer.id)).toMatchObject({ runCount: 1, status: 'active' });
 });
+it('runs passive observation through the same tick and drain without allocating a prompt', async () => {
+  const f = fixture();
+  const passive = {
+    reconcileDue: vi.fn(async () => undefined),
+    close: vi.fn(async () => undefined),
+    stopConversation: vi.fn(),
+  };
+  const service = new SessionPromptService(f.store, f.port, passive);
+  await Promise.all([service.tick(), service.tick()]);
+  expect(passive.reconcileDue).toHaveBeenCalledTimes(1);
+  expect(f.store.deliveries()).toEqual([]);
+  expect(f.port.deliver).not.toHaveBeenCalled();
+  await service.cancelSession('worker');
+  expect(passive.stopConversation).toHaveBeenCalledWith('worker', 'deleted');
+  await service.drain();
+  expect(passive.close).toHaveBeenCalledTimes(1);
+  await service.tick();
+  expect(passive.reconcileDue).toHaveBeenCalledTimes(1);
+});
+it('isolates passive reconciliation failures from authorized timer delivery', async () => {
+  const f = fixture();
+  await f.service.create(f.input, f.auth, 'user', null);
+  const reconcileDue = vi.fn(async () => {
+    throw Error('private upstream body');
+  });
+  const service = new SessionPromptService(f.store, f.port, {
+    reconcileDue,
+    close: async () => undefined,
+    stopConversation: () => undefined,
+  });
+  await service.tick();
+  expect(reconcileDue).toHaveBeenCalledTimes(1);
+  expect(f.port.deliver).toHaveBeenCalledTimes(1);
+  await service.drain();
+});
 it('cancels timers and undelivered incoming prompts when their recipient is removed', async () => {
   const f = fixture();
   const timer = await f.service.create(f.input, f.auth, 'user', null);
