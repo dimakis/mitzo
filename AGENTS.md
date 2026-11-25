@@ -131,7 +131,7 @@ Tests that make real model calls must explicitly use a supported Luna model. Sta
 
 `server/connections/reviewed-handler-artifacts.ts` pins registered sources by SHA-256. After changing a registered file, review the change and run `npm run fix:reviewed-handler-artifacts`; `npm run check:source-artifacts` verifies the result. The fix only rewrites existing entries, so register a new file by adding its key by hand (any placeholder value) first. Do not bump `reviewedConnectionsRuntimeImplementationRevision` per PR. Its consumers already hash the full fingerprint map, so bump it only to invalidate runtime contracts when no registered source changed.
 
-To resolve a conflict in the manifest, take main's side and regenerate: `git checkout origin/main -- server/connections/reviewed-handler-artifacts.ts`, re-add any keys your PR registered, run `npm run fix:reviewed-handler-artifacts`, then `npm run check:source-artifacts`. Review the resulting diff before committing.
+To resolve a conflict in the manifest, take main's side and regenerate: `git checkout origin/main -- server/connections/reviewed-handler-artifacts.ts`, re-apply every other manifest edit your PR made (added keys, removed registrations, comment changes and any deliberate revision bump), run `npm run fix:reviewed-handler-artifacts`, then `npm run check:source-artifacts`. The fix script only refreshes fingerprints and cannot detect a lost edit, so compare `git diff origin/main -- server/connections/reviewed-handler-artifacts.ts` with your PR's original manifest diff before committing.
 
 ## Playwright on macOS
 
