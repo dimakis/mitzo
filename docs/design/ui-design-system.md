@@ -1802,6 +1802,29 @@ confirmation, failure preservation and replacement. Captures show
 
 ## Symposium participant presentation
 
+### Starting-context source selection — 21 November 2026
+
+Dimitri explicitly requested compact selectable message cards, actual author/time/type,
+formatted expansion, search/author filters, collapsible recorded progress and stable
+selection/count review for finding18. The existing Starting context editor reuses
+quiet labelled selection rows, `MotionDetails`, sanitized Markdown, `HomeDialog`
+and the shared color/type/spacing/control tokens. Preview is separate from selection;
+links and images in previews cannot fetch files or remote content. Filters change
+visibility only; selected missing messages and exact artifact revision/hash pins remain
+visible and removable. The existing frozen Before joining review remains authoritative.
+
+Only existing source metadata supplies author, time, type and artifact availability.
+Unknown author/access and unrecorded progress classification stay explicit; the UI
+does not infer them from prose, paths or membership. The existing retained-artifact
+catalog is read lazily for an already shared source. A source without retained
+membership explains its unavailable catalog rather than beginning sharing on preview.
+Selection creates no file capture, access grant or automatic reply inclusion.
+
+The focused offline fixture covers keyboard disclosure/focus, exact pins, filters,
+touch geometry and narrow layouts in both themes with alternate appearance choices.
+Fixture availability is distinct from rendered verification; see
+[finding18 evidence and remaining gates](../evidence/symposium-starting-context-2026-11-21.md).
+
 ### Continuous ordinary discussion — 14 November 2026
 
 Sharing an ordinary chat extends its existing `ChatArea` and `ChatInput`: one
