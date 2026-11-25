@@ -45,6 +45,30 @@ it('persists workspace defaults, isolates overrides and restores inheritance', (
   expect(store.resolve('chat', 'personal', 'chosen-model').admission).toBe('auto');
   expect(store.resolve('chat', 'another-account', 'chosen-model').admission).toBe('ask');
 });
+it('fences admitted work on its own effective rule, not on unrelated policy edits', () => {
+  const { store } = fixture();
+  const revision = () => store.resolve('chat', 'personal', 'chosen-model').revision;
+  const initial = revision();
+  // Another model, another conversation and a no-op re-save leave it unchanged.
+  store.save('workspace', {
+    requestId: randomUUID(),
+    expectedRevision: 0,
+    policy: {
+      models: [{ accountId: 'personal', model: 'other-model', admission: 'off', allowance: null }],
+    },
+  });
+  store.save('other-chat', { requestId: randomUUID(), expectedRevision: 0, policy: rules('off') });
+  expect(revision()).toBe(initial);
+  // A change to this route's own admission or allowance changes it.
+  store.save('chat', { requestId: randomUUID(), expectedRevision: 0, policy: rules('ask', 2) });
+  const limited = revision();
+  expect(limited).not.toBe(initial);
+  store.save('chat', { requestId: randomUUID(), expectedRevision: 1, policy: rules('ask', 2) });
+  expect(revision()).toBe(limited);
+  store.save('chat', { requestId: randomUUID(), expectedRevision: 2, policy: rules('auto', 2) });
+  expect(revision()).not.toBe(limited);
+});
+
 it('retains exact save receipts and refuses stale edits or conflicting retries', () => {
   const { store } = fixture();
   const input = { requestId: randomUUID(), expectedRevision: 0, policy: rules('auto') };

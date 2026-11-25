@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
   SpecialistModelPolicySaveSchema,
@@ -39,10 +40,19 @@ export class SpecialistModelPolicyStore {
     const rule = effective?.models.find(
       (entry) => entry.accountId === accountId && entry.model === model,
     );
+    const admission = rule?.admission ?? 'ask';
+    const allowance = rule?.allowance ?? null;
     return {
-      admission: rule?.admission ?? 'ask',
-      allowance: rule?.allowance ?? null,
-      revision: `${view.workspace.revision}:${view.conversation.revision}`,
+      admission,
+      allowance,
+      // Fingerprint only this route's effective rule. Admitted work is fenced
+      // on its own admission/allowance; unrelated edits (another model, another
+      // conversation, or a workspace change this conversation overrides)
+      // apply to future admissions only.
+      revision: `rule:${createHash('sha256')
+        .update(JSON.stringify([admission, allowance]))
+        .digest('hex')
+        .slice(0, 16)}`,
     };
   }
   save(scope: string, raw: unknown) {

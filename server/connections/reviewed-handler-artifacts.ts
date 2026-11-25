@@ -3537,7 +3537,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/specialist-authorization-replay.test.ts':
     'd310192427b4a1f121c290d3376bf9ea88d9f891ad6abd78c84cd3195ee56794',
   '../__tests__/specialist-consultation-application.test.ts':
-    '5f978ec9f7d46ed894f22d6b1dc4515026275beaa8ca5818f7ec2f0532b66d2d',
+    'c0655a601cf4d62f9db9114017069addba7e8a4533390f881a7962ee7a388883',
   '../__tests__/specialist-consultation-store.test.ts':
     '7d425b2916cdbe2622bd7bd777b850e940194ea9ed4763942e156e3845652904',
   '../__tests__/specialist-review-routing.test.ts':
@@ -4644,13 +4644,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '32ed964e4a9e7d51c2a467d048e9a78ea91154cecd488c69b7f90539612613e7',
   '../specialist-approval.ts': 'bd15448ff0c4e32de4cbf1455d35cd2bd27a320a0fbec4c0ac1a96229ae9fc77',
   '../specialist-model-policy-store.ts':
-    '8399ca4cbdec2265e73cd8c24913b3ac0dd34872e408ddbb37ecc17aaf8ce1b6',
+    'e5c3497e96ec2c9048b1c55ab94a51c4b06be03acb5a03d2c367ed35840dfd03',
   '../specialist-model-policy-router.ts':
-    'dec09d259f836bde28ba23cf7be190982064a977aa164dcded68288b9b8c2c26',
+    'a3d2520d67d6a7d237b4602e9391bfdc1bb3cd4d70bd36eeeae4bdd7f577a550',
   '../__tests__/specialist-approval.test.ts':
     '0171ab626ae67ab98fc634e80c995a22e6e0a24bd4dbf9d8f1706837ace40bc4',
   '../__tests__/specialist-model-policy.test.ts':
-    '181d1cc703f38750108f84680ac44d83bab62ccc2c99cb87806b0aba8a2cfc3d',
+    'e531474e7a5e42f3c7095cca756bc37319ec23b3212fa39ea2bef86794efc1e5',
   '../../packages/protocol/src/specialist-model-policy.ts':
     '7f5e00f5d60afb498433322ce231adf2eb32ecbfd943304c4edfec43bc387c4d',
   '../../frontend/src/components/SpecialistModelPolicySettings.tsx':
@@ -4666,13 +4666,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../specialist-consultation-contract.ts':
     '8fc866fc2656ce626af85d6f288502e257804a7ae84578a415d420232e50e1c0',
   '../specialist-consultation-diagnostics.ts':
-    '6cf30c6ab1a280ec27ca9107d021c9fa62975c1c9d9f52e6412502b8ab227644',
+    'bd85787f67e0650791e42b52c87b4e2a2bfe90aa01901e0c50366deecba57a00',
   '../specialist-consultation-runtime.ts':
     'a3548f7815907ecbe6eaafea1d795673bf0abc1be14dd06e96dd5d209d5278a1',
   '../specialist-consultation-store.ts':
     '56dc12a58e90b93bbcd168c2cb1d24f7a88061a166a9f6128e0b91a23d309617',
   '../specialist-consultations.ts':
-    '056eb88e56d96a05f261d08a697b2ad42e2c405f4d7185431ab5051c8ab5608b',
+    'd349e96d0e5b804a95abe3f426ed0f9f1a96a98fb3cd4516b63da603f2d89dfd',
   '../specialist-review-routing.ts':
     '9bf82a3d6f65a9dff33105d1ff2e00985990ccf79994bd16bdcc450d9433523a',
   '../specialist-role-execution.ts':

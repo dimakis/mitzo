@@ -54,6 +54,15 @@ export function createSpecialistModelPolicyRouter(events: EventStore) {
       return res.status(403).json({
         error: 'The original consultation authorization is no longer current. Review a new policy.',
       });
+    // Permanent refusals must not look retryable: editors keep 5xx requests.
+    if (error instanceof Error && error.message === 'Consultation policy not found')
+      return res.status(404).json({
+        error: 'This consultation policy is not in this conversation. Refresh Model policy.',
+      });
+    if (error instanceof z.ZodError)
+      return res.status(400).json({
+        error: 'Invalid model policy. Use one rule per account/model and positive allowances.',
+      });
     log.error('Model policy operation failed', {
       err: error,
       stage: 'model_policy',

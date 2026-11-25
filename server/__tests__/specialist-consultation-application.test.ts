@@ -173,6 +173,88 @@ it('reviews editable allowance, requires Ask admission and blocks Off before res
   });
 }, 30000);
 
+it('resumes a retried reserved receipt through recovery instead of stranding its allowance slot', async () => {
+  const { service, authority, input } = await authorizationFixture();
+  const policy = await service.authorize(authority, input, async () => true);
+  const request = {
+    requestId: crypto.randomUUID(),
+    role: input.routes[0].role,
+    assignment: 'Resume a reserved receipt',
+  };
+  const internals = service as unknown as {
+    owners: { events: { getDurableSessionTranscript(id: string): { boundary: never } } };
+    pending: Map<string, unknown>;
+  };
+  // A receipt left reserved, e.g. by a concurrent consult's refusal or a restart.
+  service.receipts.reserve(
+    authority.leadSessionId,
+    authority.auth.id,
+    policy.policyId,
+    request,
+    internals.owners.events.getDurableSessionTranscript(authority.leadSessionId).boundary,
+    policy.routes[0],
+  );
+  const resumed = { resumed: true };
+  const recover = vi
+    .spyOn(service, 'recover')
+    .mockResolvedValue(resumed as unknown as Awaited<ReturnType<typeof service.recover>>);
+  try {
+    internals.pending.set(authority.leadSessionId, { requestId: 'another-request' });
+    await expect(
+      service.consult(authority, policy.policyId, request, approveAdmission),
+    ).rejects.toThrow(/Another consultation is preparing; retain this requestId/);
+    expect(recover).not.toHaveBeenCalled();
+    internals.pending.delete(authority.leadSessionId);
+    await expect(
+      service.consult(authority, policy.policyId, request, approveAdmission),
+    ).resolves.toBe(resumed);
+    expect(recover).toHaveBeenCalledWith(authority, request.requestId, approveAdmission);
+  } finally {
+    internals.pending.delete(authority.leadSessionId);
+    recover.mockRestore();
+  }
+}, 30000);
+
+it('omits an unresolvable Ask alternative instead of blocking admission for its role', async () => {
+  const { service, authority, input } = await authorizationFixture();
+  const policy = await service.authorize(authority, input, async () => true);
+  const proposed = policy.routes[0];
+  const stale = { ...proposed, model: 'retired-fixture-model' };
+  const internals = service as unknown as {
+    resolveRoute(route: unknown): Promise<unknown>;
+    approveModel(
+      a: typeof authority,
+      p: typeof policy,
+      candidates: (typeof proposed)[],
+      approve: (display: Record<string, unknown>) => Promise<unknown>,
+    ): Promise<{ route: typeof proposed; revision: string }>;
+  };
+  const original = internals.resolveRoute.bind(service);
+  const resolveRoute = vi
+    .spyOn(internals, 'resolveRoute')
+    .mockImplementation(async (route) =>
+      (route as typeof proposed).model === stale.model
+        ? Promise.reject(Error('Specialist route runtime unavailable'))
+        : original(route),
+    );
+  try {
+    const displays: Record<string, unknown>[] = [];
+    await expect(
+      internals.approveModel(authority, policy, [proposed, stale], async (display) => {
+        displays.push(display);
+        return false;
+      }),
+    ).rejects.toThrow(/not approved/);
+    // The operator is still asked, with only the usable proposed route offered.
+    expect(displays).toHaveLength(1);
+    const routes = displays[0].routes as { model: string; modelPolicyRevision: string }[];
+    expect(routes.map((route) => route.model)).toEqual([proposed.model]);
+    expect(routes[0].modelPolicyRevision).toBe(displays[0].modelPolicyRevision);
+  } finally {
+    resolveRoute.mockRestore();
+  }
+}, 30000);
+
 it('edits a retained policy allowance through its operator route and replays the original authorization', async () => {
   const { h, service, authority, input, approve } = await authorizationFixture();
   const policy = await service.authorize(authority, input, approve);

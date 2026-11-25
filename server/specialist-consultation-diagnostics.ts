@@ -6,7 +6,7 @@ export function specialistDiagnostic(cause: unknown) {
     [
       /^Selected model is Off/,
       'model_off',
-      'This model is Off in Symposium model policy. Edit Model policy in Agents or explicitly select an eligible model. No replacement was selected.',
+      'This model is Off in Symposium model policy. Ask the operator to edit Model policy in Agents, or authorize a consultation policy whose routes for this role are not Off. No replacement was selected.',
     ],
     [
       /^Model consultation allowance/,

@@ -473,6 +473,19 @@ export class SpecialistConsultations {
     if (previous) {
       if (previous.policyId !== policyId || !isDeepStrictEqual(previous.input, input))
         throw Error('Consultation request conflict');
+      // A receipt still `reserved` never started, or lost its runner to a
+      // concurrent consult or restart. It holds an allowance slot, so retrying
+      // the same requestId resumes it through the original recovery owner
+      // (re-approving if its rule changed or its allowance was released).
+      // A running one joins its pending result.
+      if (previous.state === 'reserved') {
+        const pending = this.pending.get(a.leadSessionId);
+        if (pending && pending.requestId !== input.requestId)
+          throw Error(
+            'Another consultation is preparing; retain this requestId and retry after it settles',
+          );
+        return this.recover(a, input.requestId, approve);
+      }
       return this.read(a, input.requestId);
     }
     if (this.pending.has(a.leadSessionId))
@@ -561,16 +574,48 @@ export class SpecialistConsultations {
     const proposed = candidates[0];
     const settings = this.receipts.assertModelAllowance(a.leadSessionId, proposed, excludeRequest);
     let route = proposed;
+    // Each route's revision fingerprints its own effective rule.
+    let approvedRevision = settings.revision;
     if (settings.admission === 'ask') {
-      for (const candidate of eligible) await this.resolveRoute(candidate);
+      // The proposed route must be usable. An alternative that cannot resolve
+      // or has no allowance left is omitted from the options, so one stale
+      // alternative cannot block every Ask admission for this role.
+      await this.resolveRoute(proposed);
+      const options: { route: SpecialistRoute; revision: string }[] = [
+        { route: proposed, revision: settings.revision },
+      ];
+      for (const candidate of eligible) {
+        if (candidate === proposed) continue;
+        try {
+          const candidateSettings = this.receipts.assertModelAllowance(
+            a.leadSessionId,
+            candidate,
+            excludeRequest,
+          );
+          await this.resolveRoute(candidate);
+          options.push({ route: candidate, revision: candidateSettings.revision });
+        } catch (cause) {
+          log.info('Specialist alternative omitted from admission options', {
+            stage: 'specialist_admission',
+            code: 'alternative_unavailable',
+            leadSessionId: a.leadSessionId,
+            policyId: policy.policyId,
+            role: candidate.role,
+            accountId: candidate.accountId,
+            model: candidate.model,
+            err: cause,
+          });
+        }
+      }
       const display = {
         kind: 'specialist_admission',
         policyId: policy.policyId,
         role: proposed.role,
         maxConsultations: policy.maxConsultations,
         modelPolicyRevision: settings.revision,
-        routes: eligible.map((candidate) => ({
+        routes: options.map(({ route: candidate, revision }) => ({
           ...candidate,
+          modelPolicyRevision: revision,
           accountLabel: loadAccountProfiles().resolve(candidate.accountId, candidate.model)
             .accountLabel,
         })),
@@ -583,15 +628,15 @@ export class SpecialistConsultations {
           !isDeepStrictEqual(rest, display) ||
           !Number.isInteger(routeIndex) ||
           Number(routeIndex) < 0 ||
-          Number(routeIndex) >= eligible.length
+          Number(routeIndex) >= options.length
         )
           throw Error('Consultation approval changed protected fields');
-        route = eligible[Number(routeIndex)];
+        ({ route, revision: approvedRevision } = options[Number(routeIndex)]);
       }
     }
     this.current(a);
     const current = this.receipts.assertModelAllowance(a.leadSessionId, route, excludeRequest);
-    if (current.revision !== settings.revision)
+    if (current.revision !== approvedRevision)
       throw Error('Model policy changed during approval; review again');
     await this.resolveRoute(route);
     this.current(a);
