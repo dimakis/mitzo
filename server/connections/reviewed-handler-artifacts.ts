@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1272-symposium-mobile-freshness';
+  'v1.0.1273-symposium-desktop-identity-preview';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/session-library-shared-identity.spec.ts':
-    '16872a37fbcadcb3d6975060b0f6c10a844fbe51daa8691936984041b6e65d11',
+    '434a6592bd4fb61c20fa6960e7aa8d82e09252ae3fc4e1d9ff3e4f2219d1e151',
   '../../frontend/src/components/SharedConversationMarker.tsx':
     '3866a8804e0a3e4d37accceff5e3d382bb73e4f1b265f84d170e5e7d10404fb9',
   '../../frontend/src/components/SharedConversationMarker.css':

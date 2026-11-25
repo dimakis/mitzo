@@ -43,11 +43,21 @@ for (const theme of ['dark', 'light'])
       { theme },
     );
     const sourceId = 'original-discussion';
+    // Desktop Chats selects the newest chat and loads its saved history in the
+    // inspector. Keep an ordinary newer chat as that default so the shared row's
+    // badge is checked without any transcript read of its own.
     const sessions = [
+      {
+        id: 'recent-ordinary',
+        summary: 'Recent ordinary chat',
+        lastModified: Date.now(),
+        cwd: '/workspace/example',
+        isActive: false,
+      },
       {
         id: sourceId,
         summary: 'Shared design discussion',
-        lastModified: Date.now(),
+        lastModified: Date.now() - 60_000,
         cwd: '/workspace/example',
         isActive: false,
         sharedConversation: {
@@ -87,7 +97,9 @@ for (const theme of ['dark', 'light'])
     const list = page.locator('.session-list');
     await expect(list.getByText('Symposium · 2 agents', { exact: true })).toBeVisible();
     await expect(list.getByText('1 unavailable', { exact: true })).toBeVisible();
-    expect(transcriptReads).toEqual([]);
+    await expect(list.getByText('Recent ordinary chat', { exact: true })).toBeVisible();
+    expect(transcriptReads.filter((path) => path.includes(sourceId))).toEqual([]);
+    if (isMobile) expect(transcriptReads).toEqual([]);
     await list.getByText('Shared design discussion', { exact: true }).click();
     if (!isMobile)
       await page.getByRole('button', { name: 'Open conversation', exact: true }).click();
