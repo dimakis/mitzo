@@ -58,7 +58,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/actions/ci-workspace/action.yml':
     '93940a24d268678d0013aa02ec4f440ecc79298628275e7f77c48788a7d2d7c1',
   '../../.github/workflows/centaur-gate.yml':
-    '498cb6e2256bbd0ec75879583f77e133ff2f2c9ecd2e84fd17cd05e524013a8f',
+    '5dfcabaa222ebc8be77a91d93dba2daba5e71674676d0d757d74abdce76052ad',
   '../../.github/workflows/centaur-review-event.yml':
     '15d8c9ad15cd3ba3e07db0153cd9e690a1557d87432b825db2e48b489ddf0ae1',
   '../../.github/workflows/ci-recovery.yml':
@@ -1754,7 +1754,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ordinary-collaboration-fixture.test.ts':
     '34b9d92263327fb4fd4f3130be1184e2cab076c91c4fef6d381bb4401c895b21',
   '../../scripts/__tests__/pr-landing.test.ts':
-    '84726334f2d2002d0d02d33fc562b742422843ef1dbdf8a814c00c7055545c6e',
+    '3b8448580d3e4c56557efa346040e328202c33f9730e57b9dc1bda356c7556fa',
   '../../scripts/__tests__/qualify-development-offline.test.ts':
     '17e32710c49b20021db361c13f0062b270c78f2500a37e819f47fbe5ac601f49',
   '../../scripts/__tests__/reauthorize-host-codex-login.test.ts':
@@ -1839,7 +1839,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/migrate-telos.py':
     '2b3669d5fb6b8719ff9f5b59b1960b19eb9da1c539b188b8ea117633ff1c2126',
   '../../scripts/pr-landing.mjs':
-    'b9b053bd41da755db77d8505869f3f15ccdd4e556be5bfed9a355e379b992769',
+    '7b5922e03edf1924fdeb0cf57eb486a128664f7414f2ce67f3e349238eeb7117',
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../../scripts/qualify-development-offline.mjs':
@@ -2459,7 +2459,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/capability-service.test.ts':
     'c80813f44183c991dc067ce24cc3c5b9379ee296c0fcfc1b6ed6ea01bc180e35',
   '../__tests__/centaur-merge-status.test.ts':
-    '7ed6ce87f0c8f7bf8bebca3e8c6b40039ca7a3223f40f11774bac1e8c86eed7f',
+    'b4fd0707f8cbc48a63bd1041f7c626be2c375b024ba8bfb9dceea496cde5307d',
   '../__tests__/chat-account-startup.test.ts':
     'cf29e2544af5d255a9e142b1094e4c6f306ab538ed325582409fe1ae14686901',
   '../__tests__/chat-agent-context-startup.test.ts':
