@@ -534,7 +534,12 @@ export interface SessionMeta {
   isHidden: boolean;
   promptCount: number;
   manuallyRenamed: boolean;
+  /** Public text of the first user command, exactly as its user_message stores it.
+   * Provider envelopes (workspace preambles, reply/source context) never belong here. */
   initialPrompt: string | null;
+  /** Durable identity of that first public user_message. Recorded at startup by the
+   * writer of the message; absent on legacy rows, which fall back to exact text. */
+  initialMessageId?: string | null;
   /** SDK history was checked and contains conversation messages. */
   sdkTranscriptVerified?: boolean;
   wtId: string | null;

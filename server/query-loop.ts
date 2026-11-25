@@ -997,13 +997,17 @@ async function _runQueryLoopInner(
             );
             // Persist session metadata (including initial prompt) to durable store
             if (store) {
+              const now = Date.now();
+              const initialMessageId = options?.initialClientMsgId ?? `umsg-${now}-init`;
               store.upsertSession({
                 sessionId: resolvedSessionId,
                 cwd: currentSession.cwd,
                 mode: currentSession.mode,
                 branch: currentSession.branch,
                 ...(currentSession.worktreePath ? { wtId: currentSession.wtId } : {}),
-                ...(initialPrompt && !initialAlreadyAccepted ? { initialPrompt } : {}),
+                ...(initialPrompt && !initialAlreadyAccepted
+                  ? { initialPrompt, initialMessageId }
+                  : {}),
                 ...(currentSession.telosTaskId ? { telosTaskId: currentSession.telosTaskId } : {}),
                 ...(currentSession.agentName ? { agentName: currentSession.agentName } : {}),
                 ...(currentSession.bootContext
@@ -1013,12 +1017,11 @@ async function _runQueryLoopInner(
               if (initialPrompt && !initialAlreadyAccepted) {
                 // Store the initial prompt as a user_message event so
                 // extractRecentPrompts() can find it for auto-rename.
-                const now = Date.now();
                 emit({
                   v: 2,
                   type: 'user_message',
                   ts: now,
-                  messageId: options?.initialClientMsgId ?? `umsg-${now}-init`,
+                  messageId: initialMessageId,
                   text: initialPrompt,
                   ...(options?.initialImages?.length ? { images: options.initialImages } : {}),
                   ...(options?.initialSourceSnapshots?.length

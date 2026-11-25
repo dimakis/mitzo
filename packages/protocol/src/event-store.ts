@@ -104,7 +104,9 @@ import {
   openCollaborationVisibleSource,
   readCollaborationFinalizedReply,
   readCollaborationStreamingReply,
+  type CollaborationInitialCommand,
 } from './collaboration-visible-source.js';
+import { ordinaryRetractionEventSql } from './message-retraction-store.js';
 import { CollaborationContractError } from './collaboration-conversation.js';
 import { SessionCollaborationError } from './session-collaboration.js';
 import {
@@ -3318,6 +3320,10 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN initial_prompt TEXT');
       this.log.info('migrated sessions table: added initial_prompt');
     }
+    if (!columnNames.has('initial_message_id')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN initial_message_id TEXT');
+      this.log.info('migrated sessions table: added initial_message_id');
+    }
   }
 
   private migrateUsageTracking(db: Database.Database): void {
@@ -4979,9 +4985,39 @@ export class EventStore {
       this.assertConversationIdentity(sessionId);
       if (!this.isCollaborationParticipantAvailable(sessionId))
         throw new SessionCollaborationError('not_found');
-      const initialPrompt = this.getSession(sessionId)?.initialPrompt ?? null;
-      return captureCollaborationDurableTranscript(this.db!, sessionId, initialPrompt);
+      return captureCollaborationDurableTranscript(
+        this.db!,
+        sessionId,
+        this.getInitialCommand(sessionId),
+      );
     })();
+  }
+
+  /** Canonical first public command of a session. Startup records its durable
+   * message identity. Legacy rows predate that: when their stored prompt is a
+   * provider envelope rather than public text, the session's own first ordinary
+   * send receipt identifies the command only if it is also the first ordinary
+   * user_message with the same text. Otherwise the stored text stays authoritative. */
+  getInitialCommand(sessionId: string): CollaborationInitialCommand | null {
+    const meta = this.getSession(sessionId);
+    if (!meta) return null;
+    if (meta.initialMessageId)
+      return { messageId: meta.initialMessageId, text: meta.initialPrompt };
+    if (!meta.initialPrompt) return null;
+    const commandId = this.getOrdinaryInitialCommandId(sessionId);
+    const receipt = commandId ? this.getSendCommand(commandId) : undefined;
+    if (commandId && receipt?.sessionId === sessionId && typeof receipt.payload.text === 'string') {
+      const first = this.db!.prepare(
+        `SELECT json_extract(payload,'$.messageId') AS messageId,
+          json_extract(payload,'$.text') AS text FROM events
+         WHERE session_id=? AND type='user_message' AND seat_id IS NULL
+         AND symposium_provenance IS NULL AND ${ordinaryRetractionEventSql()}
+         ORDER BY seq LIMIT 1`,
+      ).get(sessionId) as { messageId: unknown; text: unknown } | undefined;
+      if (first?.messageId === commandId && first.text === receipt.payload.text)
+        return { messageId: commandId, text: receipt.payload.text };
+    }
+    return { messageId: null, text: meta.initialPrompt };
   }
 
   /** Host-only visible source capability. The caller retains normal operator/session authorization. */
@@ -4992,12 +5028,12 @@ export class EventStore {
     this.assertConversationIdentity(sessionId);
     if (!this.isCollaborationParticipantAvailable(sessionId))
       throw new SessionCollaborationError('not_found');
-    const initialPrompt = this.getSession(sessionId)?.initialPrompt ?? null;
-    const source = openCollaborationVisibleSource(this.db!, sessionId, boundary, initialPrompt);
+    const initialCommand = this.getInitialCommand(sessionId);
+    const source = openCollaborationVisibleSource(this.db!, sessionId, boundary, initialCommand);
     return {
       ...source,
       assertCurrent: () => {
-        if ((this.getSession(sessionId)?.initialPrompt ?? null) !== initialPrompt)
+        if (!isDeepStrictEqual(this.getInitialCommand(sessionId), initialCommand))
           throw new CollaborationContractError('snapshot_changed');
         source.assertCurrent();
       },

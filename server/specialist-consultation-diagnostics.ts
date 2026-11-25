@@ -53,6 +53,11 @@ export function specialistDiagnostic(cause: unknown) {
       'The original request, profile, account or owner changed. Inspect the retained receipt and review a new policy where needed.',
     ],
     [
+      /^Consultation request not found$/,
+      'consultation_not_found',
+      'No consultation is recorded for this requestId in this conversation, so none started under it. Check the original consult result before starting a new request.',
+    ],
+    [
       /^Another consultation is preparing/,
       'consultation_busy',
       'Another consultation is preparing. Retain this requestId and retry after it settles.',

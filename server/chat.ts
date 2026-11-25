@@ -2040,6 +2040,11 @@ async function _startChatInner(
       reasoningEffort: options.reasoningEffort ?? null,
     });
   }
+  // The user's command as typed. Public records (the first user_message and the
+  // session's initialPrompt) use only this text; `prompt` below becomes the
+  // provider envelope (reply/source context, workspace preamble) and never
+  // becomes public history. Readers identify the first command by its messageId.
+  const publicPrompt = prompt;
   if (options.ordinarySdkAuthority) {
     prompt = assembleCommandPrompt(
       eventStore,
@@ -2311,10 +2316,8 @@ async function _startChatInner(
       ...(agentProfile ? { agentProfile } : {}),
       cwd,
       mode,
-      initialPrompt:
-        options.ordinarySdkAuthority || options.sourceSnapshots?.length || options.replyToMessageId
-          ? prompt
-          : fullPrompt,
+      initialPrompt: publicPrompt,
+      initialMessageId,
       ...(accountBinding ? { accountBinding } : {}),
       selectedModel: options.model ?? accountBinding?.model ?? null,
       reasoningEffort: options.reasoningEffort ?? null,
@@ -2840,7 +2843,7 @@ async function _startChatInner(
         storeAndEchoIfNew(
           conversationId,
           messageId,
-          options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
+          publicPrompt,
           clientId,
           transport,
           session.observers,
@@ -2963,7 +2966,7 @@ async function _startChatInner(
       storeAndEchoIfNew(
         conversationId,
         initialMessageId,
-        options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
+        publicPrompt,
         clientId,
         transport,
         session.observers,
@@ -3748,7 +3751,7 @@ async function _startChatInner(
       storeAndEchoIfNew(
         options.resume,
         messageId,
-        options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
+        publicPrompt,
         clientId,
         transport,
         session.observers,
@@ -3829,9 +3832,7 @@ async function _startChatInner(
       eventStore,
       options.resume || codexProfile || apiKey || gemini || options.ordinarySdkAuthority
         ? undefined
-        : options.sourceSnapshots?.length
-          ? prompt
-          : fullPrompt,
+        : publicPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
         onFirstEventOutcome: options.onFirstEventOutcome,
