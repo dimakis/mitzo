@@ -64,7 +64,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatInputSharedQueue.test.tsx':
     '9e89f849cb672f130104ced688c385e09c9a0f3680142d1f104037b2cab4c139',
   '../../frontend/src/hooks/__tests__/useConversationSending.admission.test.tsx':
-    '5d2216307a822efe9e2ec2a7e04df9e8bfd92bb2d67ce33694e590592966da67',
+    'd6d9c4873364ae85547da575a76e591b0823955e6ff6a2aca06dc6b9d5e989e0',
   '../__tests__/collaboration-shared-queue.test.ts':
     '61de0bc823f76c48af35751474178d9151e30c811a79f54f5b8d832051e1742c',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
@@ -888,7 +888,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationPromptContext.ts':
     'a4d85d48f8206594cc7f065a2df90bec4901a457dbcbf4dff391953473d61518',
   '../../frontend/src/hooks/useConversationSending.ts':
-    '8554f29d3f4be321eaf2b446b4b8f210e813919fc337f4205a41b3c19fac6d9d',
+    '25d14695233409c64e176e9df0c275024e88b8913ccf308a91b42bad856f4f3a',
   '../../frontend/src/hooks/useConversationSteering.ts':
     'a7938f767028e1c31fd3a979f560da5593789b26b7b64cff5e974c942fa61601',
   '../../frontend/src/hooks/useConversationStopping.ts':

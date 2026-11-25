@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { CollaborationApiClient } from '@mitzo/client';
+import { CollaborationApiClient, CollaborationApiError } from '@mitzo/client';
 import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 import { chatStorage } from '../../lib/large-chat-storage';
 import { conversationSendRequests } from '../../lib/conversation-journal';
@@ -101,6 +101,87 @@ it.each(['retention', 'cleanup'] as const)(
     }
   },
 );
+
+it('clears an undispatched send journal when recovery cleanup retired an older request first', async () => {
+  const storage = await durableChatStorage();
+  const f = fixture();
+  const older = {
+    collaborationId: f.options.view.collaborationId,
+    authScope: 'login',
+    acknowledged: true,
+    recipientSessionIds: ['architect'],
+    input: {
+      requestId: uuid(98),
+      text: 'Older acknowledged prompt',
+      expectedMembershipRevision: f.options.view.membershipRevision,
+      expectedPolicySequence: f.options.view.policySequence,
+      responders: f.options.responders,
+      snapshot: null,
+    },
+  };
+  saveChatDraft({ ...getChatDraft(f.draft.id)!, collaborationSend: older });
+  await chatStorage.flush();
+  let finishObservation!: () => void;
+  const observation = new Promise<void>((resolve) => {
+    finishObservation = resolve;
+  });
+  vi.mocked(f.options.api.observeSend).mockImplementation(async () => {
+    await observation;
+    return {
+      terminal: true,
+      message: { ...f.options.view.messages[0], text: older.input.text, snapshot: null },
+    };
+  });
+  // Reject only after recovery cleanup has retired the older request, so the
+  // dispatchNotStarted cleanup runs against the post-cleanup in-memory state.
+  f.send.mockImplementation(async () => {
+    await vi.waitFor(() =>
+      expect(
+        conversationSendRequests(getChatDraft(f.draft.id)).some(
+          (request) => request.input.requestId === older.input.requestId,
+        ),
+      ).toBe(false),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    throw new CollaborationApiError(409, 'recipient_unavailable', 'Recipient unavailable', true);
+  });
+  let releaseStorage!: () => void;
+  const disk = new Promise<void>((resolve) => {
+    releaseStorage = resolve;
+  });
+  let blocked = false;
+  storage.gate(async () => {
+    if (!blocked) {
+      blocked = true;
+      await disk;
+    }
+  });
+  const h = renderHook(() => useConversationSending(f.options));
+  f.release(true);
+  let sent!: Promise<boolean>;
+  try {
+    // The new Send's retention flushes first; cleanup of the older request follows.
+    act(() => {
+      sent = h.result.current.send('One deliberate press');
+    });
+    await waitFor(() => expect(blocked).toBe(true));
+    finishObservation();
+    await act(async () => {});
+    await act(async () => {
+      releaseStorage();
+      expect(await sent).toBe(false);
+    });
+    expect(f.send).toHaveBeenCalledOnce();
+    // The undispatched request must not be stranded in the journal.
+    await waitFor(() => expect(conversationSendRequests(getChatDraft(f.draft.id))).toEqual([]));
+    h.unmount();
+    await storage.reopen();
+    expect(conversationSendRequests(getChatDraft(f.draft.id))).toEqual([]);
+  } finally {
+    finishObservation();
+    releaseStorage();
+  }
+});
 
 function fixture() {
   const view = sharedConversationView();

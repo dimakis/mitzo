@@ -119,8 +119,17 @@ export function useConversationSending(options: {
       if (!requestId) return;
       const retained = await retainConversationSend(draftId, requestId, value, fresh);
       if (!retained || !fresh()) return;
-      pending.current = retained.value;
+      // Recovery cleanup can retire an older request while a newer Send is in
+      // flight. That must not drop the in-flight request's pending identity, or
+      // its own dispatchNotStarted cleanup could no longer find its journal entry.
+      const retiringOther =
+        !value && !!pending.current && pending.current.input.requestId !== requestId;
       requests.current = retained.requests;
+      if (retiringOther) {
+        publish({ requests: retained.requests });
+        return;
+      }
+      pending.current = retained.value;
       publish({ pending: retained.value, requests: retained.requests, stopStatus: undefined });
     },
     [draftId, publish, valid],
@@ -380,6 +389,8 @@ export function useConversationSending(options: {
         current.current.authScope === authScope &&
         latest.current.getVerifiedAuthScope() === authScope;
       const acceptOriginal = acceptedCallback.current;
+      // Known to the failure path so cleanup retires exactly this request.
+      let sentRequestId: string | undefined;
       try {
         if (addressedRecipients || !visible.ready) {
           const readiness = await Promise.all(
@@ -444,6 +455,7 @@ export function useConversationSending(options: {
         }
         preparing.current = undefined;
         publish({ notice: 'Submitting this prompt…' });
+        sentRequestId = original.input.requestId;
         const receipt = await api.send(group, original.input);
         if (!receiptCurrent()) return false;
         if (
@@ -492,7 +504,7 @@ export function useConversationSending(options: {
           let cleanupFailed = false;
           if (cause instanceof CollaborationApiError && cause.dispatchNotStarted) {
             try {
-              await retain();
+              await retain(undefined, valid, sentRequestId);
             } catch {
               // The storage owner retains the structured cause. Keep both
               // failures visible while preserving the original dispatch error.
