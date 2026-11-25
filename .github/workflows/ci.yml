@@ -1,11 +1,17 @@
 name: CI
 
 on:
+  # Main is not required to be up to date before merge, so validate every
+  # accepted merge with the full suite after landing.
+  push:
+    branches: [main]
+  # Drafts run cheap owners only; ready_for_review admits the full suite.
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 # Isolate PR candidates from slow older-run shutdown; same-candidate reruns supersede.
-# Accepted default-branch recovery cleans up provably older PR heads.
+# Accepted default-branch recovery cleans up provably older PR heads. Main pushes
+# are never cancelled: each accepted merge keeps its own full validation.
 concurrency:
   group: ci-${{ github.event.pull_request.number && format('{0}-{1}', github.event.pull_request.number, github.sha) || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -26,6 +32,7 @@ jobs:
       native: ${{ steps.select.outputs.native }}
       prepared: ${{ steps.select.outputs.prepared }}
       ordinary: ${{ steps.select.outputs.ordinary }}
+      draft: ${{ steps.select.outputs.draft }}
     steps:
       - uses: actions/checkout@v7
       - name: Select dependent checks
@@ -38,6 +45,23 @@ jobs:
             );
             let files = [];
             let complete = false;
+            // Deselect only when the event and the live PR both say draft;
+            // any doubt runs the full suite.
+            let draft = false;
+            if (context.eventName === 'pull_request' && context.payload.pull_request?.draft === true) {
+              try {
+                const { data: live } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.issue.number,
+                });
+                draft = live.draft === true;
+              } catch (error) {
+                core.warning(`Could not confirm draft state; running all jobs: ${error.message}`);
+              }
+            }
+            core.setOutput('draft', String(draft));
+            if (draft) core.info('Draft PR: running cheap checks only; mark ready for full CI');
             if (context.eventName === 'pull_request') {
               try {
                 files = await github.paginate(github.rest.pulls.listFiles, {
@@ -51,7 +75,7 @@ jobs:
                 core.warning(`Could not read complete PR diff; running all jobs: ${error.message}`);
               }
             }
-            const selected = selectCiJobs({ eventName: context.eventName, files, complete });
+            const selected = selectCiJobs({ eventName: context.eventName, files, complete, draft });
             for (const [job, run] of Object.entries(selected)) {
               core.setOutput(job, String(run));
               core.info(`${job}: ${run ? 'run' : 'no dependent changes'}`);
@@ -463,7 +487,8 @@ jobs:
     needs: [changes, preflight, frontend-build]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs['frontend-build'].result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
     name: Native Swift tests and builds
-    runs-on: macos-26
+    # Opt-in operator runner for same-repository PRs only; main and forks stay hosted.
+    runs-on: ${{ vars.MITZO_MACOS_SELF_HOSTED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","macOS","ARM64","mitzo-ci"]') || 'macos-26' }}
     # Cold boot, first launch and WebKit readiness have separate bounded waits.
     # Leave time for the build, retained diagnostics and owned-fixture cleanup.
     timeout-minutes: 40
@@ -523,7 +548,8 @@ jobs:
     needs: [changes, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.ordinary == 'true') }}
     name: Native repository and authorization workflows
-    runs-on: macos-26
+    # Opt-in operator runner for same-repository PRs only; main and forks stay hosted.
+    runs-on: ${{ vars.MITZO_MACOS_SELF_HOSTED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","macOS","ARM64","mitzo-ci"]') || 'macos-26' }}
     # Native workflows and signed authority checks; joined cases have their own matrix.
     # Individual acceptance, first-response and reader deadlines stay unchanged.
     timeout-minutes: 30
@@ -726,7 +752,8 @@ jobs:
     needs: [changes, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.ordinary == 'true') }}
     name: Telos joined acceptance (macOS ${{ matrix.shard }}/3)
-    runs-on: macos-26
+    # Opt-in operator runner for same-repository PRs only; main and forks stay hosted.
+    runs-on: ${{ vars.MITZO_MACOS_SELF_HOSTED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","macOS","ARM64","mitzo-ci"]') || 'macos-26' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1122,8 +1149,12 @@ jobs:
       ]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
+      # Draft runs fail here by design after validating their cheap owners, so a
+      # draft verdict can never satisfy the required check for a ready PR.
       - name: Require every selected CI owner
         env:
           CI_REQUIRED_NEEDS: ${{ toJSON(needs) }}
