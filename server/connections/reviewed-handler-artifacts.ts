@@ -19,7 +19,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
  * accepted commits.
  */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1271-session-list-receipt-index';
+  'v1.0.1272-verified-dependency-store';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1317,7 +1317,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../native/keychain-helper/main.swift':
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../../package-lock.json': 'ccca6e1e72ab39971aced83fc12bb81252dd3a298fa15fb77c6d722ab03ac8ca',
-  '../../package.json': '7a4db91712da32bf9298e443d202044bfc271d48a72e6a2ec7c49606bc24d693',
+  '../../package.json': '25bb846c790630be3c708e51bcee863b74bfe3ae5920260c48c8f4ab5679d39b',
   '../../packages/client/__tests__/messages-slice.test.ts':
     'ae0160c176f993c8be41a4f22b2bc787fa10eb952c565189bfd08203e557f071',
   '../../packages/client/__tests__/store.test.ts':
@@ -4909,7 +4909,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../workspace-runtime-client.ts':
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
   '../workspace-runtime-private-paths.ts':
-    '0bc5efcb7aa3341ccdd237923f591ee074dbdd9631525a9c4f25b8fef2aa88e5',
+    '410c17be4af2845dd2f6a8fad8da345d20df29bd4bb981ee588e6e062f81185d',
   '../worktree.ts': '5e4d8290f307c8bd456db6eed717a1d531d70a11db359314daa9b36ed0f7f292',
   '../ws-handler-v2.ts': 'aaba841636efed833ce43840180b1bb76bb8d9b47ca62422a6bad61907058769',
   'capabilities/approval.ts': '23f8d2d336c01d4680c322b105f1125bc66cc4ac5c7b2a910afcba5d31f48508',
