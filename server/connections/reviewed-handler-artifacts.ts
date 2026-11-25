@@ -9,7 +9,15 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
-/** Runtime admission changes without changing existing provider policy semantics. */
+/**
+ * Deliberate Connections runtime contract marker. Every consumer hashes it
+ * together with the complete reviewedHandlerSourceArtifacts map, so any
+ * registered source change already invalidates derived runtime contracts.
+ * Do not bump it per PR: that only guarantees merge conflicts. Bump it only to
+ * invalidate derived contracts when no registered source changed, or at a
+ * release. Keep it a single-quoted literal; release tooling reads it from
+ * accepted commits.
+ */
 export const reviewedConnectionsRuntimeImplementationRevision =
   'v1.0.1272-verified-dependency-store';
 
@@ -1333,7 +1341,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../native/keychain-helper/main.swift':
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../../package-lock.json': 'ccca6e1e72ab39971aced83fc12bb81252dd3a298fa15fb77c6d722ab03ac8ca',
-  '../../package.json': '95c2826eac9fc66a603d31d1c74bb52a3bee9cfac6889cc64bdafdef00fdb8e0',
+  '../../package.json': '25bb846c790630be3c708e51bcee863b74bfe3ae5920260c48c8f4ab5679d39b',
   '../../packages/client/__tests__/messages-slice.test.ts':
     'ae0160c176f993c8be41a4f22b2bc787fa10eb952c565189bfd08203e557f071',
   '../../packages/client/__tests__/store.test.ts':
@@ -1785,6 +1793,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '777976c0b8f2a1283af2695aca3ebc615710cd37d09466051180bd2c8399d73e',
   '../../scripts/__tests__/release-runtime-declarations.test.ts':
     '443b33753e255ffcf48522df4c1608cb24ed55f196e5bda204337d5d13116088',
+  '../../scripts/__tests__/reviewed-handler-artifacts-fix.test.ts':
+    '1b0aea44622e5362152ad4b85b16fda9315cb9e7460ebf4caabc3d8ed0335c09',
+  '../../scripts/lib/reviewed-handler-artifacts-fix.mjs':
+    'd3a2ffc2b016e6e693b6931898bfd8f5e5dbee14273ead2944a1772b4a457056',
   '../../scripts/agent-workspace-context.mjs':
     '018c3846e01519c6f843f264c3ee34372c98652b014be82175f09f5f0c7a3d27',
   '../../scripts/attest-knowledge-runtime.py':
@@ -1794,7 +1806,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/check-knowledge-enrollment.mjs':
     '49544a335a1617ea86c7d93cf2c8fed979c4cddd1becddfd28002aa9807698a2',
   '../../scripts/check-reviewed-handler-artifacts.mjs':
-    'fbed584f1b65c161b5b51f305d4eacc0fe0e79f02fc9cb77fcb43332f606f4ad',
+    'aac8740d65571744f34bfb74262c9f257bb1d52fc39214ca7db51a05e0f30755',
   '../../scripts/ci-browser-batch-reporter.mjs':
     '7eb770fcd8023a1596f5f4f8d29d92d9c2dc7983ecce1dba3e75fec7c757903c',
   '../../scripts/ci-browser-batches.mjs':
