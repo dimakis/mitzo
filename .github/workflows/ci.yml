@@ -494,11 +494,26 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
-    env:
-      # MitzoShared requires Swift 6.3; keep the toolchain explicit.
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
+
+      # MitzoShared requires Swift 6.3; keep the toolchain explicit. Hosted
+      # images pin Xcode 26.6; a self-hosted runner names its own Xcode through
+      # MITZO_CI_DEVELOPER_DIR (runner .env) or its xcode-select default.
+      - name: Select the Swift 6.3 Xcode toolchain
+        run: |
+          if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then
+            developer_dir=/Applications/Xcode_26.6.app/Contents/Developer
+          else
+            developer_dir=${MITZO_CI_DEVELOPER_DIR:-$(xcode-select -p)}
+          fi
+          version=$(DEVELOPER_DIR="$developer_dir" xcrun swift --version 2>&1 | grep -Eo 'Swift version [0-9]+\.[0-9]+' | head -1 | cut -d' ' -f3)
+          echo "Swift $version from $developer_dir"
+          if [ -z "$version" ] || [ "$(printf '%s\n6.3\n' "$version" | sort -V | head -1)" != 6.3 ]; then
+            echo "::error::$developer_dir does not provide Swift 6.3 or newer"
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/ci-node
         with:

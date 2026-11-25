@@ -2,6 +2,11 @@ import { performance } from 'node:perf_hooks';
 import { trace } from '@opentelemetry/api';
 import { createLogger } from './logger.js';
 import { beginOperationObservation } from './operation-observation.js';
+import {
+  runtimeFailureAttributes,
+  runtimeFailureDiagnostics,
+} from './runtime-failure-diagnostics.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 
 type Phase =
   | 'repository_selection'
@@ -39,13 +44,31 @@ function beginPhase(phase: Phase) {
     start = performance.now();
   return {
     run: observation.run,
-    end(outcome: 'success' | 'failed') {
+    end(outcome: 'success' | 'failed', failure?: { cause: unknown }) {
       try {
         const elapsedMs = Math.round(performance.now() - start);
+        if (failure) {
+          // An unusual cause chain must never prevent the span from ending.
+          try {
+            observation.annotate(runtimeFailureAttributes(failure.cause));
+          } catch {
+            observation.annotate({ 'failure.diagnostics_unavailable': true });
+          }
+        }
         observation.annotate({ 'phase.elapsed_ms': elapsedMs, 'phase.outcome': outcome });
         observation.end(outcome === 'failed');
         if (outcome === 'failed')
-          log.warn('Local Codex phase completed', { phase, elapsedMs, outcome });
+          log.warn('Local Codex phase completed', {
+            phase,
+            elapsedMs,
+            outcome,
+            ...(failure
+              ? {
+                  ...runtimeFailureDiagnostics(failure.cause),
+                  ...findSessionRuntimeError(failure.cause)?.telemetry(),
+                }
+              : {}),
+          });
         else if (elapsedMs >= 500)
           log.info('Local Codex phase completed', { phase, elapsedMs, outcome });
       } catch {
@@ -59,6 +82,7 @@ function beginPhase(phase: Phase) {
 export async function observeLocalCodexPhase<T>(phase: Phase, work: () => Promise<T>): Promise<T> {
   const observation = beginPhase(phase);
   let outcome: 'success' | 'failed' = 'success';
+  let failure: { cause: unknown } | undefined;
   try {
     const result = await observation.run(work);
     // A native dynamic-tool failure is a fulfilled RPC with success:false.
@@ -75,22 +99,25 @@ export async function observeLocalCodexPhase<T>(phase: Phase, work: () => Promis
     return result;
   } catch (error) {
     outcome = 'failed';
+    failure = { cause: error };
     throw error;
   } finally {
-    observation.end(outcome);
+    observation.end(outcome, failure);
   }
 }
 /** Preserves synchronous qualification and throws without introducing an await. */
 export function observeLocalCodexSyncPhase<T>(phase: Phase, work: () => T): T {
   const observation = beginPhase(phase);
   let outcome: 'success' | 'failed' = 'success';
+  let failure: { cause: unknown } | undefined;
   try {
     return observation.run(work);
   } catch (error) {
     outcome = 'failed';
+    failure = { cause: error };
     throw error;
   } finally {
-    observation.end(outcome);
+    observation.end(outcome, failure);
   }
 }
 
