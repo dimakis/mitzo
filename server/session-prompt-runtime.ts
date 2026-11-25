@@ -1,5 +1,8 @@
 import { SessionPromptStore } from './session-prompt-store.js';
-import { SessionPromptService } from './session-prompt-service.js';
+import {
+  SessionPromptService,
+  type PassiveObservationLifecycle,
+} from './session-prompt-service.js';
 import {
   createSessionPromptPort,
   type OrdinarySessionPromptPort,
@@ -11,10 +14,11 @@ let ordinaryPort: OrdinarySessionPromptPort | undefined;
 export function initializeSessionPrompts(
   path: string,
   ctx: Pick<V2HandlerContext, 'eventStore' | 'sessionRegistry' | 'connRegistry'>,
+  passive?: PassiveObservationLifecycle,
 ) {
   if (active) throw Error('Session prompt runtime already initialized');
   ordinaryPort = createSessionPromptPort(ctx);
-  active = new SessionPromptService(new SessionPromptStore(path), ordinaryPort);
+  active = new SessionPromptService(new SessionPromptStore(path), ordinaryPort, passive);
   active.start();
   return active;
 }
