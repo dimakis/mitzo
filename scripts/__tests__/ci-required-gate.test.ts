@@ -18,9 +18,10 @@ const workflow = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
     }
   >;
 };
-it('validates PR candidates without launching a duplicate full suite after merge', () => {
+it('validates PR candidates, admits ready drafts and revalidates every merge to main', () => {
   expect(workflow.on).toEqual({
-    pull_request: { types: ['opened', 'synchronize', 'reopened'] },
+    push: { branches: ['main'] },
+    pull_request: { types: ['opened', 'synchronize', 'reopened', 'ready_for_review'] },
   });
 });
 const selection = JSON.parse(
@@ -29,7 +30,7 @@ const selection = JSON.parse(
     'utf8',
   ),
 );
-function fixture(native = 'true', prepared = 'true', ordinary = 'true') {
+function fixture(native = 'true', prepared = 'true', ordinary = 'true', draft = 'false') {
   return Object.fromEntries(
     [
       'changes',
@@ -51,7 +52,17 @@ function fixture(native = 'true', prepared = 'true', ordinary = 'true') {
           (['ordinary-journey', 'ordinary-supplemental'].includes(name) && ordinary === 'false')
             ? 'skipped'
             : 'success',
-        ...(name === 'changes' ? { outputs: { native, prepared, ordinary } } : {}),
+        ...(name === 'changes'
+          ? {
+              outputs: {
+                browser: draft === 'true' ? 'false' : 'true',
+                native,
+                prepared,
+                ordinary,
+                draft,
+              },
+            }
+          : {}),
       },
     ]),
   );
@@ -268,3 +279,61 @@ it.each(['ordinary-journey', 'ordinary-supplemental'])(
       }
   },
 );
+
+it('validates the cheap owners of a draft run and then fails ci by design so it can never be merged', () => {
+  const result = run(fixture('false', 'false', 'false', 'true'));
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Draft PR: cheap checks passed');
+});
+
+it.each(['browser', 'native', 'prepared', 'ordinary'])(
+  'rejects a draft selection that claims %s coverage was still selected',
+  (owner) => {
+    const needs = fixture('false', 'false', 'false', 'true');
+    needs.changes.outputs![owner] = 'true';
+    const result = run(needs);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('inconsistent with selected owners');
+  },
+);
+
+it('rejects missing or invalid draft selection', () => {
+  for (const draft of ['', 'unknown', undefined, true, false]) {
+    const needs = fixture();
+    Object.assign(needs.changes.outputs!, { draft });
+    expect(run(needs).status).toBe(1);
+  }
+});
+
+it.each(['core', 'unit-validation', 'preflight', 'frontend-build'])(
+  'reports a failed cheap %s owner on a draft before the draft verdict',
+  (owner) => {
+    const needs = fixture('false', 'false', 'false', 'true');
+    needs[owner].result = 'failure';
+    const result = run(needs);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Required CI owner incomplete: ' + owner);
+    expect(result.stderr).not.toContain('Draft PR');
+  },
+);
+
+it('requires the full selected owner set for a ready PR', () => {
+  const needs = fixture();
+  for (const owner of ['native', 'ordinary-journey', 'ordinary-supplemental']) {
+    needs[owner].result = 'skipped';
+    expect(run(needs).status).toBe(1);
+    needs[owner].result = 'success';
+  }
+  expect(run(needs).status).toBe(0);
+});
+
+it('gives the ci job no draft bypass and no extra token scope', () => {
+  const job = workflow.jobs.ci as (typeof workflow.jobs)['ci'] & {
+    permissions: Record<string, string>;
+  };
+  expect(job.permissions).toEqual({ contents: 'read' });
+  expect(job.steps.map((s) => s.run ?? (s as { uses?: string }).uses)).toEqual([
+    'actions/checkout@v7',
+    'node scripts/ci-required-gate.mjs',
+  ]);
+});
