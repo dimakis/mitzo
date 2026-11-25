@@ -95,6 +95,22 @@ it('admits a new candidate without waiting for an older PR run to finish shuttin
 });
 it('preserves main candidate concurrency identity and does not cancel its validation', () => {
   expect(concurrencyFor('push', 'main-sha')).toEqual({ group: 'ci-main-sha', cancel: false });
+  // Consecutive merges each keep their own full post-merge run.
+  expect(concurrencyFor('push', 'next-main-sha').group).not.toBe(
+    concurrencyFor('push', 'main-sha').group,
+  );
+});
+it('groups draft and ready runs by candidate, not by event action or draft state', () => {
+  // ready_for_review on an unchanged merge candidate supersedes the draft run.
+  expect(concurrency.group).not.toMatch(/action|draft/);
+  expect(concurrency['cancel-in-progress']).not.toMatch(/action|draft/);
+  // If main advanced, GitHub's test merge SHA differs and both runs proceed.
+  // That is safe only because a draft run's ci always fails (ci-required-gate).
+  const draft = concurrencyFor('pull_request', 'merge-sha-before-main-advanced', 1200);
+  const ready = concurrencyFor('pull_request', 'merge-sha-after-main-advanced', 1200);
+  expect(ready.group).not.toBe(draft.group);
+  const gate = readFileSync('scripts/ci-required-gate.mjs', 'utf8');
+  expect(gate).toMatch(/if \(draft === 'true'\) \{[^}]*process\.exit\(1\);/);
 });
 
 it('frontend production builds retain failure diagnostics but stop on cancellation', () => {

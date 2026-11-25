@@ -279,6 +279,13 @@ export { isRegisteredConversation } from './conversation-identity.js';
 
 export { ModelTokenLimitsSchema, type ModelTokenLimits } from './token-limits.js';
 export {
+  ContextMeasurementSchema,
+  ContextObservationSchema,
+  ContextRequestUsageSchema,
+  type ContextMeasurement,
+  type ContextObservation,
+} from './context-measurement.js';
+export {
   TerminalOpenBody,
   TerminalInputBody,
   TerminalResizeBody,
