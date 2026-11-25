@@ -1,6 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../../packages/protocol/src/event-store.js';
-import { PrMonitorObserver, type PrMonitorReadPort } from '../pr-monitor-observer.js';
+import {
+  PR_MONITOR_MAX_REQUESTS,
+  PrMonitorObserver,
+  prMonitorRateLimitDelay,
+  type PrMonitorReadPort,
+} from '../pr-monitor-observer.js';
+import { createPrMonitorGitHubReader } from '../pr-monitor-github.js';
+import { emptyExternalCi } from './fixtures/pr-monitor-external-ci.js';
 const id = '9c6bb0d4-081f-4f55-86f8-60c703452053',
   head = 'a'.repeat(40),
   base = 'b'.repeat(40);
@@ -327,7 +334,7 @@ it('bounds pagination and preserves explicit partial state', async () => {
     data: r.resource === 'pr' ? pr : { items: [], hasNext: true },
   }));
   await f.observe();
-  expect(f.read.mock.calls.length).toBeLessThanOrEqual(16);
+  expect(f.read.mock.calls.length).toBeLessThanOrEqual(PR_MONITOR_MAX_REQUESTS);
   expect(f.view().diagnostic?.code).toBe('incomplete');
 });
 it('pauses retained collection explicitly when current-head retention is full', async () => {
@@ -396,3 +403,99 @@ it.each(['merged', 'closed'] as const)(
     expect(f.view().outbox).toBeNull();
   },
 );
+it('completes a head with several workflow runs through the actual GitHub reader budget', async () => {
+  const f = fixture();
+  const runs = Array.from({ length: 6 }, (_, i) => ({
+    id: 100 + i,
+    workflow_id: 10 + i,
+    run_number: 1,
+    run_attempt: 1,
+    head_sha: head,
+    status: 'completed',
+  }));
+  const endpoints: string[] = [];
+  const transport = vi.fn(async (endpoint: string) => {
+    endpoints.push(endpoint);
+    const data =
+      emptyExternalCi(endpoint) ??
+      (endpoint.endsWith('/user')
+        ? { id: 42 }
+        : endpoint.includes('/jobs')
+          ? (() => {
+              const run = Number(/runs\/(\d+)\//.exec(endpoint)![1]);
+              return {
+                total_count: 1,
+                jobs: [
+                  {
+                    id: run * 10,
+                    name: 'test',
+                    status: 'completed',
+                    conclusion: run === 103 ? 'failure' : 'success',
+                    head_sha: head,
+                    run_id: run,
+                    run_attempt: 1,
+                    completed_at: '2026-11-21T12:00:00Z',
+                  },
+                ],
+              };
+            })()
+          : endpoint.includes('/actions/runs')
+            ? { total_count: runs.length, workflow_runs: runs }
+            : endpoint.includes('/reviews') || endpoint.includes('/comments')
+              ? []
+              : {
+                  node_id: 'pr',
+                  number: 1,
+                  title: 'PR',
+                  state: 'open',
+                  merged: false,
+                  head: { sha: head },
+                  base: {
+                    sha: base,
+                    repo: { node_id: 'repo', name: 'repo', owner: { login: 'owner' } },
+                  },
+                });
+    return { status: 200, headers: {}, data };
+  });
+  const reserve = vi.fn(() => undefined);
+  const observer = new PrMonitorObserver({
+    store: f.store.prMonitor,
+    capture: () =>
+      Object.assign(() => undefined, { authority: { scope: { githubPrincipalId: 'github:42' } } }),
+    read: createPrMonitorGitHubReader({
+      transport,
+      assertConnection: () => undefined,
+      observeQuota: () => undefined,
+    }),
+    reserve,
+    eligibleAuthors: ['trusted'],
+  });
+  await observer.observe('ordinary:user', 'chat', id);
+  expect(f.view().diagnostic).toBeNull();
+  expect(f.view().snapshot).toMatchObject({ complete: true, ci: 'failed' });
+  // Principal attestation brackets the collection: opening and closing PR reads only.
+  expect(endpoints.filter((e) => e.endsWith('/user'))).toHaveLength(2);
+  expect(endpoints).toHaveLength(10 + runs.length);
+  expect(endpoints.length).toBeLessThanOrEqual(PR_MONITOR_MAX_REQUESTS);
+});
+it('backs off a primary rate-limit 403 until its reset instead of stopping the Watch', async () => {
+  const f = fixture();
+  const reset = Math.floor((1000 + 3600000) / 1000);
+  f.read.mockImplementation(async () => ({
+    status: 403,
+    data: { message: 'API rate limit exceeded' },
+    headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset) },
+  }));
+  await f.observe();
+  expect(f.view().diagnostic?.code).toBe('rate_limited');
+  expect(f.view().refreshState).toBe('backoff');
+  expect(f.view().subscription.lifecycle).not.toBe('unavailable');
+  expect(f.view().subscription.nextRefreshAt).toBeGreaterThanOrEqual(reset * 1000);
+  expect(
+    prMonitorRateLimitDelay(
+      { status: 403, data: null, headers: { 'x-ratelimit-remaining': '1' } },
+      0,
+    ),
+  ).toBeNull();
+  expect(prMonitorRateLimitDelay({ status: 429, data: null }, 0)).toBe(60000);
+});

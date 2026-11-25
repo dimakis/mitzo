@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '@mitzo/protocol/event-store';
 import { createPrMonitorGitHubReader } from '../pr-monitor-github.js';
-import { PrMonitorObserver } from '../pr-monitor-observer.js';
+import { PR_MONITOR_MAX_REQUESTS, PrMonitorObserver } from '../pr-monitor-observer.js';
 
 const head = 'a'.repeat(40),
   base = 'b'.repeat(40);
@@ -428,8 +428,9 @@ it('collects empty and paginated Checks at exact SHA, with every HTTP call charg
   await f.observe();
   expect(f.view().refreshState).toBe('current');
   expect(f.view().snapshot?.ci).toBe('passed');
-  expect(f.transport).toHaveBeenCalledTimes(16);
-  expect(f.reserve).toHaveBeenCalledTimes(16);
+  // Only the opening and closing PR reads attest the principal.
+  expect(f.transport).toHaveBeenCalledTimes(13);
+  expect(f.reserve).toHaveBeenCalledTimes(13);
 });
 
 it.each(['truncated', 'suites', 'budget', 'mapping'])(
@@ -439,7 +440,7 @@ it.each(['truncated', 'suites', 'budget', 'mapping'])(
     f.state.checks = [check()];
     if (kind === 'truncated') f.state.truncated = true;
     if (kind === 'suites') f.state.suites = 1000;
-    if (kind === 'budget') f.state.workflows = 5;
+    if (kind === 'budget') f.state.workflows = PR_MONITOR_MAX_REQUESTS;
     if (kind === 'mapping') {
       f.state.workflows = 2;
       f.state.mapped = true;
@@ -448,8 +449,8 @@ it.each(['truncated', 'suites', 'budget', 'mapping'])(
     expect(f.view().refreshState).toBe('partial');
     expect(f.view().outbox).toBeNull();
     if (kind === 'budget') {
-      expect(f.transport).toHaveBeenCalledTimes(16);
-      expect(f.reserve).toHaveBeenCalledTimes(16);
+      expect(f.transport).toHaveBeenCalledTimes(PR_MONITOR_MAX_REQUESTS);
+      expect(f.reserve).toHaveBeenCalledTimes(PR_MONITOR_MAX_REQUESTS);
     }
   },
 );
@@ -463,7 +464,7 @@ it('budget exhaustion retains complete history as stale evidence and invalidates
   expect(prior.outbox?.eventIds).toHaveLength(1);
   f.transport.mockClear();
   f.reserve.mockClear();
-  f.state.workflows = 5;
+  f.state.workflows = PR_MONITOR_MAX_REQUESTS;
   await f.observe();
   const current = f.view();
   expect(current.snapshot).toEqual(prior.snapshot);
@@ -478,8 +479,8 @@ it('budget exhaustion retains complete history as stale evidence and invalidates
   expect(current.refreshState).toBe('partial');
   expect(current.diagnostic?.code).toBe('incomplete');
   expect(current.outbox).toBeNull();
-  expect(f.transport).toHaveBeenCalledTimes(16);
-  expect(f.reserve).toHaveBeenCalledTimes(16);
+  expect(f.transport).toHaveBeenCalledTimes(PR_MONITOR_MAX_REQUESTS);
+  expect(f.reserve).toHaveBeenCalledTimes(PR_MONITOR_MAX_REQUESTS);
 });
 
 it('never deduplicates equal Actions and external check names without a proven mapping', async () => {
@@ -582,8 +583,8 @@ it('collects paginated Status contexts without trusting target URLs or inventing
   expect(f.view().snapshot?.ci).toBe('passed');
   expect(f.view().events).toEqual([]);
   expect(f.view().counters.modelTurns).toBe(0);
-  expect(f.transport).toHaveBeenCalledTimes(16);
-  expect(f.reserve).toHaveBeenCalledTimes(16);
+  expect(f.transport).toHaveBeenCalledTimes(13);
+  expect(f.reserve).toHaveBeenCalledTimes(13);
 });
 
 it.each(['oversized', 'too_many', 'duplicate'])(

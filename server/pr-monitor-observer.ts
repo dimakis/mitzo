@@ -59,6 +59,9 @@ export type PrMonitorReadRequest = {
   principalId: string;
   page: number;
   headSha?: string;
+  /** Re-attest the authenticated principal. Set for the opening and closing PR
+   * reads, which bracket every CI and review read in the same collection. */
+  verifyPrincipal: boolean;
   maxItems: 100;
   maxBytes: 1048576;
   signal: AbortSignal;
@@ -68,9 +71,32 @@ export type PrMonitorReadRequest = {
 /** The authenticated GitHub owner supplies normalized, head-associated evidence.
  * Reviews need structured finding revision/resolution evidence; free text alone
  * cannot satisfy this port. Missing adapter support stays unavailable. */
-export type PrMonitorReadPort = (
-  request: PrMonitorReadRequest,
-) => Promise<{ status: number; data: unknown; retryAfterMs?: number }>;
+export type PrMonitorReadPort = (request: PrMonitorReadRequest) => Promise<{
+  status: number;
+  data: unknown;
+  retryAfterMs?: number;
+  /** Bounded, non-sensitive response headers (lower-case names). */
+  headers?: Readonly<Record<string, string>>;
+}>;
+/** Back off for GitHub rate limits, including primary-limit 403 responses that
+ * carry no Retry-After but report exhausted quota and its reset time. */
+export function prMonitorRateLimitDelay(
+  response: Awaited<ReturnType<PrMonitorReadPort>>,
+  now: number,
+): number | null {
+  const remaining = response.headers?.['x-ratelimit-remaining'];
+  const primaryExhausted = response.status === 403 && remaining === '0';
+  if (
+    response.status !== 429 &&
+    !(response.status === 403 && response.retryAfterMs !== undefined) &&
+    !primaryExhausted
+  )
+    return null;
+  const reset = Number(response.headers?.['x-ratelimit-reset']);
+  const untilReset =
+    remaining === '0' && Number.isSafeInteger(reset) && reset > 0 ? reset * 1000 - now : 0;
+  return Math.max(60000, Math.min(Math.max(response.retryAfterMs ?? 0, untilReset), 86400000));
+}
 type Capture = (() => void) & { authority: { scope: { githubPrincipalId: string } } };
 type Options = {
   store: EventStore['prMonitor'];
@@ -80,6 +106,12 @@ type Options = {
   eligibleAuthors: PrMonitorAuthorPolicy;
   now?: () => number;
 };
+/** Actual GitHub requests per collection. One head costs 10 + N requests for N
+ * workflow runs (opening/closing PR reads with principal attestation, one runs
+ * page, N job pages, check suites, check runs and statuses, one reviews and one
+ * comments page), so this admits typical multi-workflow heads. Principal quota
+ * admission still bounds the hourly rate. */
+export const PR_MONITOR_MAX_REQUESTS = 32;
 class ObservationFailure extends Error {
   constructor(
     readonly code: PrMonitorDiagnostic['code'],
@@ -147,7 +179,7 @@ export class PrMonitorObserver {
         headSha?: string,
       ) => {
         assertCurrent();
-        if (++requests > 16) throw new ObservationFailure('incomplete', 60000);
+        if (++requests > PR_MONITOR_MAX_REQUESTS) throw new ObservationFailure('incomplete', 60000);
         const request: PrMonitorReadRequest = {
           method: 'GET',
           resource,
@@ -155,13 +187,15 @@ export class PrMonitorObserver {
           principalId: authority.authority.scope.githubPrincipalId,
           page,
           headSha,
+          verifyPrincipal: resource === 'pr',
           maxItems: 100,
           maxBytes: 1048576,
           signal,
           assertCurrent,
           reserveAdditional: () => {
             assertCurrent();
-            if (++requests > 16) throw new ObservationFailure('incomplete', 60000);
+            if (++requests > PR_MONITOR_MAX_REQUESTS)
+              throw new ObservationFailure('incomplete', 60000);
             return this.options.reserve(request);
           },
         };
@@ -180,14 +214,8 @@ export class PrMonitorObserver {
           release?.();
         }
         assertCurrent();
-        if (
-          response.status === 429 ||
-          (response.status === 403 && response.retryAfterMs !== undefined)
-        )
-          throw new ObservationFailure(
-            'rate_limited',
-            Math.max(60000, Math.min(response.retryAfterMs ?? 60000, 86400000)),
-          );
+        const rateLimited = prMonitorRateLimitDelay(response, this.now());
+        if (rateLimited !== null) throw new ObservationFailure('rate_limited', rateLimited);
         if ([401, 403, 404].includes(response.status))
           throw new ObservationFailure('connection_unavailable', null);
         if (response.status !== 200) throw new ObservationFailure('read_failed', 60000);
@@ -207,7 +235,8 @@ export class PrMonitorObserver {
       const pages = async (resource: 'ci' | 'reviews') => {
         const items: unknown[] = [];
         for (let page = 1; ; page++) {
-          if (requests >= 14) throw new ObservationFailure('incomplete', 60000);
+          if (requests >= PR_MONITOR_MAX_REQUESTS - 2)
+            throw new ObservationFailure('incomplete', 60000);
           const parsed = pageSchema.parse(await read(resource, page, opening.headSha));
           items.push(...parsed.items);
           if (!parsed.hasNext) return items;

@@ -23,6 +23,7 @@ const request = (resource: PrMonitorReadRequest['resource']): PrMonitorReadReque
   principalId: 'github:42',
   page: 1,
   headSha: head,
+  verifyPrincipal: resource === 'pr',
   maxItems: 100,
   maxBytes: 1048576,
   signal: new AbortController().signal,
@@ -118,10 +119,15 @@ it('counts every actual request and uses exact run attempt job endpoints', async
     items: [{ id: '10', attempt: 2, status: 'failed', slot: 'workflow:3/job:test (linux)' }],
     hasNext: false,
   });
-  expect(reserve).toHaveBeenCalledTimes(5);
-  expect(transport.mock.calls[2][0]).toBe(
+  // CI reads rely on the bracketing PR reads for principal attestation: the
+  // runs page uses the base reservation; each job page and the three external
+  // CI reads (check suites, check runs, statuses) reserve one more each.
+  expect(reserve).toHaveBeenCalledTimes(4);
+  expect(transport.mock.calls.map((c) => c[0]).slice(0, 2)).toEqual([
+    '/repos/owner/repo/actions/runs?head_sha=' + head + '&per_page=100&page=1',
     '/repos/owner/repo/actions/runs/8/attempts/2/jobs?per_page=100&page=1',
-  );
+  ]);
+  expect(transport).toHaveBeenCalledTimes(5);
 });
 it('retains a pending workflow when GitHub has not created its jobs yet', async () => {
   const reader = createPrMonitorGitHubReader({
