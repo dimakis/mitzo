@@ -30,10 +30,12 @@ part of this branch. No main-only publication or landing is performed here.
   cancelled/failed states. Both use `Cache-Control: no-store` and bounded reason
   codes; provider errors, source paths and prompts are not diagnostics.
 
-**No native adapter installs the port in this candidate.** A normal refresh
+**The original #1431 foundation installs no native adapter.** This dependent
+branch adds the [Local Mac Codex event adapter](local-codex-context-snapshots.md).
+For routes without an installed adapter, a normal refresh
 therefore reports `adapter_not_attached`; it does not silently call the stable SDK
 proxy. This installs the shared transport and lifecycle foundation, not an enabled
-context inspector. Engine adapter installation, retirement/compaction hook wiring
+context inspector. Other engine adapter installation, retirement/compaction hook wiring
 and UI consumers remain dependent work with the owners below.
 
 ## Request and authority rules
