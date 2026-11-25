@@ -98,11 +98,11 @@ export class OwnedCodexLifecycleBridge {
             };
             void pending.then(settled, (error) => {
               settled();
-              this.close(codexLifecycleFailure(error, 'notification'));
+              this.closeUnexpected(error, 'notification');
             });
           } else deliver();
         } catch (error) {
-          this.close(codexLifecycleFailure(error, 'notification'));
+          this.closeUnexpected(error, 'notification');
           throw findSessionRuntimeError(error) ?? unavailable();
         }
       },
@@ -158,7 +158,8 @@ export class OwnedCodexLifecycleBridge {
               // unexpected failure gets one reference before its phase ends.
               if (
                 (preExecutionRefusal !== undefined && error === preExecutionRefusal) ||
-                signal.aborted
+                signal.aborted ||
+                this.#closed
               )
                 throw error;
               throw codexLifecycleFailure(error, 'host_tool_execution');
@@ -200,12 +201,11 @@ export class OwnedCodexLifecycleBridge {
             }
           }
           const reviewed = findSessionRuntimeError(error);
-          if (!requestAlreadyResolved && !safelyRefused)
-            this.close(codexLifecycleFailure(error, stage));
+          if (!requestAlreadyResolved && !safelyRefused) this.closeUnexpected(error, stage);
           throw safelyRefused ? error : (reviewed ?? unavailable());
         }
       },
-      onClose: (error) => this.close(codexLifecycleFailure(error, 'transport')),
+      onClose: (error) => this.closeUnexpected(error, 'transport'),
     } satisfies CodexLifecycleTransport);
   }
 
@@ -266,6 +266,13 @@ export class OwnedCodexLifecycleBridge {
     return lease;
   }
 
+  /** Wrap an unexpected failure only when it can be the first close reason:
+   * rejections after closure must not retain, and so evict, more causes. */
+  private closeUnexpected(error: unknown, stage: Parameters<typeof codexLifecycleFailure>[1]) {
+    if (this.#closed) return;
+    this.close(codexLifecycleFailure(error, stage));
+  }
+
   private close(reason: Error = unavailable()): void {
     const firstClose = !this.#closed;
     this.#closed = true;
@@ -321,8 +328,10 @@ export class OwnedCodexLifecycleBridge {
       if (this.#closed || this.currentLease() !== lease) throw unavailable();
       this.#owner = owner;
       return lease.client;
-    } catch (error) {
-      this.close(codexLifecycleFailure(error, 'attachment'));
+    } catch {
+      // No owner exists yet to observe a close reason, so a lifecycle
+      // reference here would be retained without any durable consumer.
+      this.close();
       throw unavailable();
     }
   }

@@ -47,7 +47,14 @@ function beginPhase(phase: Phase) {
     end(outcome: 'success' | 'failed', failure?: { cause: unknown }) {
       try {
         const elapsedMs = Math.round(performance.now() - start);
-        if (failure) observation.annotate(runtimeFailureAttributes(failure.cause));
+        if (failure) {
+          // An unusual cause chain must never prevent the span from ending.
+          try {
+            observation.annotate(runtimeFailureAttributes(failure.cause));
+          } catch {
+            observation.annotate({ 'failure.diagnostics_unavailable': true });
+          }
+        }
         observation.annotate({ 'phase.elapsed_ms': elapsedMs, 'phase.outcome': outcome });
         observation.end(outcome === 'failed');
         if (outcome === 'failed')

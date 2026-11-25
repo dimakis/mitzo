@@ -14,8 +14,9 @@ import { createCodexNativeApprovalHandler } from '../codex-native-approvals.js';
 import { SessionRegistry } from '../session-registry.js';
 import { resolvePending } from '../permissions.js';
 import { setSkillPolicy } from '@mitzo/harness';
-import { SessionRuntimeError } from '../session-runtime-error.js';
+import { SessionRuntimeError, findSessionRuntimeError } from '../session-runtime-error.js';
 import { retainedRuntimeFailure } from '../runtime-failure-diagnostics.js';
+import { codexLifecycleDiagnostic } from '../codex-lifecycle-failure.js';
 
 it('preserves a failed host callback cause and stage through physical retirement', async () => {
   const f = nativeTransportFixture();
@@ -818,3 +819,73 @@ it.each(['params', 'method'])(
     expect(f.lease.close).toHaveBeenCalledOnce();
   },
 );
+
+function expectNotificationHandlerFailure(reason: unknown, cause: unknown) {
+  // The reviewed transport classification and its user message survive;
+  // the lifecycle reference rides beside it rather than replacing it.
+  expect(reason).toBeInstanceOf(CodexTransportError);
+  expect(reason).toMatchObject({
+    category: 'connection',
+    diagnostic: { reason: 'notification_handler_failed' },
+  });
+  expect(findSessionRuntimeError(reason)).toBeUndefined();
+  const lifecycle = codexLifecycleDiagnostic(reason);
+  expect(lifecycle).toMatchObject({ stage: 'notification', causeType: 'TypeError' });
+  expect(retainedRuntimeFailure(lifecycle!.diagnosticId)?.cause).toBe(cause);
+}
+
+it('keeps a failed synchronous notification handler classified as notification_handler_failed', () => {
+  const f = fixture();
+  f.bridge.attach(f.owner);
+  const cause = new TypeError('SECRET handler failure');
+  vi.mocked(f.owner.onNotification).mockImplementationOnce(() => {
+    throw cause;
+  });
+  expect(() => f.bridge.lifecycle.onNotification('turn/started', {})).toThrow(
+    'Owned Codex lifecycle unavailable',
+  );
+  expect(f.owner.onClose).toHaveBeenCalledOnce();
+  expectNotificationHandlerFailure(vi.mocked(f.owner.onClose).mock.calls[0][0], cause);
+  expect(f.lease.close).toHaveBeenCalledOnce();
+});
+
+it('keeps a failed queued notification classified as notification_handler_failed', async () => {
+  const f = fixture();
+  f.bridge.attach(f.owner);
+  let reject!: (error: Error) => void;
+  f.lease.qualifyCredentialRefresh = vi.fn(
+    () =>
+      new Promise<void>((_resolve, fail) => {
+        reject = fail;
+      }),
+  );
+  f.bridge.lifecycle.onNotification('turn/started', {});
+  const cause = new TypeError('SECRET lookup failure');
+  reject(cause);
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(f.owner.onClose).toHaveBeenCalledOnce();
+  expectNotificationHandlerFailure(vi.mocked(f.owner.onClose).mock.calls[0][0], cause);
+});
+
+it('retains only the first close cause however many queued rejections follow', async () => {
+  const f = fixture();
+  f.bridge.attach(f.owner);
+  let reject!: (error: Error) => void;
+  const pending = new Promise<void>((_resolve, fail) => {
+    reject = fail;
+  });
+  f.lease.qualifyCredentialRefresh = vi.fn(() => pending);
+  // More queued rejections than the 32-entry host retention bound.
+  for (let index = 0; index < 40; index++) f.bridge.lifecycle.onNotification(`n${index}`, {});
+  const cause = new TypeError('shared lookup failure');
+  reject(cause);
+  await new Promise((resolve) => setImmediate(resolve));
+  // A host request rejecting after closure also adds no retained failure.
+  vi.mocked(f.owner.onRequest).mockRejectedValue(new TypeError('late callback failure'));
+  await expect(
+    f.bridge.lifecycle.onRequest('item/tool/call', {}, new AbortController().signal),
+  ).rejects.toThrow();
+  expect(f.owner.onClose).toHaveBeenCalledOnce();
+  const lifecycle = codexLifecycleDiagnostic(vi.mocked(f.owner.onClose).mock.calls[0][0]);
+  expect(retainedRuntimeFailure(lifecycle!.diagnosticId)?.cause).toBe(cause);
+});

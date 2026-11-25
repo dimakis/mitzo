@@ -40,16 +40,32 @@ class CodexLifecycleFailure extends SessionRuntimeError {
   }
 }
 
+// Lifecycle references for transport errors that keep their own classification.
+// Not a cause link: findSessionRuntimeError walks causes and would reclassify.
+const transportLifecycleReferences = new WeakMap<CodexTransportError, CodexLifecycleFailure>();
+
+/** Wrap an unexpected boundary failure. Callers create it only for the first
+ * close, so a no-op close cannot evict a retained cause. An unexpected
+ * notification-handler failure keeps the reviewed `notification_handler_failed`
+ * transport classification and message, and carries the lifecycle reference. */
 export function codexLifecycleFailure(cause: unknown, stage: Stage): Error {
-  return (
-    findSessionRuntimeError(cause) ??
-    (cause instanceof CodexTransportError ? cause : new CodexLifecycleFailure(stage, cause))
-  );
+  const known =
+    findSessionRuntimeError(cause) ?? (cause instanceof CodexTransportError ? cause : undefined);
+  if (known) return known;
+  const failure = new CodexLifecycleFailure(stage, cause);
+  if (stage !== 'notification') return failure;
+  const transport = new CodexTransportError('connection', {
+    reason: 'notification_handler_failed',
+  });
+  transportLifecycleReferences.set(transport, failure);
+  return transport;
 }
 
 /** Only host-issued lifecycle failures may add durable diagnostic metadata. */
 export function codexLifecycleDiagnostic(error: unknown) {
-  const failure = findSessionRuntimeError(error);
+  const failure =
+    (error instanceof CodexTransportError ? transportLifecycleReferences.get(error) : undefined) ??
+    findSessionRuntimeError(error);
   if (!(failure instanceof CodexLifecycleFailure)) return undefined;
   const cause = runtimeFailureDiagnostics(failure);
   return CodexLifecycleDiagnosticSchema.parse({

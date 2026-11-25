@@ -32,9 +32,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-lifecycle-failure.ts':
-    'e3f9716121ce08960d34ae2955ad61891be326b9e26e061f6b7e3fbd9d19683b',
+    '51b392c30e9636a2bc96e2bdd3782447ac1f786bb4cf42f3994b6e4c8e08255d',
   '../__tests__/collaboration-runtime-reliability.test.ts':
-    'c936192b24e9e37d01fd229185750ee62feeb6bde92ccfcc90b2d7e6e28e5de4',
+    '88b3cbc4aaaa5d2a71f5b5ab7426441608932b1d88cb48ab1ff40c6f484f1211',
   '../codex-context-snapshot.ts':
     '64651891bf6f977310a1d973a595390ffaa764b83fb5512bac4d7f67bf4146f2',
   '../__tests__/codex-context-snapshot.test.ts':
@@ -3162,7 +3162,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-workspace-resources-http.test.ts':
     '55493738ab3b2fc4723bb7ce4cfb88d9980454e5efd67b527b6f8be7e433d305',
   '../__tests__/owned-codex-lifecycle-bridge.test.ts':
-    'ea335eace76bb5c389b40f93b3e5c715f5fd261f03af4c3876045ac93a0b0644',
+    '567d010ae81d15a23ad7be181319aa79cf10f6881301a7eae8f28c4821923519',
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../__tests__/owned-local-codex-chat-admission.test.ts':
@@ -4120,7 +4120,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-api-chat-continuity.ts':
     '0d72553f0f7d954c9c6ea7340c4fb297ae4399a62105c1c3ee5bf9da6dac4738',
   '../local-codex-observation.ts':
-    'dc2190004b98228a525679225ed879c3a2044e43a80f1e905742db4a63a34be8',
+    '33a78879cd2f94484ea4912e4b9d51403f99c976b6d4168ef6c457024da8281f',
   '../local-repository-allocation-facts.ts':
     'd256fedf59eaccb3d6224ed1c180eefa308eb79fde1070989a3a2f53f9b3ad8e',
   '../local-repository-approval-recovery.ts':
@@ -4394,7 +4394,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e8b9ffc353713edbe91f9be431422996b142e91716147ca915e6f7702e94c1e8',
   '../output-contributors.ts': '43590c62adfb9814031b739e44ed0e5c05230242e0cc7175bc204d6397a5f6b8',
   '../owned-codex-lifecycle-bridge.ts':
-    'b143b9098ff6a8c5235a25ce6f5a4f446b50d6371a536f1a19aa171142c4105c',
+    '2aaee618c15700adf4369a727bd5c08bc048a4efb48a5ed99191c24ff67c4578',
   '../owned-codex-queue-control.ts':
     'a3368e04bf3bd02cf74dc58eb689ff76a7b4628ac856e5e3e2ecdd40570e3115',
   '../owned-local-codex-chat-admission.ts':

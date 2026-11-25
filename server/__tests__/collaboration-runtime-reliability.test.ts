@@ -255,5 +255,21 @@ it('retains the originating seat and safe cause after transport retirement in th
   expect(restored.status).toBe(200);
   expect(JSON.stringify(restored.body)).toContain(retained.diagnostic!.lifecycle!.diagnosticId);
   expect(JSON.stringify(restored.body)).not.toMatch(/SECRET|private\/account/);
-  expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4);
+  // The restart re-imports native modules, so the request spy cannot observe
+  // a replay. Prove absence from the durable command record instead: a replay
+  // would start another attempt or move the retired command back to running.
+  const { getCodexConversationStore: restartedStore } = await import('../codex-chat-session.js');
+  const recovered = restartedStore().commandLifecycle(
+    h.joinedSessionId,
+    binding,
+    active.message.deliveries[0].commandId!,
+  );
+  expect(recovered).toMatchObject({
+    commandId: retained.commandId,
+    attempt: retained.attempt,
+    state: retained.state,
+    effectStatus: retained.effectStatus,
+    diagnostic: { lifecycle: retained.diagnostic!.lifecycle },
+  });
+  expect(recovered.state).not.toBe('executing');
 }, 30000);
