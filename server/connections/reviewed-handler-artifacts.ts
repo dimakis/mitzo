@@ -1161,7 +1161,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/ConnectionsRoute.tsx':
     '73524a2b6ff2a19bb6a7bced8a99f7f5f3cec3aeb6d3f50957f948d7ce11e14e',
   '../../frontend/src/pages/ConnectionsView.tsx':
-    '228124798ce82f169a954ce44372a73b49c1fa72b2ce0ca2ff5fb58ccb1ed63b',
+    '9781df7959b8b27362f2bc3928662b595b8298e52f6bc053ffd54975a1ff65e5',
   '../../frontend/src/pages/DesktopChatView.tsx':
     'bfda8caffd633ed97cbcd986ac852926b826b64dcac37258ecffa4b6545c3773',
   '../../frontend/src/pages/FileViewer.tsx':
@@ -3491,7 +3491,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/skills-registry.test.ts':
     'f55b3f0ae95b9243c61e2ebcdafb3568be5a76037bc98387f4333abb564c0e73',
   '../__tests__/specialist-authorization-replay.test.ts':
-    'bad0660f3527c33d6a21ad50dffed5c8a3129d904858868a0fbb0fda1ebbad43',
+    'd310192427b4a1f121c290d3376bf9ea88d9f891ad6abd78c84cd3195ee56794',
   '../__tests__/specialist-consultation-application.test.ts':
     '47102c628f6361bfdc3463d9731e0e90741dca6e527c287b44dae86c436f39ae',
   '../__tests__/specialist-consultation-store.test.ts':

@@ -272,10 +272,15 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
         },
         mode === 'openai' ? '' : 'Identity confirmed. You can retry the change.',
       );
-      const change = takePendingConnectionChange(pendingChange, fresh);
+      // A failed confirmation keeps the tapped change for the next attempt.
+      if (!confirmed) return;
+      const retained = pendingChange;
+      const change = takePendingConnectionChange(retained, fresh);
       setPendingChange(null);
-      if (!confirmed || !change) return;
-      await run(`change:${pendingChange?.connectionId}`, change.run, change.success);
+      // Navigating away during confirmation ends this destination; never send
+      // its retained mutation where no page can report the outcome.
+      if (!change || !mounted.current) return;
+      await run(`change:${retained?.connectionId}`, change.run, change.success);
     })();
   };
   const toggle = (id: string, values: string[], setter: (next: string[]) => void) =>
@@ -719,6 +724,9 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
               inputRef={authorizationField}
               onSubmit={authorizeChanges}
               onCancel={() => {
+                // Cancelling withdraws the tapped change; a later confirmation
+                // must not resurrect it.
+                setPendingChange(null);
                 setAuthorizationOpen(false);
                 setPassphrase('');
               }}
