@@ -3331,7 +3331,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-standalone-repository-observation.test.ts':
     'de3c7ae943e87a97165186f5ca8a6e099548a9c341a9fddf31f6b0ca5f8b1855',
   '../__tests__/query-loop.test.ts':
-    '4a89a194fbd21d8ca704f1f19fdff87062f8439e8e048d54ffa8097ec0714bc2',
+    '2aa783b78052173cca6f3e27321f40e20146fbd49a42be3fb11f77a1e0f8804c',
   '../__tests__/read-only-git.test.ts':
     'cc4a5ce114015a9dcaca030085709e647568a3a79cc0883b736d7d235d486c53',
   '../__tests__/reconnect-delivery.integration.test.ts':
@@ -3684,7 +3684,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-sdk-source.test.ts':
     'd4a46546ef2519d8e61d6a0e0ffc219b37a986d94e4f1602c133ef4e8efdc2e2',
   '../__tests__/telos-sdk-tools.test.ts':
-    '7dc29f11484d1db17af0ff0160a1583968e66ffdfe425297f5c40823f10e97d8',
+    '8e3745d983a426a1587cfa2c85fbd1b94f0fd0903433651ccb5677e432802a3f',
   '../__tests__/telos-session-coordination.test.ts':
     '7ed5aebeb6ad541a49b35f1f62d6b8a4db881012e894e562fef47b4f5be6a314',
   '../__tests__/telos-session-launch-adapters.test.ts':
@@ -3752,7 +3752,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/trusted-native-operation.test.ts':
     '32b169de2f731b1d1d08eea85bdb252e92521a2df491c9a6829495cec18307e5',
   '../__tests__/turn-callbacks.test.ts':
-    '9bd9467485be14c6d6d0a46875e8442f9727139357c8c731afd6485e4a4b4205',
+    'aa9c4948f72489aec499671e051d6c307414d220fcff7dd6ad1c812146bcd62e',
   '../__tests__/unified-inbox-routes.test.ts':
     '88a0b4cec1c4257e1a24005ed965b86e05f5f98b202ad756ebc2b46d948e2d1a',
   '../__tests__/unselected-headless-session.test.ts':
@@ -4387,7 +4387,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-sdk-process.ts':
     'fb9323a7fe3a55d6998dd70e0b6e16ff5f008ecb763bc8da9777b7f24514a30e',
   '../ordinary-local-vertex-sdk-query.ts':
-    'c14eef73493f36c9ffa2a0231231db4ce252ce7ee482cd5ca4cdbd3d61669363',
+    'f9e86cbbeff2f36e10166b42815cfac85b7005da1fe4dc70298baa35fd29e975',
   '../ordinary-local-workspace-owner.ts':
     'a3b3f0ffe8157de1a95f1bb490510baa5a7437750cf7f4a49713e514b827ec04',
   '../ordinary-openshell-codex-entry-owner.ts':
@@ -4488,7 +4488,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
-  '../query-loop.ts': 'c15bac44379c0168330d420e59ac0534d2f319e3561681dd287d09380d2ff7e6',
+  '../query-loop.ts': '9b077ef3bd4b5c1e5c4eada6ca04a629fc84810e382f10ce385e781fd9ef2efe',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',
@@ -4867,7 +4867,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-save-consent.ts': '632a83a02a23c0394329253ec014ef91a24ccc388a13fb9d83059b00132811cd',
   '../telos-schema.ts': '4fea5d42e7f2d44b4de905ede77d8a2a1f5993170dd40e38c48dbfc026563d5d',
   '../telos-sdk-definitions.ts': 'f3b20b90e8f1bea646ab32847b592ce0736f662e1e6b26b094ec8396f9469871',
-  '../telos-sdk-tools.ts': '38f385ea28361e91a474a824e4764fe4dc61e880484954e178a1b674f50e57a5',
+  '../telos-sdk-tools.ts': '45066e10bb0e741eed389a62e60e74d1b2540718ff4d6e63e91a2fe8f50ae4a1',
   '../telos-session-coordination.ts':
     '56cbcec02dd9f084b90f0a88e4fd0ccbb8b08a162f002907392f61ed4ad90fbc',
   '../telos-session-launch-adapters.ts':
@@ -4966,7 +4966,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
   '../trusted-native-operation.ts':
     'bd29e98539c1c7ae94d1976918907b30fd058555d367a50909ea9817e88532a0',
-  '../turn-callbacks.ts': '4bc4f9ddd7bf2fd9b04d1dc0553fcb115585c7311b85b4785f664e6e295cbb29',
+  '../turn-callbacks.ts': '0a0b3ad8eab31aede7181bd1c3617c1997710c86425c6dbf800e97aa06d6d055',
+  '../uncertain-operations-notice.ts':
+    'e4c0dcda0d851d12f9c71eaadffb4d4ce675003d7bf8d40cbe961aa922a9d448',
   '../unified-inbox-routes.ts': '6413398c77b9f1c62fbb1c597d5cf7c857b65338b23592ce9751cf6755e271d4',
   '../unified-inbox.ts': '6ca474e1069e33341bfe53f87b3022372645e250beffa0d7082b138bf90911df',
   '../unselected-headless-session.ts':
