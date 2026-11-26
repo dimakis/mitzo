@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { OpenShellRuntime, OpenShellAccountRoute } from './openshell-runtime.js';
 import type { TerminalTarget } from './terminal-service.js';
+import { TerminalOperationError } from './terminal-errors.js';
 
 type Runtime = OpenShellRuntime & { sandboxId: string };
 interface Session {
@@ -38,11 +39,12 @@ export function createTerminalTargetResolver(deps: {
       };
     const id = request.sessionId;
     const meta = deps.session(id);
-    if (!meta?.cwd) throw new Error('Chat workspace unavailable');
+    if (!meta?.cwd) throw new TerminalOperationError('terminal_workspace_unavailable');
     if (meta.sessionType === 'symposium')
-      throw Error('Choose a specific agent sandbox for this conversation');
+      throw new TerminalOperationError('terminal_destination_ambiguous');
     if (!deps.remote(id)) {
-      if (!deps.allowedHost(meta.cwd, id)) throw new Error('Chat workspace unavailable');
+      if (!deps.allowedHost(meta.cwd, id))
+        throw new TerminalOperationError('terminal_workspace_unavailable');
       return {
         kind: 'host',
         label: meta.title || 'Chat workspace',
@@ -53,19 +55,20 @@ export function createTerminalTargetResolver(deps: {
           .digest('hex'),
       };
     }
-    if (!meta.accountBinding) throw new Error('Sandbox terminal unavailable');
+    if (!meta.accountBinding) throw new TerminalOperationError('terminal_sandbox_unavailable');
     const selected = deps.runtime(id, meta.accountBinding);
-    if (!selected?.runtime.sandboxId) throw new Error('Sandbox terminal unavailable');
+    if (!selected?.runtime.sandboxId)
+      throw new TerminalOperationError('terminal_sandbox_unavailable');
     const { runtime, route } = selected;
     if (
       runtime.workdir !== meta.cwd ||
       !isDeepStrictEqual(route, deps.currentRoute(meta.accountBinding, id))
     )
-      throw new Error('Sandbox binding changed');
+      throw new TerminalOperationError('terminal_binding_changed');
     deps.validateRuntime(runtime);
     const observation = await deps.inspect(id, runtime, route);
     if (observation?.id !== runtime.sandboxId || observation.phase !== 'Ready')
-      throw new Error('Sandbox terminal unavailable');
+      throw new TerminalOperationError('terminal_sandbox_unavailable');
     const identity = createHash('sha256')
       .update(
         JSON.stringify([

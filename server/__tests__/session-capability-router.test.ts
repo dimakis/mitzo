@@ -29,6 +29,27 @@ it('requires interactive authentication and a browser intent header for mutation
   expect((await request(app).get('/api/sessions/foreign/access-grants')).status).toBe(409);
   expect((await request(app).get('/api/sessions/missing/access-grants')).status).toBe(404);
 });
+it('keeps durable Watch unavailable until its consent and connection adapters are installed', async () => {
+  const { app } = fixture();
+  const response = await request(app)
+    .post('/api/sessions/one/access-grants/pr-watch/9c6bb0d4-081f-4f55-86f8-60c703452053')
+    .set('X-Mitzo-Access-Intent', 'manage-grants')
+    .send({
+      requestId: 'watch',
+      expectedRevision: 1,
+      expectedAuthorityRevision: 0,
+      durationMinutes: 30,
+      reviewedScope: {
+        connectionId: '9c6bb0d4-081f-4f55-86f8-60c703452053',
+        connectionRevision: '1',
+        githubPrincipalId: 'github:42',
+        repositoryId: 'repo',
+        prNodeId: 'pr',
+      },
+    });
+  expect(response.status).toBe(503);
+  expect(response.body.code).toBe('pr_watch_unavailable');
+});
 it('creates and revokes one explicit grant for selected same-operator conversations', async () => {
   const { app, grants } = fixture();
   const initial = await request(app).get('/api/sessions/one/access-grants');
