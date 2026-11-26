@@ -82,6 +82,13 @@ Offline only; not deployment or live acceptance.
   and echo, and the query-loop upsert/emit with a generated message ID.
 - CI unit shard 1/4 failure on `1f10b67f5` (`todos.test.ts`, 503) was this
   change: its event-store fake lacked `getInitialCommand`. Fixed in the fake.
+- Centaur re-review on `fb9d369a5` recommended `merge` and verified the three
+  findings resolved. Its non-blocking `CEN-6ED57C4B554C` (the public text's
+  second `assemblePrompt` staged attached images twice, with different paths
+  from the provider prompt) is fixed: `assemblePrompt` splits into a pure
+  envelope step and an image-reference step, and startup stages images once for
+  both. A legacy SDK startup test with one image fails with two staged files
+  before the fix and passes with one shared path after it.
 - Host runs of the transcript, collaboration, Telos source, specialist, query
   loop, startup, native/Codex conversation, repository chat, session and route
   suites pass. Some heavy end-to-end files time out under full parallel load

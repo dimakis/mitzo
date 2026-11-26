@@ -2556,7 +2556,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-account-startup.test.ts':
     'cf29e2544af5d255a9e142b1094e4c6f306ab538ed325582409fe1ae14686901',
   '../__tests__/chat-agent-context-startup.test.ts':
-    '6390742492c75db3b1d05ff00638504815eb66094168e9ec031fbf2727878164',
+    'e570fbda36ea3f324ac23b096724f6a01c3a99bad9646682519ca00e21f85fbf',
   '../__tests__/chat-command-json.test.ts':
     '568924d45734f15e499a6f22e86921c05d596edfd62e32bafbd2fd51c3b36b81',
   '../__tests__/chat-contributor-route-admission.test.ts':
@@ -3867,7 +3867,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '179119fc3d7019655b0fd7dacc94c4592ab62c24c3beaaf12b2b81f32bc9d957',
-  '../chat.ts': '7c13baf4f3108936bb8a87244e3e4482bc3796a25e66555e932aacad29e0fefe',
+  '../chat.ts': '97b3b1c7294a0eb8933bfce9e0753ba2f9481d2804ac8bcf59a247cfdcc473cf',
   '../claude-turn-attribution.ts':
     'df91ef6cf912d7ba7e3405fce233ccf563bea53740041725b40783ee3b82b64d',
   '../__tests__/claude-turn-attribution.test.ts':

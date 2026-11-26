@@ -1262,6 +1262,19 @@ export function assemblePrompt(
   contextBlocks?: string[],
   sourceSnapshots?: SourceSnapshot[],
 ): string {
+  return appendImageReferences(
+    assembleCommandEnvelope(prompt, contextBlocks, sourceSnapshots),
+    images?.length ? stageImages(cwd, images) : undefined,
+  );
+}
+
+/** Source snapshots and context blocks around a command. Reads context files;
+ * writes nothing. Images are staged separately so callers stage them once. */
+function assembleCommandEnvelope(
+  prompt: string,
+  contextBlocks?: string[],
+  sourceSnapshots?: SourceSnapshot[],
+): string {
   let result = prompt;
   result = assembleSourceSnapshots(result, sourceSnapshots);
 
@@ -1300,15 +1313,14 @@ export function assemblePrompt(
       result = `${preamble}\n\n${blocks.join('\n\n')}\n\n---CONTEXT_END---\n${result}`;
     }
   }
-
-  // Append image references
-  if (images?.length) {
-    const paths = stageImages(cwd, images);
-    const imageRefs = paths.map((p) => `- ${p}`).join('\n');
-    result = `${result}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
-  }
-
   return result;
+}
+
+/** Reference already-staged images so the model reads them with the Read tool. */
+function appendImageReferences(result: string, paths?: string[]): string {
+  if (!paths?.length) return result;
+  const imageRefs = paths.map((p) => `- ${p}`).join('\n');
+  return `${result}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
 }
 
 function stageImages(cwd: string, images: Array<{ data: string; mediaType: string }>): string[] {
@@ -2279,14 +2291,22 @@ async function _startChatInner(
           ),
         )
       : prompt;
+  // Stage attached images once; the provider prompt and the public record
+  // reference the same files.
+  const referencedImages = codexProfile || nativeProviderSelected ? undefined : options.images;
+  const stagedImages =
+    !options.adviserScope && referencedImages?.length
+      ? stageImages(cwd, referencedImages)
+      : undefined;
   const fullPrompt = options.adviserScope
     ? repliedPrompt
-    : assemblePrompt(
-        repliedPrompt,
-        cwd,
-        codexProfile || nativeProviderSelected ? undefined : options.images,
-        options.contextBlocks,
-        options.ordinarySdkAuthority ? undefined : options.sourceSnapshots,
+    : appendImageReferences(
+        assembleCommandEnvelope(
+          repliedPrompt,
+          options.contextBlocks,
+          options.ordinarySdkAuthority ? undefined : options.sourceSnapshots,
+        ),
+        stagedImages,
       );
   // Public record of this command: what was stored before, minus the workspace
   // preamble. Context-block and source envelopes stay (the Context-injected
@@ -2298,12 +2318,9 @@ async function _startChatInner(
     options.sourceSnapshots?.length ||
     options.replyToMessageId
       ? publicPrompt
-      : assemblePrompt(
-          publicPrompt,
-          cwd,
-          codexProfile || nativeProviderSelected ? undefined : options.images,
-          options.contextBlocks,
-          options.sourceSnapshots,
+      : appendImageReferences(
+          assembleCommandEnvelope(publicPrompt, options.contextBlocks, options.sourceSnapshots),
+          stagedImages,
         );
   const userIntent = options.userIntent ?? prompt;
   if (options.reattachOnly && (!options.resume || !codexProfile))
