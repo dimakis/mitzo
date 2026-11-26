@@ -1934,7 +1934,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/test-watch-approval-ui.py':
     '855a416c89ef714384d904da2f0f7878d160ec9a01b5043bb73315b8a5bab287',
   '../../scripts/validate-prompt-timing.ts':
-    'f54835f8968317c8b580caaee95effbed91e84d667b3003b31215e3a97159063',
+    'df8c56e29d5fa98c88edcc6e164db405c570d7e0dd59d8e40b9c0b68311d39c9',
   '../../scripts/verify-openshell-production.mjs':
     '2462507ebdfcc88787a7ab775ceebf4285ed8a816e01c306f63499f35ae23bcd',
   '../../skills/auto-pr-shepherd/SKILL.md':
@@ -2841,6 +2841,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '7fda9ca41686a75a78dddbd740962d4995200d2b853121490c2b494a8703da52',
   '../__tests__/fixtures/private-helper-boundary-diagnostics.ts':
     'a02fdde256271933978cf9955c7a2a8d6a0f4253c0d455956d2900bac494e25e',
+  '../__tests__/fixtures/phase-a-measurement.ts':
+    'a878d400f697f5254d219d2fe3417627bd973f2317c7414bb8b645dd273cd389',
   '../__tests__/fixtures/prompt-trace-timing.ts':
     '7f6af8c9c7d623f8cdcb2e7bbe21a5d5d31f4ad94a6faca86dc25817e6904e8d',
   '../__tests__/fixtures/qualified-local-preparation-source.ts':
@@ -3285,8 +3287,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '0e37ab9f651bd7cc1fbfc35854ea3fde696c9ac237f9d11e8a07ac2a53c629eb',
   '../__tests__/private-repository-read-runner.test.ts':
     '4e973940ba39a5d6b513bbe32c7cbe17f26c4f9baacc5859353ad04a743d74f7',
+  '../__tests__/phase-a-measurement.test.ts':
+    '911925df2a9f25cd0ebe67d1dd4bd3d516dde3748ea5f124fb34a3ccbeb01bf1',
   '../__tests__/prompt-trace-timing.e2e.test.ts':
-    'ed53518dc4ed693a2bc282bc6a01b71419d906afe0fe8bef516b852175a17ef4',
+    'bbc6002815e5442e3e76aefefd356439aebf0531fe1c40d64255bb6ba057a8c4',
   '../__tests__/prompt-trace-timing.test.ts':
     'e5ac6f87bfd69c1e788304b274cd7b25768869099361dc4e69d0e35c535bf6c1',
   '../__tests__/public-github-read.test.ts':
