@@ -47,6 +47,8 @@ import { recentAuthorizationSession, requireSameOriginJson } from './connections
 import { createLogger } from './logger.js';
 import { retainRuntimeFailure, runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
 
+import { collaborationSourceDiagnostic } from './collaboration-source-diagnostic.js';
+
 const log = createLogger('collaboration-router');
 
 function failure(res: Response, error: unknown, dispatchNotStarted = false) {
@@ -60,7 +62,7 @@ function failure(res: Response, error: unknown, dispatchNotStarted = false) {
             ? 503
             : 422;
     return res.status(status).json({
-      error: error.message,
+      error: collaborationSourceDiagnostic(error)?.message ?? error.message,
       code: error.code,
       ...(dispatchNotStarted ? { dispatchNotStarted: true } : {}),
     });

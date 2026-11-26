@@ -94,7 +94,20 @@ export function TerminalView() {
       signal: controller.signal,
     })
       .then(async (response) => {
-        if (!response.ok) throw Error('Terminal unavailable. Check the selected environment.');
+        if (!response.ok) {
+          const fallback = 'Terminal unavailable. Retry or choose another environment.';
+          let failure: { error?: unknown };
+          try {
+            failure = await response.json();
+          } catch {
+            throw Error(fallback);
+          }
+          throw Error(
+            typeof failure?.error === 'string' && failure.error.length <= 500
+              ? failure.error
+              : fallback,
+          );
+        }
         const info: TerminalInfo = await response.json();
         if (disposed) return;
         if (!info.id || !['host', 'sandbox'].includes(info.kind))
@@ -505,7 +518,9 @@ export function TerminalView() {
             <UiIcon name={terminal?.kind === 'sandbox' ? 'files' : 'panel'} />
             <span>
               <strong>{terminal?.label ?? (sessionId ? 'Chat environment' : 'Your Mac')}</strong>
-              <small>{terminal?.cwd ?? 'Connecting…'}</small>
+              <small>
+                {terminal?.cwd ?? (status === 'unavailable' ? 'Unavailable' : 'Connecting…')}
+              </small>
             </span>
             <UiIcon name="down" />
           </button>
