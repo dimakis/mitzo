@@ -9,8 +9,33 @@ export function conversationSendRequests(
     ...(draft?.collaborationSend ? [draft.collaborationSend] : []),
   ];
 }
+// A journal flush verifies the whole request list. Serialize its mutations per
+// draft, including across composer owners, without locking readiness/network reads.
+const sendWrites = new Map<string | undefined, Promise<void>>();
+
 /** Replace/remove one exact request while preserving every unrelated pending send. */
 export async function retainConversationSend(
+  draftId: string | undefined,
+  requestId: string,
+  value: RetainedConversationSend | undefined,
+  fresh: () => boolean,
+) {
+  const previous = sendWrites.get(draftId);
+  let release!: () => void;
+  const completed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sendWrites.set(draftId, completed);
+  try {
+    await previous;
+    return await persistConversationSend(draftId, requestId, value, fresh);
+  } finally {
+    release();
+    if (sendWrites.get(draftId) === completed) sendWrites.delete(draftId);
+  }
+}
+
+async function persistConversationSend(
   draftId: string | undefined,
   requestId: string,
   value: RetainedConversationSend | undefined,
