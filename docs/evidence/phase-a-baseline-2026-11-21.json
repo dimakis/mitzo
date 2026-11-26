@@ -1,0 +1,1948 @@
+{
+  "version": 2,
+  "recordedAt": "2026-11-21T17:44:34.123Z",
+  "elapsedMs": 16397.593583,
+  "sourceHead": "145f7d1e25e373cc7fb73cf6687c43263a7ee995",
+  "sourceDirty": false,
+  "sourceFiles": {
+    "package-lock.json": "ccca6e1e72ab39971aced83fc12bb81252dd3a298fa15fb77c6d722ab03ac8ca",
+    "scripts/validate-prompt-timing.ts": "df8c56e29d5fa98c88edcc6e164db405c570d7e0dd59d8e40b9c0b68311d39c9",
+    "server/__tests__/prompt-trace-timing.e2e.test.ts": "bbc6002815e5442e3e76aefefd356439aebf0531fe1c40d64255bb6ba057a8c4",
+    "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts": "8a7fac11d081f411a614e75979382dcb85e4798651a424fed5a2149ac6a2155d",
+    "server/__tests__/fixtures/prompt-trace-timing.ts": "7f6af8c9c7d623f8cdcb2e7bbe21a5d5d31f4ad94a6faca86dc25817e6904e8d",
+    "server/__tests__/fixtures/phase-a-measurement.ts": "b1ce9088b03194ff24634cf73cb889ca698fb6d871fa4b4148389b986d81b0dc",
+    "server/ordinary-local-codex-entry.ts": "034b597c823da05856dd21d296d8afbe0999e1d6857813ac63a3eeaa239f0bd7",
+    "server/codex-conversation.ts": "ac8f1d218b101ed7beaacec1a0e598cf3cd4fd111a7b40efdf14bad3c944e1df",
+    "server/codex-app-server-client.ts": "1fcdffe7e7eacbb2d9d3c8cf5b457c48771d5f0832d93cf8d866cd71cdb0212f",
+    "server/local-codex-observation.ts": "cac75df8968fad09e6f56897d6feaa87c3c5e80c312f792c843960e0ab3ce8c9"
+  },
+  "runtime": "v24.10.0",
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "osRelease": "27.2.0",
+    "cpuModel": "Apple M4 Pro",
+    "logicalCpus": 14,
+    "totalMemoryBytes": 51539607552,
+    "nodeAbi": "137",
+    "workers": 1,
+    "heapLimitMiB": 1024,
+    "timezone": "UTC",
+    "ci": true
+  },
+  "coverage": {
+    "modelCalls": 0,
+    "measuredRoutes": ["local Codex / synthetic personal subscription / fixture-model"],
+    "unmeasuredRoutes": ["Claude", "Codex API accounts", "OpenShell", "Gemini"],
+    "load": "one retained session; four commands per run; one deliberately queued follow-up",
+    "productionLoad": false,
+    "capacityClaim": false,
+    "telemetry": "in-memory OTel collector only; no production exporter/query coverage claim"
+  },
+  "boundary": "owned command HTTP handler entry to controlled stdio write_completed",
+  "clock": "process.hrtime at genuine OTel SpanProcessor hooks; write_queued observer uses same monotonic clock; original OTel times also retained as relative offsets",
+  "fixture": {
+    "browser": false,
+    "provider": "controlled in-process stdio peer",
+    "syntheticMacArtifactQualification": true,
+    "sameConversation": true,
+    "bootstrapCount": 1,
+    "threadStartCount": 1,
+    "workspacePreparedBeforeMeasurement": true
+  },
+  "runs": 3,
+  "units": "milliseconds",
+  "summary": {
+    "cold": {
+      "n": 3,
+      "median": 378.543,
+      "min": 378.207,
+      "max": 404.011
+    },
+    "warm": {
+      "n": 6,
+      "median": 226.589,
+      "min": 221.62,
+      "max": 256.229
+    },
+    "queued": {
+      "n": 3,
+      "median": 276.898,
+      "min": 264.234,
+      "max": 294.908
+    }
+  },
+  "measurements": [
+    {
+      "run": 1,
+      "version": 1,
+      "route": {
+        "engine": "codex",
+        "execution": "local-synthetic",
+        "account": "synthetic-personal",
+        "model": "fixture-model",
+        "route": "chatgpt-subscription",
+        "evidence": "resolved turn spans"
+      },
+      "coverage": {
+        "started": 116,
+        "ended": 116,
+        "unfinished": 0,
+        "unattributed": 0,
+        "complete": true
+      },
+      "concurrency": {
+        "sessions": 1,
+        "commands": 4,
+        "maxOutstandingCommands": 2,
+        "maxActiveTurns": 1
+      },
+      "commands": [
+        {
+          "sample": 1,
+          "kind": "cold",
+          "checks": {
+            "workspace_check": {
+              "count": 16,
+              "failed": 0,
+              "wallMs": 14.83
+            },
+            "workspace_revalidation": {
+              "count": 1,
+              "failed": 0,
+              "wallMs": 5.14
+            },
+            "credential_check": {
+              "count": 16,
+              "failed": 0,
+              "wallMs": 6.724
+            },
+            "repository_credential_check": {
+              "count": 3,
+              "failed": 0,
+              "wallMs": 5.453
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        },
+        {
+          "sample": 2,
+          "kind": "warm",
+          "checks": {
+            "workspace_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 12.436
+            },
+            "workspace_revalidation": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "credential_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 4.83
+            },
+            "repository_credential_check": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        },
+        {
+          "sample": 3,
+          "kind": "warm",
+          "checks": {
+            "workspace_check": {
+              "count": 12,
+              "failed": 0,
+              "wallMs": 10.233
+            },
+            "workspace_revalidation": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "credential_check": {
+              "count": 12,
+              "failed": 0,
+              "wallMs": 3.547
+            },
+            "repository_credential_check": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        },
+        {
+          "sample": 4,
+          "kind": "queued",
+          "checks": {
+            "workspace_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 12.273
+            },
+            "workspace_revalidation": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "credential_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 4.84
+            },
+            "repository_credential_check": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        }
+      ],
+      "resources": {
+        "elapsedMs": 1555.984,
+        "process": {
+          "cpuMs": {
+            "user": 1052.167,
+            "system": 377.177
+          },
+          "cpuPercentOfOneCore": 91.861,
+          "memory": {
+            "samples": 24,
+            "sampleIntervalMs": 20,
+            "startRssBytes": 434126848,
+            "endRssBytes": 523321344,
+            "maxSampledRssBytes": 523321344,
+            "maxSampledHeapUsedBytes": 276014736
+          }
+        },
+        "host": {
+          "logicalCpus": 14,
+          "totalMemoryBytes": 51539607552,
+          "startFreeMemoryBytes": 891076608,
+          "endFreeMemoryBytes": 829095936,
+          "minSampledFreeMemoryBytes": 820576256,
+          "cpuBusyFraction": 0.33
+        },
+        "eventLoop": {
+          "resolutionMs": 20,
+          "sampleCount": 21,
+          "utilization": 0.7931147718602645,
+          "delayMs": {
+            "mean": 68.36848152380952,
+            "max": 281.542655,
+            "p50": 25.329663,
+            "p95": 237.895679,
+            "p99": 281.542655
+          }
+        }
+      }
+    },
+    {
+      "run": 2,
+      "version": 1,
+      "route": {
+        "engine": "codex",
+        "execution": "local-synthetic",
+        "account": "synthetic-personal",
+        "model": "fixture-model",
+        "route": "chatgpt-subscription",
+        "evidence": "resolved turn spans"
+      },
+      "coverage": {
+        "started": 116,
+        "ended": 116,
+        "unfinished": 0,
+        "unattributed": 0,
+        "complete": true
+      },
+      "concurrency": {
+        "sessions": 1,
+        "commands": 4,
+        "maxOutstandingCommands": 2,
+        "maxActiveTurns": 1
+      },
+      "commands": [
+        {
+          "sample": 1,
+          "kind": "cold",
+          "checks": {
+            "workspace_check": {
+              "count": 16,
+              "failed": 0,
+              "wallMs": 14.961
+            },
+            "workspace_revalidation": {
+              "count": 1,
+              "failed": 0,
+              "wallMs": 5.163
+            },
+            "credential_check": {
+              "count": 16,
+              "failed": 0,
+              "wallMs": 6.643
+            },
+            "repository_credential_check": {
+              "count": 3,
+              "failed": 0,
+              "wallMs": 5.332
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        },
+        {
+          "sample": 2,
+          "kind": "warm",
+          "checks": {
+            "workspace_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 12.65
+            },
+            "workspace_revalidation": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "credential_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 4.784
+            },
+            "repository_credential_check": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        },
+        {
+          "sample": 3,
+          "kind": "warm",
+          "checks": {
+            "workspace_check": {
+              "count": 12,
+              "failed": 0,
+              "wallMs": 10.169
+            },
+            "workspace_revalidation": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "credential_check": {
+              "count": 12,
+              "failed": 0,
+              "wallMs": 3.467
+            },
+            "repository_credential_check": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        },
+        {
+          "sample": 4,
+          "kind": "queued",
+          "checks": {
+            "workspace_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 13.332
+            },
+            "workspace_revalidation": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "credential_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 5.501
+            },
+            "repository_credential_check": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        }
+      ],
+      "resources": {
+        "elapsedMs": 1590.047,
+        "process": {
+          "cpuMs": {
+            "user": 1026.926,
+            "system": 382.792
+          },
+          "cpuPercentOfOneCore": 88.659,
+          "memory": {
+            "samples": 24,
+            "sampleIntervalMs": 20,
+            "startRssBytes": 426229760,
+            "endRssBytes": 529989632,
+            "maxSampledRssBytes": 529989632,
+            "maxSampledHeapUsedBytes": 289257864
+          }
+        },
+        "host": {
+          "logicalCpus": 14,
+          "totalMemoryBytes": 51539607552,
+          "startFreeMemoryBytes": 1268252672,
+          "endFreeMemoryBytes": 1144586240,
+          "minSampledFreeMemoryBytes": 1144340480,
+          "cpuBusyFraction": 0.298
+        },
+        "eventLoop": {
+          "resolutionMs": 20,
+          "sampleCount": 21,
+          "utilization": 0.7944719328024205,
+          "delayMs": {
+            "mean": 69.97177295238096,
+            "max": 278.134783,
+            "p50": 24.592383,
+            "p95": 246.284287,
+            "p99": 278.134783
+          }
+        }
+      }
+    },
+    {
+      "run": 3,
+      "version": 1,
+      "route": {
+        "engine": "codex",
+        "execution": "local-synthetic",
+        "account": "synthetic-personal",
+        "model": "fixture-model",
+        "route": "chatgpt-subscription",
+        "evidence": "resolved turn spans"
+      },
+      "coverage": {
+        "started": 116,
+        "ended": 116,
+        "unfinished": 0,
+        "unattributed": 0,
+        "complete": true
+      },
+      "concurrency": {
+        "sessions": 1,
+        "commands": 4,
+        "maxOutstandingCommands": 2,
+        "maxActiveTurns": 1
+      },
+      "commands": [
+        {
+          "sample": 1,
+          "kind": "cold",
+          "checks": {
+            "workspace_check": {
+              "count": 16,
+              "failed": 0,
+              "wallMs": 14.966
+            },
+            "workspace_revalidation": {
+              "count": 1,
+              "failed": 0,
+              "wallMs": 5.635
+            },
+            "credential_check": {
+              "count": 16,
+              "failed": 0,
+              "wallMs": 7.29
+            },
+            "repository_credential_check": {
+              "count": 3,
+              "failed": 0,
+              "wallMs": 5.645
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        },
+        {
+          "sample": 2,
+          "kind": "warm",
+          "checks": {
+            "workspace_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 12.605
+            },
+            "workspace_revalidation": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "credential_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 5.65
+            },
+            "repository_credential_check": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        },
+        {
+          "sample": 3,
+          "kind": "warm",
+          "checks": {
+            "workspace_check": {
+              "count": 12,
+              "failed": 0,
+              "wallMs": 13.169
+            },
+            "workspace_revalidation": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "credential_check": {
+              "count": 12,
+              "failed": 0,
+              "wallMs": 4.218
+            },
+            "repository_credential_check": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        },
+        {
+          "sample": 4,
+          "kind": "queued",
+          "checks": {
+            "workspace_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 12.222
+            },
+            "workspace_revalidation": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "credential_check": {
+              "count": 14,
+              "failed": 0,
+              "wallMs": 5.429
+            },
+            "repository_credential_check": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            },
+            "keychain_read": {
+              "count": 0,
+              "failed": 0,
+              "wallMs": 0
+            }
+          }
+        }
+      ],
+      "resources": {
+        "elapsedMs": 1639.379,
+        "process": {
+          "cpuMs": {
+            "user": 1133.684,
+            "system": 405.294
+          },
+          "cpuPercentOfOneCore": 93.876,
+          "memory": {
+            "samples": 24,
+            "sampleIntervalMs": 20,
+            "startRssBytes": 442744832,
+            "endRssBytes": 507183104,
+            "maxSampledRssBytes": 507183104,
+            "maxSampledHeapUsedBytes": 272337224
+          }
+        },
+        "host": {
+          "logicalCpus": 14,
+          "totalMemoryBytes": 51539607552,
+          "startFreeMemoryBytes": 1164689408,
+          "endFreeMemoryBytes": 1063665664,
+          "minSampledFreeMemoryBytes": 1063665664,
+          "cpuBusyFraction": 0.396
+        },
+        "eventLoop": {
+          "resolutionMs": 20,
+          "sampleCount": 21,
+          "utilization": 0.8092243567725959,
+          "delayMs": {
+            "mean": 71.52591238095239,
+            "max": 290.193407,
+            "p50": 25.493503,
+            "p95": 267.124735,
+            "p99": 290.193407
+          }
+        }
+      }
+    }
+  ],
+  "samples": [
+    {
+      "admissionPhases": [
+        {
+          "name": "codex.admission.provider_environment",
+          "startMs": 125.961,
+          "endMs": 126.001
+        }
+      ],
+      "sample": 1,
+      "kind": "cold",
+      "traceId": "113ec6b452674e63acccc0e33ead236e",
+      "ms": {
+        "serverToDurableAdmission": 26.224,
+        "admissionToDurableQueue": 193.218,
+        "serverToDurableQueue": 219.443,
+        "queueWait": 37.848,
+        "preparation": 92.12,
+        "invocation": 28.604,
+        "serverToWriteQueued": 377.977,
+        "serverToWriteCompleted": 378.207,
+        "applicationDispatchExcludingQueue": 340.359,
+        "streamWrite": 0.285,
+        "otelWriteQueuedMs": 378.062,
+        "writeCompletedToAck": 46.501,
+        "writeCompletedToFirstOutput": 60.843,
+        "ackToFirstOutput": 14.342,
+        "serverToFirstOutput": 439.051
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "6236c94b212468fc",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 234.448,
+          "startMs": 0,
+          "endMs": 234.439
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "7b263de55aeaa9fd",
+          "parentSpanId": "1030bba41212534f",
+          "otelStartMs": 25,
+          "otelEndMs": 25.712,
+          "startMs": 25.513,
+          "endMs": 26.224
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "e610bc35ae768bbd",
+          "parentSpanId": "1030bba41212534f",
+          "otelStartMs": 219,
+          "otelEndMs": 256.852,
+          "startMs": 219.443,
+          "endMs": 257.291
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "614b189929c3c6dd",
+          "parentSpanId": "1030bba41212534f",
+          "otelStartMs": 257,
+          "otelEndMs": 349.12,
+          "startMs": 257.42,
+          "endMs": 349.539
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "2f5cf8e3cbe5a50e",
+          "parentSpanId": "1030bba41212534f",
+          "otelStartMs": 349,
+          "otelEndMs": 442.703,
+          "startMs": 349.434,
+          "endMs": 443.138
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "32f6f7acd1a6ce51",
+          "parentSpanId": "2f5cf8e3cbe5a50e",
+          "otelStartMs": 349,
+          "otelEndMs": 377.603,
+          "startMs": 349.459,
+          "endMs": 378.063
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "2d6c719c947ebed1",
+          "parentSpanId": "2f5cf8e3cbe5a50e",
+          "otelStartMs": 349,
+          "otelEndMs": 424.246,
+          "startMs": 349.462,
+          "endMs": 424.708
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "cbbdbae5d09af31e",
+          "parentSpanId": "2f5cf8e3cbe5a50e",
+          "otelStartMs": 349,
+          "otelEndMs": 438.586,
+          "startMs": 349.465,
+          "endMs": 439.051
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "75c8c0e58b2a3636",
+          "parentSpanId": "1030bba41212534f",
+          "otelStartMs": 378,
+          "otelEndMs": 378.286,
+          "startMs": 377.923,
+          "endMs": 378.207
+        }
+      ],
+      "run": 1
+    },
+    {
+      "admissionPhases": [],
+      "sample": 2,
+      "kind": "warm",
+      "traceId": "8d3b804f07e14ff98046a94d1e537487",
+      "ms": {
+        "serverToDurableAdmission": 35.708,
+        "admissionToDurableQueue": 42.59,
+        "serverToDurableQueue": 78.298,
+        "queueWait": 30.681,
+        "preparation": 87.911,
+        "invocation": 28.265,
+        "serverToWriteQueued": 225.173,
+        "serverToWriteCompleted": 225.254,
+        "applicationDispatchExcludingQueue": 194.573,
+        "streamWrite": 0.126,
+        "otelWriteQueuedMs": 225.051,
+        "writeCompletedToAck": 87.413,
+        "writeCompletedToFirstOutput": 102.892,
+        "ackToFirstOutput": 15.479,
+        "serverToFirstOutput": 328.146
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "923a71346e2d5322",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 315.951,
+          "startMs": 0,
+          "endMs": 315.949
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "9fbc8713a2d636fb",
+          "parentSpanId": "923a71346e2d5322",
+          "otelStartMs": 36,
+          "otelEndMs": 36.296,
+          "startMs": 35.412,
+          "endMs": 35.708
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "e76712a15b144f1f",
+          "parentSpanId": "923a71346e2d5322",
+          "otelStartMs": 79,
+          "otelEndMs": 109.682,
+          "startMs": 78.298,
+          "endMs": 108.979
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "39d1fdb24fe2cc2d",
+          "parentSpanId": "923a71346e2d5322",
+          "otelStartMs": 109,
+          "otelEndMs": 196.904,
+          "startMs": 109.097,
+          "endMs": 197.008
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "67827cbdda8a7fee",
+          "parentSpanId": "923a71346e2d5322",
+          "otelStartMs": 197,
+          "otelEndMs": 332.2,
+          "startMs": 196.955,
+          "endMs": 332.156
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "a405d232c124757f",
+          "parentSpanId": "67827cbdda8a7fee",
+          "otelStartMs": 197,
+          "otelEndMs": 225.264,
+          "startMs": 196.967,
+          "endMs": 225.232
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "728cc82f612121a5",
+          "parentSpanId": "67827cbdda8a7fee",
+          "otelStartMs": 197,
+          "otelEndMs": 312.69,
+          "startMs": 196.977,
+          "endMs": 312.667
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "ca020db3619f3d95",
+          "parentSpanId": "67827cbdda8a7fee",
+          "otelStartMs": 197,
+          "otelEndMs": 328.164,
+          "startMs": 196.982,
+          "endMs": 328.146
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "6979ef59d197556e",
+          "parentSpanId": "923a71346e2d5322",
+          "otelStartMs": 225,
+          "otelEndMs": 225.127,
+          "startMs": 225.129,
+          "endMs": 225.254
+        }
+      ],
+      "run": 1
+    },
+    {
+      "admissionPhases": [],
+      "sample": 3,
+      "kind": "warm",
+      "traceId": "6f12848415d94db793cbe2e1906d1706",
+      "ms": {
+        "serverToDurableAdmission": 34.059,
+        "admissionToDurableQueue": 42.124,
+        "serverToDurableQueue": 76.183,
+        "queueWait": 32.884,
+        "preparation": 84.035,
+        "invocation": 31.604,
+        "serverToWriteQueued": 224.704,
+        "serverToWriteCompleted": 224.806,
+        "applicationDispatchExcludingQueue": 191.922,
+        "streamWrite": 0.142,
+        "otelWriteQueuedMs": 225.044,
+        "writeCompletedToAck": 45.787,
+        "writeCompletedToFirstOutput": 61.32,
+        "ackToFirstOutput": 15.533,
+        "serverToFirstOutput": 286.126
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "d337defd94894e32",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 273.292,
+          "startMs": 0,
+          "endMs": 273.291
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "fb902078e65b0313",
+          "parentSpanId": "d337defd94894e32",
+          "otelStartMs": 34,
+          "otelEndMs": 34.29,
+          "startMs": 33.771,
+          "endMs": 34.059
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "5e377da5cbeea327",
+          "parentSpanId": "d337defd94894e32",
+          "otelStartMs": 76,
+          "otelEndMs": 108.886,
+          "startMs": 76.183,
+          "endMs": 109.067
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "542209b19c5eccb8",
+          "parentSpanId": "d337defd94894e32",
+          "otelStartMs": 109,
+          "otelEndMs": 193.036,
+          "startMs": 109.182,
+          "endMs": 193.216
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "072af51466076d7d",
+          "parentSpanId": "d337defd94894e32",
+          "otelStartMs": 193,
+          "otelEndMs": 444.83,
+          "startMs": 193.167,
+          "endMs": 445.001
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "3d95ceb9432c7831",
+          "parentSpanId": "072af51466076d7d",
+          "otelStartMs": 193,
+          "otelEndMs": 224.602,
+          "startMs": 193.178,
+          "endMs": 224.782
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "a99167aeb6b364b8",
+          "parentSpanId": "072af51466076d7d",
+          "otelStartMs": 193,
+          "otelEndMs": 270.41,
+          "startMs": 193.182,
+          "endMs": 270.593
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "41e0eabd23a16fa9",
+          "parentSpanId": "072af51466076d7d",
+          "otelStartMs": 193,
+          "otelEndMs": 285.933,
+          "startMs": 193.193,
+          "endMs": 286.126
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "9e71a0fa893747a1",
+          "parentSpanId": "d337defd94894e32",
+          "otelStartMs": 225,
+          "otelEndMs": 225.143,
+          "startMs": 224.664,
+          "endMs": 224.806
+        }
+      ],
+      "run": 1
+    },
+    {
+      "admissionPhases": [],
+      "sample": 4,
+      "kind": "queued",
+      "traceId": "e76ed3e0cc554a49b0520e34e6884925",
+      "ms": {
+        "serverToDurableAdmission": 39.294,
+        "admissionToDurableQueue": 41.855,
+        "serverToDurableQueue": 81.149,
+        "queueWait": 69.035,
+        "preparation": 83.045,
+        "invocation": 30.912,
+        "serverToWriteQueued": 264.156,
+        "serverToWriteCompleted": 264.234,
+        "applicationDispatchExcludingQueue": 195.199,
+        "streamWrite": 0.119,
+        "otelWriteQueuedMs": 264.047,
+        "writeCompletedToAck": 46.039,
+        "writeCompletedToFirstOutput": 60.786,
+        "ackToFirstOutput": 14.747,
+        "serverToFirstOutput": 325.02
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "226a01a2d8529213",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 82.109,
+          "startMs": 0,
+          "endMs": 82.108
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "de53353628553906",
+          "parentSpanId": "226a01a2d8529213",
+          "otelStartMs": 39,
+          "otelEndMs": 39.286,
+          "startMs": 39.009,
+          "endMs": 39.294
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "fc773096178c2585",
+          "parentSpanId": "226a01a2d8529213",
+          "otelStartMs": 81,
+          "otelEndMs": 150.038,
+          "startMs": 81.149,
+          "endMs": 150.184
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "80f04a86255bb11b",
+          "parentSpanId": "226a01a2d8529213",
+          "otelStartMs": 150,
+          "otelEndMs": 233.045,
+          "startMs": 150.288,
+          "endMs": 233.333
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "ea620c004b1f2db3",
+          "parentSpanId": "226a01a2d8529213",
+          "otelStartMs": 233,
+          "otelEndMs": 328.264,
+          "startMs": 233.272,
+          "endMs": 328.535
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "79dccbb1148f964c",
+          "parentSpanId": "ea620c004b1f2db3",
+          "otelStartMs": 233,
+          "otelEndMs": 263.911,
+          "startMs": 233.295,
+          "endMs": 264.208
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "47749e54c59a932c",
+          "parentSpanId": "ea620c004b1f2db3",
+          "otelStartMs": 233,
+          "otelEndMs": 309.971,
+          "startMs": 233.301,
+          "endMs": 310.273
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "986f163514171093",
+          "parentSpanId": "ea620c004b1f2db3",
+          "otelStartMs": 233,
+          "otelEndMs": 324.708,
+          "startMs": 233.308,
+          "endMs": 325.02
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "f89962222af93f2d",
+          "parentSpanId": "226a01a2d8529213",
+          "otelStartMs": 264,
+          "otelEndMs": 264.12,
+          "startMs": 264.115,
+          "endMs": 264.234
+        }
+      ],
+      "run": 1
+    },
+    {
+      "admissionPhases": [
+        {
+          "name": "codex.admission.provider_environment",
+          "startMs": 127.445,
+          "endMs": 127.476
+        }
+      ],
+      "sample": 1,
+      "kind": "cold",
+      "traceId": "9d6c3f2239834bba9e3abe3fc299e376",
+      "ms": {
+        "serverToDurableAdmission": 26.284,
+        "admissionToDurableQueue": 189.969,
+        "serverToDurableQueue": 216.253,
+        "queueWait": 39.372,
+        "preparation": 93.193,
+        "invocation": 29.496,
+        "serverToWriteQueued": 378.323,
+        "serverToWriteCompleted": 378.543,
+        "applicationDispatchExcludingQueue": 339.171,
+        "streamWrite": 0.274,
+        "otelWriteQueuedMs": 378.062,
+        "writeCompletedToAck": 46.272,
+        "writeCompletedToFirstOutput": 60.303,
+        "ackToFirstOutput": 14.032,
+        "serverToFirstOutput": 438.846
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "fa41d0975f255efe",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 231.768,
+          "startMs": 0,
+          "endMs": 231.76
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "ae3d985b6c813146",
+          "parentSpanId": "79426270d1d8f42b",
+          "otelStartMs": 25,
+          "otelEndMs": 25.646,
+          "startMs": 25.639,
+          "endMs": 26.284
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "64c63191659256f7",
+          "parentSpanId": "79426270d1d8f42b",
+          "otelStartMs": 216,
+          "otelEndMs": 255.373,
+          "startMs": 216.253,
+          "endMs": 255.624
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "d957857d77bdb820",
+          "parentSpanId": "79426270d1d8f42b",
+          "otelStartMs": 255,
+          "otelEndMs": 348.194,
+          "startMs": 255.78,
+          "endMs": 348.973
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "277c4c15d4d43f0a",
+          "parentSpanId": "79426270d1d8f42b",
+          "otelStartMs": 349,
+          "otelEndMs": 442.96,
+          "startMs": 348.882,
+          "endMs": 442.842
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "8d760afd5d489a09",
+          "parentSpanId": "277c4c15d4d43f0a",
+          "otelStartMs": 349,
+          "otelEndMs": 378.491,
+          "startMs": 348.898,
+          "endMs": 378.394
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "018597a363794e7f",
+          "parentSpanId": "277c4c15d4d43f0a",
+          "otelStartMs": 349,
+          "otelEndMs": 424.912,
+          "startMs": 348.902,
+          "endMs": 424.815
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "f8d42d3474abebde",
+          "parentSpanId": "277c4c15d4d43f0a",
+          "otelStartMs": 349,
+          "otelEndMs": 438.941,
+          "startMs": 348.905,
+          "endMs": 438.846
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "dbb368fc09a63f8f",
+          "parentSpanId": "79426270d1d8f42b",
+          "otelStartMs": 378,
+          "otelEndMs": 378.275,
+          "startMs": 378.269,
+          "endMs": 378.543
+        }
+      ],
+      "run": 2
+    },
+    {
+      "admissionPhases": [],
+      "sample": 2,
+      "kind": "warm",
+      "traceId": "54e0ffb7706440eda3509ae982985f4d",
+      "ms": {
+        "serverToDurableAdmission": 36.415,
+        "admissionToDurableQueue": 43.519,
+        "serverToDurableQueue": 79.933,
+        "queueWait": 34.088,
+        "preparation": 83.379,
+        "invocation": 30.409,
+        "serverToWriteQueued": 227.835,
+        "serverToWriteCompleted": 227.923,
+        "applicationDispatchExcludingQueue": 193.835,
+        "streamWrite": 0.134,
+        "otelWriteQueuedMs": 228.054,
+        "writeCompletedToAck": 86.006,
+        "writeCompletedToFirstOutput": 101.62,
+        "ackToFirstOutput": 15.614,
+        "serverToFirstOutput": 329.543
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "cffff7f8ec71f65a",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 317.146,
+          "startMs": 0,
+          "endMs": 317.144
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "9091adafe3af19ed",
+          "parentSpanId": "cffff7f8ec71f65a",
+          "otelStartMs": 37,
+          "otelEndMs": 37.29,
+          "startMs": 36.126,
+          "endMs": 36.415
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "8d4726cb556044f2",
+          "parentSpanId": "cffff7f8ec71f65a",
+          "otelStartMs": 80,
+          "otelEndMs": 114.092,
+          "startMs": 79.933,
+          "endMs": 114.021
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "f0fb05b181ce3e12",
+          "parentSpanId": "cffff7f8ec71f65a",
+          "otelStartMs": 115,
+          "otelEndMs": 198.38,
+          "startMs": 114.141,
+          "endMs": 197.52
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "b4d8994c72e95ba3",
+          "parentSpanId": "cffff7f8ec71f65a",
+          "otelStartMs": 198,
+          "otelEndMs": 334.447,
+          "startMs": 197.474,
+          "endMs": 333.922
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "1561a9a63c24acb7",
+          "parentSpanId": "b4d8994c72e95ba3",
+          "otelStartMs": 198,
+          "otelEndMs": 228.407,
+          "startMs": 197.485,
+          "endMs": 227.895
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "2c248e0a19d9a413",
+          "parentSpanId": "b4d8994c72e95ba3",
+          "otelStartMs": 198,
+          "otelEndMs": 314.433,
+          "startMs": 197.495,
+          "endMs": 313.929
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "be092d17c8549cdf",
+          "parentSpanId": "b4d8994c72e95ba3",
+          "otelStartMs": 198,
+          "otelEndMs": 330.043,
+          "startMs": 197.5,
+          "endMs": 329.543
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "95412abcb497fa8e",
+          "parentSpanId": "cffff7f8ec71f65a",
+          "otelStartMs": 228,
+          "otelEndMs": 228.135,
+          "startMs": 227.788,
+          "endMs": 227.923
+        }
+      ],
+      "run": 2
+    },
+    {
+      "admissionPhases": [],
+      "sample": 3,
+      "kind": "warm",
+      "traceId": "8e310cd5e48f458a8bb1e51faad3884e",
+      "ms": {
+        "serverToDurableAdmission": 33.415,
+        "admissionToDurableQueue": 42.832,
+        "serverToDurableQueue": 76.247,
+        "queueWait": 29.661,
+        "preparation": 87.632,
+        "invocation": 28.002,
+        "serverToWriteQueued": 221.539,
+        "serverToWriteCompleted": 221.62,
+        "applicationDispatchExcludingQueue": 191.958,
+        "streamWrite": 0.12,
+        "otelWriteQueuedMs": 222.044,
+        "writeCompletedToAck": 45.934,
+        "writeCompletedToFirstOutput": 60.795,
+        "ackToFirstOutput": 14.861,
+        "serverToFirstOutput": 282.415
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "fe44f7affb176c54",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 269.971,
+          "startMs": 0,
+          "endMs": 269.971
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "66e2b9c31aac849e",
+          "parentSpanId": "fe44f7affb176c54",
+          "otelStartMs": 34,
+          "otelEndMs": 34.276,
+          "startMs": 33.14,
+          "endMs": 33.415
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "354f20eed0ef13d1",
+          "parentSpanId": "fe44f7affb176c54",
+          "otelStartMs": 77,
+          "otelEndMs": 106.665,
+          "startMs": 76.247,
+          "endMs": 105.908
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "23210ed2cc47f025",
+          "parentSpanId": "fe44f7affb176c54",
+          "otelStartMs": 106,
+          "otelEndMs": 193.632,
+          "startMs": 106.007,
+          "endMs": 193.639
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "c1d8860baa1b65c7",
+          "parentSpanId": "fe44f7affb176c54",
+          "otelStartMs": 194,
+          "otelEndMs": 445.95,
+          "startMs": 193.581,
+          "endMs": 445.535
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "2d61448d6260afca",
+          "parentSpanId": "c1d8860baa1b65c7",
+          "otelStartMs": 194,
+          "otelEndMs": 222.001,
+          "startMs": 193.595,
+          "endMs": 221.598
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "e3edb1594dc60398",
+          "parentSpanId": "c1d8860baa1b65c7",
+          "otelStartMs": 194,
+          "otelEndMs": 267.952,
+          "startMs": 193.601,
+          "endMs": 267.554
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "b41cb4349cc70aca",
+          "parentSpanId": "c1d8860baa1b65c7",
+          "otelStartMs": 194,
+          "otelEndMs": 282.799,
+          "startMs": 193.616,
+          "endMs": 282.415
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "71019a43b266eb0c",
+          "parentSpanId": "fe44f7affb176c54",
+          "otelStartMs": 222,
+          "otelEndMs": 222.121,
+          "startMs": 221.5,
+          "endMs": 221.62
+        }
+      ],
+      "run": 2
+    },
+    {
+      "admissionPhases": [],
+      "sample": 4,
+      "kind": "queued",
+      "traceId": "03d240c92924409bbd8700424fbdd456",
+      "ms": {
+        "serverToDurableAdmission": 38.247,
+        "admissionToDurableQueue": 46.219,
+        "serverToDurableQueue": 84.466,
+        "queueWait": 74.019,
+        "preparation": 101.037,
+        "invocation": 35.185,
+        "serverToWriteQueued": 294.825,
+        "serverToWriteCompleted": 294.908,
+        "applicationDispatchExcludingQueue": 220.89,
+        "streamWrite": 0.128,
+        "otelWriteQueuedMs": 295.051,
+        "writeCompletedToAck": 46.714,
+        "writeCompletedToFirstOutput": 60.514,
+        "ackToFirstOutput": 13.799,
+        "serverToFirstOutput": 355.422
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "d2793cbb5d674015",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 85.675,
+          "startMs": 0,
+          "endMs": 85.672
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "6e0c91899e8928a4",
+          "parentSpanId": "d2793cbb5d674015",
+          "otelStartMs": 38,
+          "otelEndMs": 38.27,
+          "startMs": 37.978,
+          "endMs": 38.247
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "b5c767ae68051a9b",
+          "parentSpanId": "d2793cbb5d674015",
+          "otelStartMs": 85,
+          "otelEndMs": 159.023,
+          "startMs": 84.466,
+          "endMs": 158.485
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "de8c97db0a97ea98",
+          "parentSpanId": "d2793cbb5d674015",
+          "otelStartMs": 159,
+          "otelEndMs": 260.039,
+          "startMs": 158.698,
+          "endMs": 259.735
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "77ea0d5b8b0b2d54",
+          "parentSpanId": "d2793cbb5d674015",
+          "otelStartMs": 260,
+          "otelEndMs": 359.729,
+          "startMs": 259.663,
+          "endMs": 359.387
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "6bf9232edbc76876",
+          "parentSpanId": "77ea0d5b8b0b2d54",
+          "otelStartMs": 260,
+          "otelEndMs": 295.184,
+          "startMs": 259.698,
+          "endMs": 294.883
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "3581090b327d2fb8",
+          "parentSpanId": "77ea0d5b8b0b2d54",
+          "otelStartMs": 260,
+          "otelEndMs": 341.919,
+          "startMs": 259.704,
+          "endMs": 341.623
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "a4e6f346cfc940b2",
+          "parentSpanId": "77ea0d5b8b0b2d54",
+          "otelStartMs": 260,
+          "otelEndMs": 355.706,
+          "startMs": 259.711,
+          "endMs": 355.422
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "79368dfa8c13ba79",
+          "parentSpanId": "d2793cbb5d674015",
+          "otelStartMs": 295,
+          "otelEndMs": 295.13,
+          "startMs": 294.78,
+          "endMs": 294.908
+        }
+      ],
+      "run": 2
+    },
+    {
+      "admissionPhases": [
+        {
+          "name": "codex.admission.provider_environment",
+          "startMs": 141.504,
+          "endMs": 141.539
+        }
+      ],
+      "sample": 1,
+      "kind": "cold",
+      "traceId": "bb12c53d41e84e8d9beedb7d2660da32",
+      "ms": {
+        "serverToDurableAdmission": 29.178,
+        "admissionToDurableQueue": 207.439,
+        "serverToDurableQueue": 236.617,
+        "queueWait": 39.636,
+        "preparation": 97.687,
+        "invocation": 29.841,
+        "serverToWriteQueued": 403.779,
+        "serverToWriteCompleted": 404.011,
+        "applicationDispatchExcludingQueue": 364.376,
+        "streamWrite": 0.294,
+        "otelWriteQueuedMs": 403.07,
+        "writeCompletedToAck": 45.956,
+        "writeCompletedToFirstOutput": 61.399,
+        "ackToFirstOutput": 15.443,
+        "serverToFirstOutput": 465.411
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "5acd07a01984610c",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 252.699,
+          "startMs": 0,
+          "endMs": 252.689
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "867f48979f77b043",
+          "parentSpanId": "a6ba4f9ba03621f5",
+          "otelStartMs": 28,
+          "otelEndMs": 28.725,
+          "startMs": 28.455,
+          "endMs": 29.178
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "ed5fec00d9933713",
+          "parentSpanId": "a6ba4f9ba03621f5",
+          "otelStartMs": 236,
+          "otelEndMs": 275.64,
+          "startMs": 236.617,
+          "endMs": 276.253
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "b415926281837705",
+          "parentSpanId": "a6ba4f9ba03621f5",
+          "otelStartMs": 276,
+          "otelEndMs": 373.688,
+          "startMs": 276.426,
+          "endMs": 374.113
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "635be79cd8bece98",
+          "parentSpanId": "a6ba4f9ba03621f5",
+          "otelStartMs": 374,
+          "otelEndMs": 469.726,
+          "startMs": 374.002,
+          "endMs": 469.727
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "2534133df4d39c12",
+          "parentSpanId": "635be79cd8bece98",
+          "otelStartMs": 374,
+          "otelEndMs": 403.839,
+          "startMs": 374.024,
+          "endMs": 403.864
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "99c37490abecd78d",
+          "parentSpanId": "635be79cd8bece98",
+          "otelStartMs": 374,
+          "otelEndMs": 449.94,
+          "startMs": 374.027,
+          "endMs": 449.968
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "2018b2242680615a",
+          "parentSpanId": "635be79cd8bece98",
+          "otelStartMs": 374,
+          "otelEndMs": 465.38,
+          "startMs": 374.031,
+          "endMs": 465.411
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "822b5e5d0a61bbb8",
+          "parentSpanId": "a6ba4f9ba03621f5",
+          "otelStartMs": 403,
+          "otelEndMs": 403.295,
+          "startMs": 403.718,
+          "endMs": 404.011
+        }
+      ],
+      "run": 3
+    },
+    {
+      "admissionPhases": [],
+      "sample": 2,
+      "kind": "warm",
+      "traceId": "e6042ad535ab4f3594fbfe5a1e462485",
+      "ms": {
+        "serverToDurableAdmission": 38.268,
+        "admissionToDurableQueue": 44.171,
+        "serverToDurableQueue": 82.439,
+        "queueWait": 31.964,
+        "preparation": 92.989,
+        "invocation": 31.069,
+        "serverToWriteQueued": 238.531,
+        "serverToWriteCompleted": 238.639,
+        "applicationDispatchExcludingQueue": 206.675,
+        "streamWrite": 0.161,
+        "otelWriteQueuedMs": 239.062,
+        "writeCompletedToAck": 86.13,
+        "writeCompletedToFirstOutput": 101.921,
+        "ackToFirstOutput": 15.791,
+        "serverToFirstOutput": 340.56
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "82c5cb7016b8fafa",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 327.53,
+          "startMs": 0,
+          "endMs": 327.526
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "e355749f3b80ff09",
+          "parentSpanId": "82c5cb7016b8fafa",
+          "otelStartMs": 38,
+          "otelEndMs": 38.31,
+          "startMs": 37.96,
+          "endMs": 38.268
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "dc3c012aeb9b92fa",
+          "parentSpanId": "82c5cb7016b8fafa",
+          "otelStartMs": 83,
+          "otelEndMs": 114.968,
+          "startMs": 82.439,
+          "endMs": 114.403
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "19a3e081463709e9",
+          "parentSpanId": "82c5cb7016b8fafa",
+          "otelStartMs": 115,
+          "otelEndMs": 207.986,
+          "startMs": 114.598,
+          "endMs": 207.588
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "402a93956c46b057",
+          "parentSpanId": "82c5cb7016b8fafa",
+          "otelStartMs": 208,
+          "otelEndMs": 344.536,
+          "startMs": 207.524,
+          "endMs": 344.058
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "caa08fcde6a4d480",
+          "parentSpanId": "402a93956c46b057",
+          "otelStartMs": 208,
+          "otelEndMs": 239.067,
+          "startMs": 207.539,
+          "endMs": 238.608
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "3194483bbf3ac8d0",
+          "parentSpanId": "402a93956c46b057",
+          "otelStartMs": 208,
+          "otelEndMs": 325.209,
+          "startMs": 207.56,
+          "endMs": 324.769
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "e04cc0dd172ba490",
+          "parentSpanId": "402a93956c46b057",
+          "otelStartMs": 208,
+          "otelEndMs": 340.996,
+          "startMs": 207.564,
+          "endMs": 340.56
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "9033e8694eb5a633",
+          "parentSpanId": "82c5cb7016b8fafa",
+          "otelStartMs": 239,
+          "otelEndMs": 239.163,
+          "startMs": 238.478,
+          "endMs": 238.639
+        }
+      ],
+      "run": 3
+    },
+    {
+      "admissionPhases": [],
+      "sample": 3,
+      "kind": "warm",
+      "traceId": "0288a47f1e3741f98a3e09f1ede27294",
+      "ms": {
+        "serverToDurableAdmission": 38.273,
+        "admissionToDurableQueue": 46.615,
+        "serverToDurableQueue": 84.888,
+        "queueWait": 35.18,
+        "preparation": 101.327,
+        "invocation": 34.704,
+        "serverToWriteQueued": 256.079,
+        "serverToWriteCompleted": 256.229,
+        "applicationDispatchExcludingQueue": 221.049,
+        "streamWrite": 0.197,
+        "otelWriteQueuedMs": 256.052,
+        "writeCompletedToAck": 46.721,
+        "writeCompletedToFirstOutput": 60.274,
+        "ackToFirstOutput": 13.554,
+        "serverToFirstOutput": 316.504
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "6fc99ebb265b7bc2",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 305.873,
+          "startMs": 0,
+          "endMs": 305.868
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "5cdd980246173005",
+          "parentSpanId": "6fc99ebb265b7bc2",
+          "otelStartMs": 38,
+          "otelEndMs": 38.301,
+          "startMs": 37.974,
+          "endMs": 38.273
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "7ec26fa7162b721d",
+          "parentSpanId": "6fc99ebb265b7bc2",
+          "otelStartMs": 85,
+          "otelEndMs": 120.183,
+          "startMs": 84.888,
+          "endMs": 120.068
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "c11b9f16b73d0a86",
+          "parentSpanId": "6fc99ebb265b7bc2",
+          "otelStartMs": 120,
+          "otelEndMs": 221.327,
+          "startMs": 120.201,
+          "endMs": 221.528
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "d10b7496d76008b4",
+          "parentSpanId": "6fc99ebb265b7bc2",
+          "otelStartMs": 222,
+          "otelEndMs": 480.806,
+          "startMs": 221.468,
+          "endMs": 480.277
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "e9b37ddf5c84fac4",
+          "parentSpanId": "d10b7496d76008b4",
+          "otelStartMs": 222,
+          "otelEndMs": 256.703,
+          "startMs": 221.485,
+          "endMs": 256.189
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "2823353a3283428c",
+          "parentSpanId": "d10b7496d76008b4",
+          "otelStartMs": 222,
+          "otelEndMs": 303.459,
+          "startMs": 221.49,
+          "endMs": 302.95
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "dbdb7782f7f4b03d",
+          "parentSpanId": "d10b7496d76008b4",
+          "otelStartMs": 222,
+          "otelEndMs": 317.002,
+          "startMs": 221.502,
+          "endMs": 316.504
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "e394daeebac088b8",
+          "parentSpanId": "6fc99ebb265b7bc2",
+          "otelStartMs": 256,
+          "otelEndMs": 256.197,
+          "startMs": 256.032,
+          "endMs": 256.229
+        }
+      ],
+      "run": 3
+    },
+    {
+      "admissionPhases": [],
+      "sample": 4,
+      "kind": "queued",
+      "traceId": "7886129a05e846e89051e2c71075bded",
+      "ms": {
+        "serverToDurableAdmission": 36.636,
+        "admissionToDurableQueue": 47.146,
+        "serverToDurableQueue": 83.781,
+        "queueWait": 70.753,
+        "preparation": 89.623,
+        "invocation": 32.623,
+        "serverToWriteQueued": 276.815,
+        "serverToWriteCompleted": 276.898,
+        "applicationDispatchExcludingQueue": 206.145,
+        "streamWrite": 0.13,
+        "otelWriteQueuedMs": 276.051,
+        "writeCompletedToAck": 45.747,
+        "writeCompletedToFirstOutput": 60.695,
+        "ackToFirstOutput": 14.948,
+        "serverToFirstOutput": 337.594
+      },
+      "spans": [
+        {
+          "name": "codex.command.http",
+          "spanId": "3413c2e127247f47",
+          "parentSpanId": "1234567890abcdef",
+          "otelStartMs": 0,
+          "otelEndMs": 84.9,
+          "startMs": 0,
+          "endMs": 84.896
+        },
+        {
+          "name": "validation.admission.claim",
+          "spanId": "f6db4c525903853d",
+          "parentSpanId": "3413c2e127247f47",
+          "otelStartMs": 36,
+          "otelEndMs": 36.29,
+          "startMs": 36.348,
+          "endMs": 36.636
+        },
+        {
+          "name": "codex.command.queue_wait",
+          "spanId": "1abfdeecdf902903",
+          "parentSpanId": "3413c2e127247f47",
+          "otelStartMs": 83,
+          "otelEndMs": 153.762,
+          "startMs": 83.781,
+          "endMs": 154.534
+        },
+        {
+          "name": "codex.command.preparation",
+          "spanId": "1ba2322f84bf131a",
+          "parentSpanId": "3413c2e127247f47",
+          "otelStartMs": 154,
+          "otelEndMs": 243.623,
+          "startMs": 154.663,
+          "endMs": 244.286
+        },
+        {
+          "name": "codex.turn",
+          "spanId": "5d41279c37d2dd9b",
+          "parentSpanId": "3413c2e127247f47",
+          "otelStartMs": 244,
+          "otelEndMs": 340.962,
+          "startMs": 244.218,
+          "endMs": 341.178
+        },
+        {
+          "name": "codex.turn.dispatch",
+          "spanId": "5dc2d46ec7c3015b",
+          "parentSpanId": "5d41279c37d2dd9b",
+          "otelStartMs": 244,
+          "otelEndMs": 276.622,
+          "startMs": 244.249,
+          "endMs": 276.872
+        },
+        {
+          "name": "codex.turn.acknowledgment",
+          "spanId": "44d59fbd485b8996",
+          "parentSpanId": "5d41279c37d2dd9b",
+          "otelStartMs": 244,
+          "otelEndMs": 322.39,
+          "startMs": 244.255,
+          "endMs": 322.645
+        },
+        {
+          "name": "codex.turn.first_output",
+          "spanId": "c6d12f94909b703c",
+          "parentSpanId": "5d41279c37d2dd9b",
+          "otelStartMs": 244,
+          "otelEndMs": 337.325,
+          "startMs": 244.261,
+          "endMs": 337.594
+        },
+        {
+          "name": "validation.turn.write",
+          "spanId": "5a91afcaa18307a9",
+          "parentSpanId": "3413c2e127247f47",
+          "otelStartMs": 276,
+          "otelEndMs": 276.131,
+          "startMs": 276.769,
+          "endMs": 276.898
+        }
+      ],
+      "run": 3
+    }
+  ]
+}

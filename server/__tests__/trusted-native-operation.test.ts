@@ -66,8 +66,39 @@ it('collects a large CI job log with bounded literal-filter output and unchanged
     '--method',
     'GET',
     '/repos/example/project/actions/jobs/123/logs',
+    '--allow-escape-sequences',
   ]);
   expect(current).toHaveBeenCalledTimes(2);
+});
+
+it('accepts CLI escape-bearing logs only into the bounded sanitizer, never into ordinary reads', async () => {
+  githubProcess.execute.mockReset();
+  githubProcess.execute.mockImplementation((_file, args, _options, callback) => {
+    if (!args.includes('--allow-escape-sequences')) {
+      callback(Object.assign(Error('refused terminal escape sequences'), { code: 1 }), '', '');
+    } else {
+      callback(
+        null,
+        '\u001b]8;;https://example.invalid/hidden+a\u0007\u001b[31mFAIL native test\u001b[0m\u001b]8;;\u0007\n',
+        '',
+      );
+    }
+    return {};
+  });
+  const page = JSON.parse(
+    await executeTrustedGitHubRead(
+      '/repos/example/project/actions/jobs/123/logs',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      'full',
+      undefined,
+      { query: 'FAIL' },
+    ),
+  );
+  expect(page.content).toBe('FAIL native test');
+  expect(page.nextOffset).toBeNull();
+  expect(trustedGitHubReadRequest('/user').args).not.toContain('--allow-escape-sequences');
 });
 
 it('preserves source whitespace through log transport, filtering and pagination', async () => {

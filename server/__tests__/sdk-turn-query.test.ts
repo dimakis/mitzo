@@ -19,6 +19,7 @@ function fixture() {
     child: EventEmitter;
     close: ReturnType<typeof vi.fn>;
     interrupt: ReturnType<typeof vi.fn>;
+    getContextUsage: ReturnType<typeof vi.fn>;
     work: <T>(f: () => Promise<T>) => Promise<T>;
   }> = [];
   let finish!: () => void;
@@ -41,11 +42,18 @@ function fixture() {
       events.close();
     });
     const interrupt = vi.fn(async () => {});
-    runs.push({ options: request.options, events, child, close, work, interrupt });
+    const queryNumber = runs.length;
+    const getContextUsage = vi.fn(async () => ({ fixtureQuery: queryNumber }));
+    runs.push({ options: request.options, events, child, close, work, interrupt, getContextUsage });
     void request.prompt[Symbol.asyncIterator]()
       .next()
       .catch(() => {});
-    return { close, interrupt, [Symbol.asyncIterator]: () => events[Symbol.asyncIterator]() };
+    return {
+      close,
+      interrupt,
+      getContextUsage,
+      [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+    };
   });
   const q = createSdkTurnQuery<AsyncIterable<Record<string, unknown>>>({
     input: inputs,
@@ -83,6 +91,38 @@ function fixture() {
     finish: () => finish(),
   };
 }
+it('qualifies context control lookup across query replacement; a captured method still targets the retired query', async () => {
+  // Existing wrapper behavior, not permission to call a retired native control.
+  // The inspection port must receive the actual current owner/generation.
+  const f = fixture();
+  const proxy = f.q as unknown as {
+    getContextUsage(options: { detail: 'summary' }): Promise<unknown>;
+  };
+  const captured = proxy.getContextUsage;
+  f.message('first');
+  const output = f.q[Symbol.asyncIterator]();
+  try {
+    await expect(captured({ detail: 'summary' })).resolves.toEqual({ fixtureQuery: 0 });
+    f.runs[0].events.push({ type: 'result', session_id: 'retained' });
+    expect((await output.next()).value).toMatchObject({ type: 'result' });
+    expect(isSdkQueryRetiredEvent((await output.next()).value!)).toBe(true);
+    f.message('second');
+    const next = output.next();
+    f.runs[0].child.emit('close');
+    await vi.waitFor(() => expect(f.create).toHaveBeenCalledTimes(2));
+    f.runs[1].events.push({ type: 'assistant', session_id: 'retained' });
+    await next;
+    await expect(proxy.getContextUsage({ detail: 'summary' })).resolves.toEqual({
+      fixtureQuery: 1,
+    });
+    await expect(captured({ detail: 'summary' })).resolves.toEqual({ fixtureQuery: 0 });
+    expect(f.runs[0].getContextUsage).toHaveBeenCalledTimes(2);
+    expect(f.runs[1].getContextUsage).toHaveBeenCalledExactlyOnceWith({ detail: 'summary' });
+  } finally {
+    (f.q as unknown as { close(): void }).close();
+    await output.return?.();
+  }
+});
 it.each([false, true])(
   'preserves cumulative accounting through successive SDK queries (second failure: %s)',
   async (failed) => {
