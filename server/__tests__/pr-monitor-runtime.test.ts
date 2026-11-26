@@ -128,19 +128,9 @@ it.each([0, 3, 5, 10, 11])(
     // Opening and closing PR reads attest the principal (2 each); the runs page,
     // reviews and comments cost one each, plus one job page per workflow run.
     const view = store.prMonitor.read('ordinary:user', 'chat', id);
-    if (workflows === 11) {
-      // Within the collection cap, but beyond the probe plus 16-request background
-      // burst a fresh quota epoch admits: collection defers instead of publishing
-      // partial evidence, and later paced allocation completes it.
-      expect(7 + workflows).toBeLessThanOrEqual(PR_MONITOR_MAX_REQUESTS);
-      expect(view.refreshState).toBe('quota_delayed');
-      expect(view.diagnostic?.code).toBe('quota_delayed');
-      expect(view.outbox).toBeNull();
-      expect(transport).toHaveBeenCalledTimes(17);
-      expect(store.githubReadQuota.inspect('github:42').charged).toBe(17);
-      await runtime.close();
-      return;
-    }
+    // A fresh quota epoch's background burst admits one whole collection, so
+    // multi-workflow heads complete right after each reset (#1427).
+    expect(7 + workflows).toBeLessThanOrEqual(PR_MONITOR_MAX_REQUESTS);
     expect(view.refreshState).toBe('current');
     expect(view.snapshot?.headSha).toBe(head);
     expect(view.counters.modelTurns).toBe(0);

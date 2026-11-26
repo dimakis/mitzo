@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import type { PrMonitorDiagnostic, PrMonitorFinding, PrMonitorSubscription } from '@mitzo/protocol';
-import type { EventStore } from './event-store.js';
+import { GITHUB_READ_BACKGROUND_BURST, type EventStore } from './event-store.js';
 import { createLogger } from './logger.js';
 import { prMonitorAuthors, type PrMonitorAuthorPolicy } from './pr-monitor-author-policy.js';
 const log = createLogger('pr-monitor');
@@ -100,7 +100,8 @@ type Options = {
  * workflow runs (opening/closing PR reads with principal attestation, one runs
  * page, N job pages, one reviews and one comments page), so this admits typical multi-workflow
  * heads. Principal quota admission still bounds the hourly rate. */
-export const PR_MONITOR_MAX_REQUESTS = 32;
+// A whole collection must fit the quota's per-epoch background burst.
+export const PR_MONITOR_MAX_REQUESTS = GITHUB_READ_BACKGROUND_BURST;
 class ObservationFailure extends Error {
   constructor(
     readonly code: PrMonitorDiagnostic['code'],

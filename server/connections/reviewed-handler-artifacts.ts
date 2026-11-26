@@ -1612,7 +1612,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/deployment-store.ts':
     '06980f353fa11edc16a5e8f75fb8de4b4679853b979d71a1e3d819f76007e04a',
   '../../packages/protocol/src/event-store.ts':
-    '0703ab03e957d99ba14e235ad7ce1f42b3448ea16394da756232763a9b63a9fc',
+    'dc34c0c53e8ed13231cc5ff5be7618a2ac18291d3455c5b411e44e1d9cfa0dfd',
   '../../packages/protocol/src/execution-ledger.ts':
     '9306195c826ca603ee848d0532e2231a2a7299eb596b63df1c84928771391e94',
   '../../packages/protocol/src/index.ts':
@@ -5013,7 +5013,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/__tests__/pr-monitor-store.test.ts':
     'd6cc9cbe3464adc957203ee330af120694e7b8e396e8fc4043a128887427d209',
   '../../packages/protocol/src/github-read-quota.ts':
-    '79bd186c0b212512f546605af9e5adfbd8752caa566637127862b55fd091f640',
+    'c2cb1a89a847d9c97d56419e67a9547b3c84b0ed12f0dca64d59f793dc02ffca',
   '../../packages/protocol/src/pr-monitor-store.ts':
     '1dc3bf2592bd4aaf2549b9c4c0252ae7990a6d8ea2bc09272b85bf6d6f71b84b',
   '../../packages/protocol/src/pr-monitor.ts':
@@ -5025,11 +5025,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/pr-monitor-observer.test.ts':
     '6aa62ac6f9610f2e9b53fe71bdf82c4fda2ef10c2cfaadb3d405c4401475b4a1',
   '../__tests__/pr-monitor-runtime.test.ts':
-    '4b6989af0ef8cddfb0b8a9e9fc178ab2c7431bd475ea9be14600fb98d818f9e2',
+    '8edbf58e43cfa8dcdc82998fd504aaf56cbb8c7e9220c4ee520cee765dac4d81',
   '../github-read-response.ts': 'f4cd0cdf394a46b54e6589cfb035249529d02d7adc5fd36d72ab4448b00773d8',
   '../pr-monitor-consent.ts': '29964af7bde14f20f206678ec3247bcd938234eddbfade9712481f4f88a5568e',
   '../pr-monitor-github.ts': '707d184d95623d269de0cc0aaea42e59faecf5d803d45e1e1d92f35eb1e03fad',
-  '../pr-monitor-observer.ts': '6602f42ec2db789cde60d84a8d9dee19dd2130a1db1357b2c38ba0e7bda85a70',
+  '../pr-monitor-observer.ts': '14130340c685a436786c45339d53ed68710470eb721080405181a8b1103dcca6',
   '../pr-monitor-runtime.ts': 'cb340e94d1c0cd10ff2556ea7f75a70ab7fc9888423c621ce6046910077c7bf3',
   '../__tests__/pr-monitor-application.test.ts':
     'fa9d322c1568c722a368cd5903d0d70bff8b79e95cabb4f2d443138d0ba25535',

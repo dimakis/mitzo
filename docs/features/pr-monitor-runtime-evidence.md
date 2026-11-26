@@ -45,12 +45,14 @@ A blocking report becomes one bounded report-level finding with a digest and exa
 source reference. Prose is not retained as a command; a clean report is not merge
 authorization or the independent final landing review.
 
-Each refresh allows at most 16 actual authenticated HTTP calls in 20 seconds,
-including identity and closing-head verification. A no-workflow refresh uses nine;
-three, five and seven workflows use 12, 14 and 16. Eight workflows produce explicit
-partial state at 16 calls, with no actionable outbox. Quota discovery, pacing,
-headroom, concurrency limits and backoff remain enforced. The initial paced burst
-is now 16, still bounded by the principal's allocated background share.
+Each refresh allows at most `PR_MONITOR_MAX_REQUESTS` = 32 actual authenticated
+HTTP calls in 20 seconds. The principal is re-attested only on the opening and
+closing PR reads. A refresh uses 7 calls plus one jobs call per workflow run
+(7 + N); one that would exceed the cap stays partial with no actionable outbox.
+Quota discovery, pacing, headroom, concurrency limits and backoff remain enforced.
+Each reset epoch's background pacing starts with a burst of one whole collection
+(`GITHUB_READ_BACKGROUND_BURST` = 32), still bounded by the principal's allocated
+background share.
 
 Retained event history keeps all current-generation identities up to 1,000 events
 or 1 MiB, and up to 100 superseded-generation events or 128 KiB. Capacity pauses
