@@ -1,0 +1,5254 @@
+{
+  "recordedAt": "2026-11-21T18:50:10.498Z",
+  "elapsedMs": 31951.790291,
+  "sourceHead": "795043576ab5ccfb48a8ef36efb6c79cb708b4df",
+  "sourceDirty": true,
+  "sourceFiles": {
+    "package-lock.json": "ccca6e1e72ab39971aced83fc12bb81252dd3a298fa15fb77c6d722ab03ac8ca",
+    "scripts/validate-prompt-timing.ts": "55aee5651fdb8881d8bbd6f5476b64df22b1a43a8796a795c8a0048ba2df6f1b",
+    "server/__tests__/prompt-trace-timing.e2e.test.ts": "b69161bfc14159442c63892e1d0e7e1bc8d9e35420491b84fcba5f6ef56b4114",
+    "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts": "8a7fac11d081f411a614e75979382dcb85e4798651a424fed5a2149ac6a2155d",
+    "server/__tests__/fixtures/prompt-trace-timing.ts": "7f6af8c9c7d623f8cdcb2e7bbe21a5d5d31f4ad94a6faca86dc25817e6904e8d",
+    "server/__tests__/fixtures/phase-a-measurement.ts": "a878d400f697f5254d219d2fe3417627bd973f2317c7414bb8b645dd273cd389",
+    "server/__tests__/fixtures/multi-session-measurement.ts": "7745095dbb7256643ecd89044943f14d84d5c5f5c2adf0841dd41a54d97963a7",
+    "server/ordinary-local-codex-entry.ts": "034b597c823da05856dd21d296d8afbe0999e1d6857813ac63a3eeaa239f0bd7",
+    "server/codex-conversation.ts": "ac8f1d218b101ed7beaacec1a0e598cf3cd4fd111a7b40efdf14bad3c944e1df",
+    "server/codex-app-server-client.ts": "1fcdffe7e7eacbb2d9d3c8cf5b457c48771d5f0832d93cf8d866cd71cdb0212f",
+    "server/local-codex-observation.ts": "cac75df8968fad09e6f56897d6feaa87c3c5e80c312f792c843960e0ab3ce8c9"
+  },
+  "runtime": "v24.10.0",
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "osRelease": "27.2.0",
+    "cpuModel": "Apple M4 Pro",
+    "logicalCpus": 14,
+    "totalMemoryBytes": 51539607552,
+    "nodeAbi": "137",
+    "workers": 1,
+    "heapLimitMiB": 1024,
+    "timezone": "UTC",
+    "ci": true
+  },
+  "version": 3,
+  "coverage": {
+    "modelCalls": 0,
+    "measuredRoutes": ["local Codex / synthetic personal subscription / fixture-model"],
+    "unmeasuredRoutes": ["Claude", "Codex API accounts", "OpenShell", "Gemini"],
+    "load": "equal cold/warm/queued commands per retained session; barrier release of queued commands",
+    "productionLoad": false,
+    "capacityClaim": false,
+    "telemetry": "in-memory OTel collector only; no production exporter/query coverage claim"
+  },
+  "runs": 1,
+  "scalePoints": [1, 2, 4, 8],
+  "order": "requested order on odd repetitions, reversed on even repetitions; serial isolated processes",
+  "boundary": "same-process HTTP client issue and handler entry to controlled stdio write completion; queue/provider timing retained separately",
+  "clock": "process.hrtime at client issue and genuine OTel hooks",
+  "units": "milliseconds",
+  "measurements": [
+    {
+      "version": 1,
+      "route": {
+        "engine": "codex",
+        "execution": "local-synthetic",
+        "account": "synthetic-personal",
+        "model": "fixture-model",
+        "route": "chatgpt-subscription",
+        "evidence": "resolved turn spans"
+      },
+      "coverage": {
+        "started": 88,
+        "ended": 88,
+        "unfinished": 0,
+        "unattributed": 0,
+        "complete": true
+      },
+      "concurrency": {
+        "sessions": 1,
+        "commands": 3,
+        "maxOutstandingCommands": 2,
+        "maxActiveTurns": 1
+      },
+      "byKind": {
+        "cold": {
+          "serverToDurableAdmission": {
+            "n": 1,
+            "min": 26.073,
+            "median": 26.073,
+            "max": 26.073,
+            "mean": 26.073
+          },
+          "admissionToDurableQueue": {
+            "n": 1,
+            "min": 202.227,
+            "median": 202.227,
+            "max": 202.227,
+            "mean": 202.227
+          },
+          "serverToDurableQueue": {
+            "n": 1,
+            "min": 228.3,
+            "median": 228.3,
+            "max": 228.3,
+            "mean": 228.3
+          },
+          "queueWait": {
+            "n": 1,
+            "min": 37.849,
+            "median": 37.849,
+            "max": 37.849,
+            "mean": 37.849
+          },
+          "preparation": {
+            "n": 1,
+            "min": 90.515,
+            "median": 90.515,
+            "max": 90.515,
+            "mean": 90.515
+          },
+          "invocation": {
+            "n": 1,
+            "min": 27.857,
+            "median": 27.857,
+            "max": 27.857,
+            "mean": 27.857
+          },
+          "serverToWriteQueued": {
+            "n": 1,
+            "min": 384.5,
+            "median": 384.5,
+            "max": 384.5,
+            "mean": 384.5
+          },
+          "serverToWriteCompleted": {
+            "n": 1,
+            "min": 384.718,
+            "median": 384.718,
+            "max": 384.718,
+            "mean": 384.718
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 1,
+            "min": 346.869,
+            "median": 346.869,
+            "max": 346.869,
+            "mean": 346.869
+          },
+          "streamWrite": {
+            "n": 1,
+            "min": 0.273,
+            "median": 0.273,
+            "max": 0.273,
+            "mean": 0.273
+          },
+          "otelWriteQueuedMs": {
+            "n": 1,
+            "min": 384.062,
+            "median": 384.062,
+            "max": 384.062,
+            "mean": 384.062
+          },
+          "writeCompletedToAck": {
+            "n": 1,
+            "min": 46.843,
+            "median": 46.843,
+            "max": 46.843,
+            "mean": 46.843
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 1,
+            "min": 60.711,
+            "median": 60.711,
+            "max": 60.711,
+            "mean": 60.711
+          },
+          "ackToFirstOutput": {
+            "n": 1,
+            "min": 13.867,
+            "median": 13.867,
+            "max": 13.867,
+            "mean": 13.867
+          },
+          "serverToFirstOutput": {
+            "n": 1,
+            "min": 445.429,
+            "median": 445.429,
+            "max": 445.429,
+            "mean": 445.429
+          },
+          "submissionSkew": {
+            "n": 1,
+            "min": 0.048,
+            "median": 0.048,
+            "max": 0.048,
+            "mean": 0.048
+          },
+          "clientToHandler": {
+            "n": 1,
+            "min": 8.653,
+            "median": 8.653,
+            "max": 8.653,
+            "mean": 8.653
+          },
+          "clientToWriteCompleted": {
+            "n": 1,
+            "min": 393.371,
+            "median": 393.371,
+            "max": 393.371,
+            "mean": 393.371
+          },
+          "batchToWriteCompleted": {
+            "n": 1,
+            "min": 393.419,
+            "median": 393.419,
+            "max": 393.419,
+            "mean": 393.419
+          },
+          "batchToTurnCompleted": {
+            "n": 1,
+            "min": 457.979,
+            "median": 457.979,
+            "max": 457.979,
+            "mean": 457.979
+          },
+          "completionSpreadMs": 0
+        },
+        "warm": {
+          "serverToDurableAdmission": {
+            "n": 1,
+            "min": 35.474,
+            "median": 35.474,
+            "max": 35.474,
+            "mean": 35.474
+          },
+          "admissionToDurableQueue": {
+            "n": 1,
+            "min": 41.254,
+            "median": 41.254,
+            "max": 41.254,
+            "mean": 41.254
+          },
+          "serverToDurableQueue": {
+            "n": 1,
+            "min": 76.727,
+            "median": 76.727,
+            "max": 76.727,
+            "mean": 76.727
+          },
+          "queueWait": {
+            "n": 1,
+            "min": 29.891,
+            "median": 29.891,
+            "max": 29.891,
+            "mean": 29.891
+          },
+          "preparation": {
+            "n": 1,
+            "min": 86.764,
+            "median": 86.764,
+            "max": 86.764,
+            "mean": 86.764
+          },
+          "invocation": {
+            "n": 1,
+            "min": 27.776,
+            "median": 27.776,
+            "max": 27.776,
+            "mean": 27.776
+          },
+          "serverToWriteQueued": {
+            "n": 1,
+            "min": 221.179,
+            "median": 221.179,
+            "max": 221.179,
+            "mean": 221.179
+          },
+          "serverToWriteCompleted": {
+            "n": 1,
+            "min": 221.261,
+            "median": 221.261,
+            "max": 221.261,
+            "mean": 221.261
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 1,
+            "min": 191.37,
+            "median": 191.37,
+            "max": 191.37,
+            "mean": 191.37
+          },
+          "streamWrite": {
+            "n": 1,
+            "min": 0.126,
+            "median": 0.126,
+            "max": 0.126,
+            "mean": 0.126
+          },
+          "otelWriteQueuedMs": {
+            "n": 1,
+            "min": 222.05,
+            "median": 222.05,
+            "max": 222.05,
+            "mean": 222.05
+          },
+          "writeCompletedToAck": {
+            "n": 1,
+            "min": 45.879,
+            "median": 45.879,
+            "max": 45.879,
+            "mean": 45.879
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 1,
+            "min": 59.814,
+            "median": 59.814,
+            "max": 59.814,
+            "mean": 59.814
+          },
+          "ackToFirstOutput": {
+            "n": 1,
+            "min": 13.935,
+            "median": 13.935,
+            "max": 13.935,
+            "mean": 13.935
+          },
+          "serverToFirstOutput": {
+            "n": 1,
+            "min": 281.075,
+            "median": 281.075,
+            "max": 281.075,
+            "mean": 281.075
+          },
+          "submissionSkew": {
+            "n": 1,
+            "min": 0.017,
+            "median": 0.017,
+            "max": 0.017,
+            "mean": 0.017
+          },
+          "clientToHandler": {
+            "n": 1,
+            "min": 1.094,
+            "median": 1.094,
+            "max": 1.094,
+            "mean": 1.094
+          },
+          "clientToWriteCompleted": {
+            "n": 1,
+            "min": 222.355,
+            "median": 222.355,
+            "max": 222.355,
+            "mean": 222.355
+          },
+          "batchToWriteCompleted": {
+            "n": 1,
+            "min": 222.373,
+            "median": 222.373,
+            "max": 222.373,
+            "mean": 222.373
+          },
+          "batchToTurnCompleted": {
+            "n": 1,
+            "min": 406.559,
+            "median": 406.559,
+            "max": 406.559,
+            "mean": 406.559
+          },
+          "completionSpreadMs": 0
+        },
+        "queued": {
+          "serverToDurableAdmission": {
+            "n": 1,
+            "min": 36.707,
+            "median": 36.707,
+            "max": 36.707,
+            "mean": 36.707
+          },
+          "admissionToDurableQueue": {
+            "n": 1,
+            "min": 41.529,
+            "median": 41.529,
+            "max": 41.529,
+            "mean": 41.529
+          },
+          "serverToDurableQueue": {
+            "n": 1,
+            "min": 78.236,
+            "median": 78.236,
+            "max": 78.236,
+            "mean": 78.236
+          },
+          "queueWait": {
+            "n": 1,
+            "min": 34.683,
+            "median": 34.683,
+            "max": 34.683,
+            "mean": 34.683
+          },
+          "preparation": {
+            "n": 1,
+            "min": 83.452,
+            "median": 83.452,
+            "max": 83.452,
+            "mean": 83.452
+          },
+          "invocation": {
+            "n": 1,
+            "min": 27.272,
+            "median": 27.272,
+            "max": 27.272,
+            "mean": 27.272
+          },
+          "serverToWriteQueued": {
+            "n": 1,
+            "min": 223.65,
+            "median": 223.65,
+            "max": 223.65,
+            "mean": 223.65
+          },
+          "serverToWriteCompleted": {
+            "n": 1,
+            "min": 223.734,
+            "median": 223.734,
+            "max": 223.734,
+            "mean": 223.734
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 1,
+            "min": 189.051,
+            "median": 189.051,
+            "max": 189.051,
+            "mean": 189.051
+          },
+          "streamWrite": {
+            "n": 1,
+            "min": 0.119,
+            "median": 0.119,
+            "max": 0.119,
+            "mean": 0.119
+          },
+          "otelWriteQueuedMs": {
+            "n": 1,
+            "min": 224.039,
+            "median": 224.039,
+            "max": 224.039,
+            "mean": 224.039
+          },
+          "writeCompletedToAck": {
+            "n": 1,
+            "min": 44.957,
+            "median": 44.957,
+            "max": 44.957,
+            "mean": 44.957
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 1,
+            "min": 58.036,
+            "median": 58.036,
+            "max": 58.036,
+            "mean": 58.036
+          },
+          "ackToFirstOutput": {
+            "n": 1,
+            "min": 13.08,
+            "median": 13.08,
+            "max": 13.08,
+            "mean": 13.08
+          },
+          "serverToFirstOutput": {
+            "n": 1,
+            "min": 281.77,
+            "median": 281.77,
+            "max": 281.77,
+            "mean": 281.77
+          },
+          "submissionSkew": {
+            "n": 1,
+            "min": 0.033,
+            "median": 0.033,
+            "max": 0.033,
+            "mean": 0.033
+          },
+          "clientToHandler": {
+            "n": 1,
+            "min": 1.475,
+            "median": 1.475,
+            "max": 1.475,
+            "mean": 1.475
+          },
+          "clientToWriteCompleted": {
+            "n": 1,
+            "min": 225.208,
+            "median": 225.208,
+            "max": 225.208,
+            "mean": 225.208
+          },
+          "batchToWriteCompleted": {
+            "n": 1,
+            "min": 225.242,
+            "median": 225.242,
+            "max": 225.242,
+            "mean": 225.242
+          },
+          "batchToTurnCompleted": {
+            "n": 1,
+            "min": 286.547,
+            "median": 286.547,
+            "max": 286.547,
+            "mean": 286.547
+          },
+          "completionSpreadMs": 0
+        }
+      },
+      "sessions": [
+        {
+          "session": 1,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 14.558
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 5.082
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 6.364
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 5.35
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 10.407
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 3.646
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 12.007
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 4.672
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "samples": [
+        {
+          "sample": 1,
+          "session": 1,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 26.073,
+            "admissionToDurableQueue": 202.227,
+            "serverToDurableQueue": 228.3,
+            "queueWait": 37.849,
+            "preparation": 90.515,
+            "invocation": 27.857,
+            "serverToWriteQueued": 384.5,
+            "serverToWriteCompleted": 384.718,
+            "applicationDispatchExcludingQueue": 346.869,
+            "streamWrite": 0.273,
+            "otelWriteQueuedMs": 384.062,
+            "writeCompletedToAck": 46.843,
+            "writeCompletedToFirstOutput": 60.711,
+            "ackToFirstOutput": 13.867,
+            "serverToFirstOutput": 445.429,
+            "submissionSkew": 0.048,
+            "clientToHandler": 8.653,
+            "clientToWriteCompleted": 393.371,
+            "batchToWriteCompleted": 393.419,
+            "batchToTurnCompleted": 457.979
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 139.94,
+              "endMs": 139.976
+            }
+          ]
+        },
+        {
+          "sample": 2,
+          "session": 1,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 35.474,
+            "admissionToDurableQueue": 41.254,
+            "serverToDurableQueue": 76.727,
+            "queueWait": 29.891,
+            "preparation": 86.764,
+            "invocation": 27.776,
+            "serverToWriteQueued": 221.179,
+            "serverToWriteCompleted": 221.261,
+            "applicationDispatchExcludingQueue": 191.37,
+            "streamWrite": 0.126,
+            "otelWriteQueuedMs": 222.05,
+            "writeCompletedToAck": 45.879,
+            "writeCompletedToFirstOutput": 59.814,
+            "ackToFirstOutput": 13.935,
+            "serverToFirstOutput": 281.075,
+            "submissionSkew": 0.017,
+            "clientToHandler": 1.094,
+            "clientToWriteCompleted": 222.355,
+            "batchToWriteCompleted": 222.373,
+            "batchToTurnCompleted": 406.559
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 3,
+          "session": 1,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 36.707,
+            "admissionToDurableQueue": 41.529,
+            "serverToDurableQueue": 78.236,
+            "queueWait": 34.683,
+            "preparation": 83.452,
+            "invocation": 27.272,
+            "serverToWriteQueued": 223.65,
+            "serverToWriteCompleted": 223.734,
+            "applicationDispatchExcludingQueue": 189.051,
+            "streamWrite": 0.119,
+            "otelWriteQueuedMs": 224.039,
+            "writeCompletedToAck": 44.957,
+            "writeCompletedToFirstOutput": 58.036,
+            "ackToFirstOutput": 13.08,
+            "serverToFirstOutput": 281.77,
+            "submissionSkew": 0.033,
+            "clientToHandler": 1.475,
+            "clientToWriteCompleted": 225.208,
+            "batchToWriteCompleted": 225.242,
+            "batchToTurnCompleted": 286.547
+          },
+          "admissionPhases": []
+        }
+      ],
+      "resources": {
+        "elapsedMs": 1150.561,
+        "process": {
+          "cpuMs": {
+            "user": 821.423,
+            "system": 277.5
+          },
+          "cpuPercentOfOneCore": 95.512,
+          "memory": {
+            "samples": 17,
+            "sampleIntervalMs": 20,
+            "startRssBytes": 432013312,
+            "endRssBytes": 508674048,
+            "maxSampledRssBytes": 508674048,
+            "maxSampledHeapUsedBytes": 272549648
+          }
+        },
+        "host": {
+          "logicalCpus": 14,
+          "totalMemoryBytes": 51539607552,
+          "startFreeMemoryBytes": 99450880,
+          "endFreeMemoryBytes": 74907648,
+          "minSampledFreeMemoryBytes": 68321280,
+          "cpuBusyFraction": 0.356
+        },
+        "eventLoop": {
+          "resolutionMs": 20,
+          "sampleCount": 13,
+          "utilization": 0.8274408614863187,
+          "delayMs": {
+            "mean": 77.73577846153846,
+            "max": 272.891903,
+            "p50": 26.722303,
+            "p95": 236.584959,
+            "p99": 272.891903
+          }
+        }
+      },
+      "fixture": {
+        "provider": "controlled in-process stdio peer per session",
+        "ackDelayMs": 40,
+        "outputAfterAckDelayMs": 10,
+        "queuePolicy": "hold every second turn until all third commands are durably queued, then release together",
+        "queuedBatchToReleaseMs": 81.114791,
+        "workspacePreparedBeforeMeasurement": true,
+        "realOwners": [
+          "HTTP router",
+          "ordinary workspace custody",
+          "SQLite EventStore",
+          "CodexConversation queue",
+          "CodexAppServerClient"
+        ],
+        "syntheticMacArtifactQualification": true,
+        "nativeProcesses": 0,
+        "modelCalls": 0
+      },
+      "run": 1,
+      "sessionsRequested": 1
+    },
+    {
+      "version": 1,
+      "route": {
+        "engine": "codex",
+        "execution": "local-synthetic",
+        "account": "synthetic-personal",
+        "model": "fixture-model",
+        "route": "chatgpt-subscription",
+        "evidence": "resolved turn spans"
+      },
+      "coverage": {
+        "started": 176,
+        "ended": 176,
+        "unfinished": 0,
+        "unattributed": 0,
+        "complete": true
+      },
+      "concurrency": {
+        "sessions": 2,
+        "commands": 6,
+        "maxOutstandingCommands": 4,
+        "maxActiveTurns": 2
+      },
+      "byKind": {
+        "cold": {
+          "serverToDurableAdmission": {
+            "n": 2,
+            "min": 15.756,
+            "median": 20.7,
+            "max": 25.643,
+            "mean": 20.7
+          },
+          "admissionToDurableQueue": {
+            "n": 2,
+            "min": 251.584,
+            "median": 326.168,
+            "max": 400.751,
+            "mean": 326.168
+          },
+          "serverToDurableQueue": {
+            "n": 2,
+            "min": 277.228,
+            "median": 346.868,
+            "max": 416.507,
+            "mean": 346.868
+          },
+          "queueWait": {
+            "n": 2,
+            "min": 36.629,
+            "median": 37.96,
+            "max": 39.291,
+            "mean": 37.96
+          },
+          "preparation": {
+            "n": 2,
+            "min": 82.637,
+            "median": 84.821,
+            "max": 87.004,
+            "mean": 84.821
+          },
+          "invocation": {
+            "n": 2,
+            "min": 27.712,
+            "median": 29.432,
+            "max": 31.153,
+            "mean": 29.432
+          },
+          "serverToWriteQueued": {
+            "n": 2,
+            "min": 434.647,
+            "median": 499.087,
+            "max": 563.527,
+            "mean": 499.087
+          },
+          "serverToWriteCompleted": {
+            "n": 2,
+            "min": 434.88,
+            "median": 499.264,
+            "max": 563.648,
+            "mean": 499.264
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 2,
+            "min": 395.589,
+            "median": 461.304,
+            "max": 527.019,
+            "mean": 461.304
+          },
+          "streamWrite": {
+            "n": 2,
+            "min": 0.159,
+            "median": 0.226,
+            "max": 0.294,
+            "mean": 0.226
+          },
+          "otelWriteQueuedMs": {
+            "n": 2,
+            "min": 434.07,
+            "median": 499.058,
+            "max": 564.046,
+            "mean": 499.058
+          },
+          "writeCompletedToAck": {
+            "n": 2,
+            "min": 51.97,
+            "median": 147.173,
+            "max": 242.376,
+            "mean": 147.173
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 2,
+            "min": 70.826,
+            "median": 163.522,
+            "max": 256.217,
+            "mean": 163.522
+          },
+          "ackToFirstOutput": {
+            "n": 2,
+            "min": 13.841,
+            "median": 16.349,
+            "max": 18.856,
+            "mean": 16.349
+          },
+          "serverToFirstOutput": {
+            "n": 2,
+            "min": 634.474,
+            "median": 662.786,
+            "max": 691.097,
+            "mean": 662.786
+          },
+          "submissionSkew": {
+            "n": 2,
+            "min": 0.048,
+            "median": 0.173,
+            "max": 0.298,
+            "mean": 0.173
+          },
+          "clientToHandler": {
+            "n": 2,
+            "min": 7.245,
+            "median": 61.964,
+            "max": 116.683,
+            "mean": 61.964
+          },
+          "clientToWriteCompleted": {
+            "n": 2,
+            "min": 442.125,
+            "median": 561.228,
+            "max": 680.331,
+            "mean": 561.228
+          },
+          "batchToWriteCompleted": {
+            "n": 2,
+            "min": 442.174,
+            "median": 561.401,
+            "max": 680.628,
+            "mean": 561.401
+          },
+          "batchToTurnCompleted": {
+            "n": 2,
+            "min": 702.198,
+            "median": 728.706,
+            "max": 755.214,
+            "mean": 728.706
+          },
+          "completionSpreadMs": 53.016
+        },
+        "warm": {
+          "serverToDurableAdmission": {
+            "n": 2,
+            "min": 33.336,
+            "median": 35.037,
+            "max": 36.738,
+            "mean": 35.037
+          },
+          "admissionToDurableQueue": {
+            "n": 2,
+            "min": 39.617,
+            "median": 41.501,
+            "max": 43.384,
+            "mean": 41.501
+          },
+          "serverToDurableQueue": {
+            "n": 2,
+            "min": 72.953,
+            "median": 76.538,
+            "max": 80.122,
+            "mean": 76.538
+          },
+          "queueWait": {
+            "n": 2,
+            "min": 29.055,
+            "median": 31.241,
+            "max": 33.426,
+            "mean": 31.241
+          },
+          "preparation": {
+            "n": 2,
+            "min": 83.751,
+            "median": 85.242,
+            "max": 86.732,
+            "mean": 85.242
+          },
+          "invocation": {
+            "n": 2,
+            "min": 26.971,
+            "median": 28.712,
+            "max": 30.453,
+            "mean": 28.712
+          },
+          "serverToWriteQueued": {
+            "n": 2,
+            "min": 212.747,
+            "median": 221.755,
+            "max": 230.762,
+            "mean": 221.755
+          },
+          "serverToWriteCompleted": {
+            "n": 2,
+            "min": 212.821,
+            "median": 221.837,
+            "max": 230.852,
+            "mean": 221.837
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 2,
+            "min": 183.766,
+            "median": 190.596,
+            "max": 197.426,
+            "mean": 190.596
+          },
+          "streamWrite": {
+            "n": 2,
+            "min": 0.105,
+            "median": 0.122,
+            "max": 0.139,
+            "mean": 0.122
+          },
+          "otelWriteQueuedMs": {
+            "n": 2,
+            "min": 212.036,
+            "median": 221.045,
+            "max": 230.053,
+            "mean": 221.045
+          },
+          "writeCompletedToAck": {
+            "n": 2,
+            "min": 45.489,
+            "median": 132.505,
+            "max": 219.522,
+            "mean": 132.505
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 2,
+            "min": 60.248,
+            "median": 147.125,
+            "max": 234.002,
+            "mean": 147.125
+          },
+          "ackToFirstOutput": {
+            "n": 2,
+            "min": 14.48,
+            "median": 14.62,
+            "max": 14.759,
+            "mean": 14.62
+          },
+          "serverToFirstOutput": {
+            "n": 2,
+            "min": 273.068,
+            "median": 368.961,
+            "max": 464.854,
+            "mean": 368.961
+          },
+          "submissionSkew": {
+            "n": 2,
+            "min": 0.019,
+            "median": 0.176,
+            "max": 0.333,
+            "mean": 0.176
+          },
+          "clientToHandler": {
+            "n": 2,
+            "min": 1.625,
+            "median": 118.068,
+            "max": 234.511,
+            "mean": 118.068
+          },
+          "clientToWriteCompleted": {
+            "n": 2,
+            "min": 232.477,
+            "median": 339.904,
+            "max": 447.331,
+            "mean": 339.904
+          },
+          "batchToWriteCompleted": {
+            "n": 2,
+            "min": 232.497,
+            "median": 340.081,
+            "max": 447.664,
+            "mean": 340.081
+          },
+          "batchToTurnCompleted": {
+            "n": 2,
+            "min": 708.84,
+            "median": 711.077,
+            "max": 713.314,
+            "mean": 711.077
+          },
+          "completionSpreadMs": 4.474
+        },
+        "queued": {
+          "serverToDurableAdmission": {
+            "n": 2,
+            "min": 34.805,
+            "median": 36.058,
+            "max": 37.312,
+            "mean": 36.058
+          },
+          "admissionToDurableQueue": {
+            "n": 2,
+            "min": 40.37,
+            "median": 40.555,
+            "max": 40.74,
+            "mean": 40.555
+          },
+          "serverToDurableQueue": {
+            "n": 2,
+            "min": 75.545,
+            "median": 76.614,
+            "max": 77.682,
+            "mean": 76.614
+          },
+          "queueWait": {
+            "n": 2,
+            "min": 74.079,
+            "median": 109.215,
+            "max": 144.351,
+            "mean": 109.215
+          },
+          "preparation": {
+            "n": 2,
+            "min": 171.303,
+            "median": 181.827,
+            "max": 192.351,
+            "mean": 181.827
+          },
+          "invocation": {
+            "n": 2,
+            "min": 27.674,
+            "median": 27.813,
+            "max": 27.952,
+            "mean": 27.813
+          },
+          "serverToWriteQueued": {
+            "n": 2,
+            "min": 369.6,
+            "median": 395.462,
+            "max": 421.324,
+            "mean": 395.462
+          },
+          "serverToWriteCompleted": {
+            "n": 2,
+            "min": 369.745,
+            "median": 409.424,
+            "max": 449.104,
+            "mean": 409.424
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 2,
+            "min": 295.666,
+            "median": 300.21,
+            "max": 304.753,
+            "mean": 300.21
+          },
+          "streamWrite": {
+            "n": 2,
+            "min": 0.173,
+            "median": 14,
+            "max": 27.826,
+            "mean": 14
+          },
+          "otelWriteQueuedMs": {
+            "n": 2,
+            "min": 369.032,
+            "median": 395.542,
+            "max": 422.052,
+            "mean": 395.542
+          },
+          "writeCompletedToAck": {
+            "n": 2,
+            "min": 18.07,
+            "median": 39.62,
+            "max": 61.169,
+            "mean": 39.62
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 2,
+            "min": 31.775,
+            "median": 53.952,
+            "max": 76.129,
+            "mean": 53.952
+          },
+          "ackToFirstOutput": {
+            "n": 2,
+            "min": 13.705,
+            "median": 14.333,
+            "max": 14.96,
+            "mean": 14.333
+          },
+          "serverToFirstOutput": {
+            "n": 2,
+            "min": 445.875,
+            "median": 463.377,
+            "max": 480.879,
+            "mean": 463.377
+          },
+          "submissionSkew": {
+            "n": 2,
+            "min": 0.019,
+            "median": 0.054,
+            "max": 0.088,
+            "mean": 0.054
+          },
+          "clientToHandler": {
+            "n": 2,
+            "min": 1.563,
+            "median": 41.215,
+            "max": 80.866,
+            "mean": 41.215
+          },
+          "clientToWriteCompleted": {
+            "n": 2,
+            "min": 450.611,
+            "median": 450.639,
+            "max": 450.667,
+            "mean": 450.639
+          },
+          "batchToWriteCompleted": {
+            "n": 2,
+            "min": 450.686,
+            "median": 450.693,
+            "max": 450.7,
+            "mean": 450.693
+          },
+          "batchToTurnCompleted": {
+            "n": 2,
+            "min": 485.5,
+            "median": 507.797,
+            "max": 530.093,
+            "mean": 507.797
+          },
+          "completionSpreadMs": 44.593
+        }
+      },
+      "sessions": [
+        {
+          "session": 1,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 13.959
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 4.925
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 5.942
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 5.708
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 10.529
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 3.897
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 25.534
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 16.028
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 15.204
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 4.596
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 5.667
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 5.183
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 11.556
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 3.472
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 13.252
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 6.222
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "samples": [
+        {
+          "sample": 1,
+          "session": 1,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 25.643,
+            "admissionToDurableQueue": 251.584,
+            "serverToDurableQueue": 277.228,
+            "queueWait": 39.291,
+            "preparation": 87.004,
+            "invocation": 31.153,
+            "serverToWriteQueued": 434.647,
+            "serverToWriteCompleted": 434.88,
+            "applicationDispatchExcludingQueue": 395.589,
+            "streamWrite": 0.294,
+            "otelWriteQueuedMs": 434.07,
+            "writeCompletedToAck": 242.376,
+            "writeCompletedToFirstOutput": 256.217,
+            "ackToFirstOutput": 13.841,
+            "serverToFirstOutput": 691.097,
+            "submissionSkew": 0.048,
+            "clientToHandler": 7.245,
+            "clientToWriteCompleted": 442.125,
+            "batchToWriteCompleted": 442.174,
+            "batchToTurnCompleted": 702.198
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 193.872,
+              "endMs": 193.905
+            }
+          ]
+        },
+        {
+          "sample": 2,
+          "session": 2,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 15.756,
+            "admissionToDurableQueue": 400.751,
+            "serverToDurableQueue": 416.507,
+            "queueWait": 36.629,
+            "preparation": 82.637,
+            "invocation": 27.712,
+            "serverToWriteQueued": 563.527,
+            "serverToWriteCompleted": 563.648,
+            "applicationDispatchExcludingQueue": 527.019,
+            "streamWrite": 0.159,
+            "otelWriteQueuedMs": 564.046,
+            "writeCompletedToAck": 51.97,
+            "writeCompletedToFirstOutput": 70.826,
+            "ackToFirstOutput": 18.856,
+            "serverToFirstOutput": 634.474,
+            "submissionSkew": 0.298,
+            "clientToHandler": 116.683,
+            "clientToWriteCompleted": 680.331,
+            "batchToWriteCompleted": 680.628,
+            "batchToTurnCompleted": 755.214
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 342.3,
+              "endMs": 342.31
+            }
+          ]
+        },
+        {
+          "sample": 3,
+          "session": 1,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 36.738,
+            "admissionToDurableQueue": 43.384,
+            "serverToDurableQueue": 80.122,
+            "queueWait": 33.426,
+            "preparation": 86.732,
+            "invocation": 30.453,
+            "serverToWriteQueued": 230.762,
+            "serverToWriteCompleted": 230.852,
+            "applicationDispatchExcludingQueue": 197.426,
+            "streamWrite": 0.139,
+            "otelWriteQueuedMs": 230.053,
+            "writeCompletedToAck": 219.522,
+            "writeCompletedToFirstOutput": 234.002,
+            "ackToFirstOutput": 14.48,
+            "serverToFirstOutput": 464.854,
+            "submissionSkew": 0.019,
+            "clientToHandler": 1.625,
+            "clientToWriteCompleted": 232.477,
+            "batchToWriteCompleted": 232.497,
+            "batchToTurnCompleted": 708.84
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 4,
+          "session": 2,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 33.336,
+            "admissionToDurableQueue": 39.617,
+            "serverToDurableQueue": 72.953,
+            "queueWait": 29.055,
+            "preparation": 83.751,
+            "invocation": 26.971,
+            "serverToWriteQueued": 212.747,
+            "serverToWriteCompleted": 212.821,
+            "applicationDispatchExcludingQueue": 183.766,
+            "streamWrite": 0.105,
+            "otelWriteQueuedMs": 212.036,
+            "writeCompletedToAck": 45.489,
+            "writeCompletedToFirstOutput": 60.248,
+            "ackToFirstOutput": 14.759,
+            "serverToFirstOutput": 273.068,
+            "submissionSkew": 0.333,
+            "clientToHandler": 234.511,
+            "clientToWriteCompleted": 447.331,
+            "batchToWriteCompleted": 447.664,
+            "batchToTurnCompleted": 713.314
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 5,
+          "session": 1,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 37.312,
+            "admissionToDurableQueue": 40.37,
+            "serverToDurableQueue": 77.682,
+            "queueWait": 144.351,
+            "preparation": 171.303,
+            "invocation": 27.952,
+            "serverToWriteQueued": 421.324,
+            "serverToWriteCompleted": 449.104,
+            "applicationDispatchExcludingQueue": 304.753,
+            "streamWrite": 27.826,
+            "otelWriteQueuedMs": 422.052,
+            "writeCompletedToAck": 18.07,
+            "writeCompletedToFirstOutput": 31.775,
+            "ackToFirstOutput": 13.705,
+            "serverToFirstOutput": 480.879,
+            "submissionSkew": 0.019,
+            "clientToHandler": 1.563,
+            "clientToWriteCompleted": 450.667,
+            "batchToWriteCompleted": 450.686,
+            "batchToTurnCompleted": 485.5
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 6,
+          "session": 2,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 34.805,
+            "admissionToDurableQueue": 40.74,
+            "serverToDurableQueue": 75.545,
+            "queueWait": 74.079,
+            "preparation": 192.351,
+            "invocation": 27.674,
+            "serverToWriteQueued": 369.6,
+            "serverToWriteCompleted": 369.745,
+            "applicationDispatchExcludingQueue": 295.666,
+            "streamWrite": 0.173,
+            "otelWriteQueuedMs": 369.032,
+            "writeCompletedToAck": 61.169,
+            "writeCompletedToFirstOutput": 76.129,
+            "ackToFirstOutput": 14.96,
+            "serverToFirstOutput": 445.875,
+            "submissionSkew": 0.088,
+            "clientToHandler": 80.866,
+            "clientToWriteCompleted": 450.611,
+            "batchToWriteCompleted": 450.7,
+            "batchToTurnCompleted": 530.093
+          },
+          "admissionPhases": []
+        }
+      ],
+      "resources": {
+        "elapsedMs": 1906.926,
+        "process": {
+          "cpuMs": {
+            "user": 1473.366,
+            "system": 550.094
+          },
+          "cpuPercentOfOneCore": 106.111,
+          "memory": {
+            "samples": 20,
+            "sampleIntervalMs": 20,
+            "startRssBytes": 432291840,
+            "endRssBytes": 527810560,
+            "maxSampledRssBytes": 527810560,
+            "maxSampledHeapUsedBytes": 273621536
+          }
+        },
+        "host": {
+          "logicalCpus": 14,
+          "totalMemoryBytes": 51539607552,
+          "startFreeMemoryBytes": 170098688,
+          "endFreeMemoryBytes": 62652416,
+          "minSampledFreeMemoryBytes": 62652416,
+          "cpuBusyFraction": 0.373
+        },
+        "eventLoop": {
+          "resolutionMs": 20,
+          "sampleCount": 16,
+          "utilization": 0.9322351503531698,
+          "delayMs": {
+            "mean": 111.155712,
+            "max": 370.409471,
+            "p50": 45.613055,
+            "p95": 256.376831,
+            "p99": 370.409471
+          }
+        }
+      },
+      "fixture": {
+        "provider": "controlled in-process stdio peer per session",
+        "ackDelayMs": 40,
+        "outputAfterAckDelayMs": 10,
+        "queuePolicy": "hold every second turn until all third commands are durably queued, then release together",
+        "queuedBatchToReleaseMs": 158.631125,
+        "workspacePreparedBeforeMeasurement": true,
+        "realOwners": [
+          "HTTP router",
+          "ordinary workspace custody",
+          "SQLite EventStore",
+          "CodexConversation queue",
+          "CodexAppServerClient"
+        ],
+        "syntheticMacArtifactQualification": true,
+        "nativeProcesses": 0,
+        "modelCalls": 0
+      },
+      "run": 1,
+      "sessionsRequested": 2
+    },
+    {
+      "version": 1,
+      "route": {
+        "engine": "codex",
+        "execution": "local-synthetic",
+        "account": "synthetic-personal",
+        "model": "fixture-model",
+        "route": "chatgpt-subscription",
+        "evidence": "resolved turn spans"
+      },
+      "coverage": {
+        "started": 352,
+        "ended": 352,
+        "unfinished": 0,
+        "unattributed": 0,
+        "complete": true
+      },
+      "concurrency": {
+        "sessions": 4,
+        "commands": 12,
+        "maxOutstandingCommands": 8,
+        "maxActiveTurns": 4
+      },
+      "byKind": {
+        "cold": {
+          "serverToDurableAdmission": {
+            "n": 4,
+            "min": 16.714,
+            "median": 17.45,
+            "max": 32.478,
+            "mean": 21.023
+          },
+          "admissionToDurableQueue": {
+            "n": 4,
+            "min": 346.06,
+            "median": 587.632,
+            "max": 821.291,
+            "mean": 585.654
+          },
+          "serverToDurableQueue": {
+            "n": 4,
+            "min": 378.538,
+            "median": 604.497,
+            "max": 839.178,
+            "mean": 606.677
+          },
+          "queueWait": {
+            "n": 4,
+            "min": 34.96,
+            "median": 35.945,
+            "max": 38.432,
+            "mean": 36.321
+          },
+          "preparation": {
+            "n": 4,
+            "min": 87.912,
+            "median": 91.407,
+            "max": 98.091,
+            "mean": 92.204
+          },
+          "invocation": {
+            "n": 4,
+            "min": 26.389,
+            "median": 28.452,
+            "max": 34.458,
+            "mean": 29.438
+          },
+          "serverToWriteQueued": {
+            "n": 4,
+            "min": 549.469,
+            "median": 758.507,
+            "max": 992.199,
+            "mean": 764.67
+          },
+          "serverToWriteCompleted": {
+            "n": 4,
+            "min": 549.712,
+            "median": 758.636,
+            "max": 992.346,
+            "mean": 764.833
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 4,
+            "min": 511.281,
+            "median": 722.921,
+            "max": 956.924,
+            "mean": 728.512
+          },
+          "streamWrite": {
+            "n": 4,
+            "min": 0.151,
+            "median": 0.183,
+            "max": 0.306,
+            "mean": 0.206
+          },
+          "otelWriteQueuedMs": {
+            "n": 4,
+            "min": 549.072,
+            "median": 759.044,
+            "max": 992.045,
+            "mean": 764.801
+          },
+          "writeCompletedToAck": {
+            "n": 4,
+            "min": 83.953,
+            "median": 300.259,
+            "max": 579.468,
+            "mean": 315.985
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 4,
+            "min": 123.535,
+            "median": 456.613,
+            "max": 846.952,
+            "mean": 470.928
+          },
+          "ackToFirstOutput": {
+            "n": 4,
+            "min": 18.074,
+            "median": 153.533,
+            "max": 294.634,
+            "mean": 154.944
+          },
+          "serverToFirstOutput": {
+            "n": 4,
+            "min": 965.214,
+            "median": 1290.582,
+            "max": 1396.665,
+            "mean": 1235.761
+          },
+          "submissionSkew": {
+            "n": 4,
+            "min": 0.057,
+            "median": 0.387,
+            "max": 0.449,
+            "mean": 0.32
+          },
+          "clientToHandler": {
+            "n": 4,
+            "min": 9.038,
+            "median": 177.246,
+            "max": 560.272,
+            "mean": 230.95
+          },
+          "clientToWriteCompleted": {
+            "n": 4,
+            "min": 558.751,
+            "median": 1011.215,
+            "max": 1401.95,
+            "mean": 995.783
+          },
+          "batchToWriteCompleted": {
+            "n": 4,
+            "min": 558.808,
+            "median": 1011.602,
+            "max": 1402.4,
+            "mean": 996.103
+          },
+          "batchToTurnCompleted": {
+            "n": 4,
+            "min": 1409.699,
+            "median": 1471.673,
+            "max": 1529.192,
+            "mean": 1470.559
+          },
+          "completionSpreadMs": 119.493
+        },
+        "warm": {
+          "serverToDurableAdmission": {
+            "n": 4,
+            "min": 34.603,
+            "median": 35.539,
+            "max": 38.121,
+            "mean": 35.951
+          },
+          "admissionToDurableQueue": {
+            "n": 4,
+            "min": 42.021,
+            "median": 42.301,
+            "max": 42.648,
+            "mean": 42.317
+          },
+          "serverToDurableQueue": {
+            "n": 4,
+            "min": 76.849,
+            "median": 77.727,
+            "max": 80.768,
+            "mean": 78.268
+          },
+          "queueWait": {
+            "n": 4,
+            "min": 30.634,
+            "median": 31.303,
+            "max": 32.504,
+            "mean": 31.436
+          },
+          "preparation": {
+            "n": 4,
+            "min": 87.837,
+            "median": 89.588,
+            "max": 110.571,
+            "mean": 94.396
+          },
+          "invocation": {
+            "n": 4,
+            "min": 28.432,
+            "median": 28.739,
+            "max": 30.193,
+            "mean": 29.026
+          },
+          "serverToWriteQueued": {
+            "n": 4,
+            "min": 224.989,
+            "median": 228.165,
+            "max": 251.315,
+            "mean": 233.158
+          },
+          "serverToWriteCompleted": {
+            "n": 4,
+            "min": 225.086,
+            "median": 228.246,
+            "max": 251.403,
+            "mean": 233.245
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 4,
+            "min": 193.365,
+            "median": 197.487,
+            "max": 218.899,
+            "mean": 201.809
+          },
+          "streamWrite": {
+            "n": 4,
+            "min": 0.107,
+            "median": 0.131,
+            "max": 0.135,
+            "mean": 0.126
+          },
+          "otelWriteQueuedMs": {
+            "n": 4,
+            "min": 225.041,
+            "median": 228.046,
+            "max": 251.044,
+            "mean": 233.044
+          },
+          "writeCompletedToAck": {
+            "n": 4,
+            "min": 44.214,
+            "median": 238.885,
+            "max": 276.678,
+            "mean": 199.666
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 4,
+            "min": 59.826,
+            "median": 380.738,
+            "max": 504.625,
+            "mean": 331.482
+          },
+          "ackToFirstOutput": {
+            "n": 4,
+            "min": 15.612,
+            "median": 125.271,
+            "max": 261.11,
+            "mean": 131.816
+          },
+          "serverToFirstOutput": {
+            "n": 4,
+            "min": 311.229,
+            "median": 608.409,
+            "max": 730.86,
+            "mean": 564.727
+          },
+          "submissionSkew": {
+            "n": 4,
+            "min": 0.017,
+            "median": 0.101,
+            "max": 0.126,
+            "mean": 0.086
+          },
+          "clientToHandler": {
+            "n": 4,
+            "min": 1.502,
+            "median": 352.3,
+            "max": 708.154,
+            "mean": 353.564
+          },
+          "clientToWriteCompleted": {
+            "n": 4,
+            "min": 231.759,
+            "median": 577.96,
+            "max": 959.556,
+            "mean": 586.809
+          },
+          "batchToWriteCompleted": {
+            "n": 4,
+            "min": 231.776,
+            "median": 578.06,
+            "max": 959.682,
+            "mean": 586.895
+          },
+          "batchToTurnCompleted": {
+            "n": 4,
+            "min": 1429.304,
+            "median": 1436.825,
+            "max": 1444.042,
+            "mean": 1436.749
+          },
+          "completionSpreadMs": 14.738
+        },
+        "queued": {
+          "serverToDurableAdmission": {
+            "n": 4,
+            "min": 37.472,
+            "median": 41.188,
+            "max": 41.956,
+            "mean": 40.451
+          },
+          "admissionToDurableQueue": {
+            "n": 4,
+            "min": 41.836,
+            "median": 48.025,
+            "max": 55.076,
+            "mean": 48.241
+          },
+          "serverToDurableQueue": {
+            "n": 4,
+            "min": 79.308,
+            "median": 89.215,
+            "max": 97.029,
+            "mean": 88.692
+          },
+          "queueWait": {
+            "n": 4,
+            "min": 165.356,
+            "median": 293.773,
+            "max": 419.562,
+            "mean": 293.116
+          },
+          "preparation": {
+            "n": 4,
+            "min": 361.692,
+            "median": 386.828,
+            "max": 417.758,
+            "mean": 388.277
+          },
+          "invocation": {
+            "n": 4,
+            "min": 27.837,
+            "median": 28.363,
+            "max": 29.399,
+            "mean": 28.491
+          },
+          "serverToWriteQueued": {
+            "n": 4,
+            "min": 698.643,
+            "median": 803.713,
+            "max": 888.439,
+            "mean": 798.627
+          },
+          "serverToWriteCompleted": {
+            "n": 4,
+            "min": 698.763,
+            "median": 846.249,
+            "max": 974.723,
+            "mean": 841.496
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 4,
+            "min": 533.407,
+            "median": 552.476,
+            "max": 555.161,
+            "mean": 548.38
+          },
+          "streamWrite": {
+            "n": 4,
+            "min": 0.163,
+            "median": 42.576,
+            "max": 86.331,
+            "mean": 42.912
+          },
+          "otelWriteQueuedMs": {
+            "n": 4,
+            "min": 699.047,
+            "median": 803.544,
+            "max": 889.053,
+            "mean": 798.797
+          },
+          "writeCompletedToAck": {
+            "n": 4,
+            "min": 10.231,
+            "median": 18.177,
+            "max": 119.258,
+            "mean": 41.461
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 4,
+            "min": 25.363,
+            "median": 72.372,
+            "max": 134.98,
+            "mean": 76.272
+          },
+          "ackToFirstOutput": {
+            "n": 4,
+            "min": 15.132,
+            "median": 28.105,
+            "max": 67.901,
+            "mean": 34.811
+          },
+          "serverToFirstOutput": {
+            "n": 4,
+            "min": 833.742,
+            "median": 918.62,
+            "max": 1000.085,
+            "mean": 917.767
+          },
+          "submissionSkew": {
+            "n": 4,
+            "min": 0.023,
+            "median": 0.122,
+            "max": 0.161,
+            "mean": 0.107
+          },
+          "clientToHandler": {
+            "n": 4,
+            "min": 1.969,
+            "median": 130.354,
+            "max": 277.805,
+            "mean": 135.121
+          },
+          "clientToWriteCompleted": {
+            "n": 4,
+            "min": 976.568,
+            "median": 976.603,
+            "max": 976.692,
+            "mean": 976.617
+          },
+          "batchToWriteCompleted": {
+            "n": 4,
+            "min": 976.715,
+            "median": 976.725,
+            "max": 976.729,
+            "mean": 976.723
+          },
+          "batchToTurnCompleted": {
+            "n": 4,
+            "min": 1005.266,
+            "median": 1052.268,
+            "max": 1114.913,
+            "mean": 1056.179
+          },
+          "completionSpreadMs": 109.647
+        }
+      },
+      "sessions": [
+        {
+          "session": 1,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 16.366
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 6.176
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 6.552
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 5.777
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 10.146
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 3.941
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 53.454
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 35.779
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 13.552
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 5.154
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 6.18
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 5.537
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 10.252
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 3.767
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 42.215
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 27.451
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 3,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 15.641
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 4.941
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 5.99
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 5.273
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 10.1
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 3.77
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 30.189
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 19.079
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 4,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 13.506
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 5.156
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 5.539
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 5.498
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 10.759
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 4.236
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 17.745
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 10.321
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "samples": [
+        {
+          "sample": 1,
+          "session": 1,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 32.478,
+            "admissionToDurableQueue": 346.06,
+            "serverToDurableQueue": 378.538,
+            "queueWait": 38.432,
+            "preparation": 98.091,
+            "invocation": 34.458,
+            "serverToWriteQueued": 549.469,
+            "serverToWriteCompleted": 549.712,
+            "applicationDispatchExcludingQueue": 511.281,
+            "streamWrite": 0.306,
+            "otelWriteQueuedMs": 549.072,
+            "writeCompletedToAck": 579.468,
+            "writeCompletedToFirstOutput": 846.952,
+            "ackToFirstOutput": 267.484,
+            "serverToFirstOutput": 1396.665,
+            "submissionSkew": 0.057,
+            "clientToHandler": 9.038,
+            "clientToWriteCompleted": 558.751,
+            "batchToWriteCompleted": 558.808,
+            "batchToTurnCompleted": 1409.699
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 288.51,
+              "endMs": 288.546
+            }
+          ]
+        },
+        {
+          "sample": 2,
+          "session": 2,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 17.887,
+            "admissionToDurableQueue": 821.291,
+            "serverToDurableQueue": 839.178,
+            "queueWait": 35.422,
+            "preparation": 91.15,
+            "invocation": 26.389,
+            "serverToWriteQueued": 992.199,
+            "serverToWriteCompleted": 992.346,
+            "applicationDispatchExcludingQueue": 956.924,
+            "streamWrite": 0.182,
+            "otelWriteQueuedMs": 992.045,
+            "writeCompletedToAck": 341.436,
+            "writeCompletedToFirstOutput": 359.51,
+            "ackToFirstOutput": 18.074,
+            "serverToFirstOutput": 1351.856,
+            "submissionSkew": 0.352,
+            "clientToHandler": 141.295,
+            "clientToWriteCompleted": 1133.641,
+            "batchToWriteCompleted": 1133.993,
+            "batchToTurnCompleted": 1496.908
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 760.357,
+              "endMs": 760.369
+            }
+          ]
+        },
+        {
+          "sample": 3,
+          "session": 3,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 16.714,
+            "admissionToDurableQueue": 500.405,
+            "serverToDurableQueue": 517.119,
+            "queueWait": 36.468,
+            "preparation": 91.664,
+            "invocation": 30.14,
+            "serverToWriteQueued": 675.448,
+            "serverToWriteCompleted": 675.593,
+            "applicationDispatchExcludingQueue": 639.125,
+            "streamWrite": 0.183,
+            "otelWriteQueuedMs": 676.046,
+            "writeCompletedToAck": 259.081,
+            "writeCompletedToFirstOutput": 553.715,
+            "ackToFirstOutput": 294.634,
+            "serverToFirstOutput": 1229.308,
+            "submissionSkew": 0.422,
+            "clientToHandler": 213.196,
+            "clientToWriteCompleted": 888.789,
+            "batchToWriteCompleted": 889.211,
+            "batchToTurnCompleted": 1446.437
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 431.095,
+              "endMs": 431.104
+            }
+          ]
+        },
+        {
+          "sample": 4,
+          "session": 4,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 17.014,
+            "admissionToDurableQueue": 674.86,
+            "serverToDurableQueue": 691.874,
+            "queueWait": 34.96,
+            "preparation": 87.912,
+            "invocation": 26.763,
+            "serverToWriteQueued": 841.565,
+            "serverToWriteCompleted": 841.679,
+            "applicationDispatchExcludingQueue": 806.718,
+            "streamWrite": 0.151,
+            "otelWriteQueuedMs": 842.042,
+            "writeCompletedToAck": 83.953,
+            "writeCompletedToFirstOutput": 123.535,
+            "ackToFirstOutput": 39.582,
+            "serverToFirstOutput": 965.214,
+            "submissionSkew": 0.449,
+            "clientToHandler": 560.272,
+            "clientToWriteCompleted": 1401.95,
+            "batchToWriteCompleted": 1402.4,
+            "batchToTurnCompleted": 1529.192
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 615.605,
+              "endMs": 615.615
+            }
+          ]
+        },
+        {
+          "sample": 5,
+          "session": 1,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 38.121,
+            "admissionToDurableQueue": 42.648,
+            "serverToDurableQueue": 80.768,
+            "queueWait": 30.634,
+            "preparation": 89.849,
+            "invocation": 28.905,
+            "serverToWriteQueued": 230.169,
+            "serverToWriteCompleted": 230.256,
+            "applicationDispatchExcludingQueue": 199.622,
+            "streamWrite": 0.135,
+            "otelWriteQueuedMs": 230.054,
+            "writeCompletedToAck": 234.256,
+            "writeCompletedToFirstOutput": 468.9,
+            "ackToFirstOutput": 234.644,
+            "serverToFirstOutput": 699.156,
+            "submissionSkew": 0.017,
+            "clientToHandler": 1.502,
+            "clientToWriteCompleted": 231.759,
+            "batchToWriteCompleted": 231.776,
+            "batchToTurnCompleted": 1429.304
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 6,
+          "session": 2,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 35.45,
+            "admissionToDurableQueue": 42.021,
+            "serverToDurableQueue": 77.471,
+            "queueWait": 30.884,
+            "preparation": 89.327,
+            "invocation": 28.432,
+            "serverToWriteQueued": 226.16,
+            "serverToWriteCompleted": 226.235,
+            "applicationDispatchExcludingQueue": 195.351,
+            "streamWrite": 0.107,
+            "otelWriteQueuedMs": 226.037,
+            "writeCompletedToAck": 243.515,
+            "writeCompletedToFirstOutput": 504.625,
+            "ackToFirstOutput": 261.11,
+            "serverToFirstOutput": 730.86,
+            "submissionSkew": 0.09,
+            "clientToHandler": 234.535,
+            "clientToWriteCompleted": 460.77,
+            "batchToWriteCompleted": 460.86,
+            "batchToTurnCompleted": 1434.128
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 7,
+          "session": 3,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 34.603,
+            "admissionToDurableQueue": 42.246,
+            "serverToDurableQueue": 76.849,
+            "queueWait": 31.721,
+            "preparation": 87.837,
+            "invocation": 28.573,
+            "serverToWriteQueued": 224.989,
+            "serverToWriteCompleted": 225.086,
+            "applicationDispatchExcludingQueue": 193.365,
+            "streamWrite": 0.134,
+            "otelWriteQueuedMs": 225.041,
+            "writeCompletedToAck": 276.678,
+            "writeCompletedToFirstOutput": 292.576,
+            "ackToFirstOutput": 15.898,
+            "serverToFirstOutput": 517.662,
+            "submissionSkew": 0.111,
+            "clientToHandler": 470.064,
+            "clientToWriteCompleted": 695.15,
+            "batchToWriteCompleted": 695.26,
+            "batchToTurnCompleted": 1439.521
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 8,
+          "session": 4,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 35.628,
+            "admissionToDurableQueue": 42.355,
+            "serverToDurableQueue": 77.983,
+            "queueWait": 32.504,
+            "preparation": 110.571,
+            "invocation": 30.193,
+            "serverToWriteQueued": 251.315,
+            "serverToWriteCompleted": 251.403,
+            "applicationDispatchExcludingQueue": 218.899,
+            "streamWrite": 0.128,
+            "otelWriteQueuedMs": 251.044,
+            "writeCompletedToAck": 44.214,
+            "writeCompletedToFirstOutput": 59.826,
+            "ackToFirstOutput": 15.612,
+            "serverToFirstOutput": 311.229,
+            "submissionSkew": 0.126,
+            "clientToHandler": 708.154,
+            "clientToWriteCompleted": 959.556,
+            "batchToWriteCompleted": 959.682,
+            "batchToTurnCompleted": 1444.042
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 9,
+          "session": 1,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 37.472,
+            "admissionToDurableQueue": 41.836,
+            "serverToDurableQueue": 79.308,
+            "queueWait": 419.562,
+            "preparation": 361.692,
+            "invocation": 27.837,
+            "serverToWriteQueued": 888.439,
+            "serverToWriteCompleted": 974.723,
+            "applicationDispatchExcludingQueue": 555.161,
+            "streamWrite": 86.331,
+            "otelWriteQueuedMs": 889.053,
+            "writeCompletedToAck": 10.231,
+            "writeCompletedToFirstOutput": 25.363,
+            "ackToFirstOutput": 15.132,
+            "serverToFirstOutput": 1000.085,
+            "submissionSkew": 0.023,
+            "clientToHandler": 1.969,
+            "clientToWriteCompleted": 976.692,
+            "batchToWriteCompleted": 976.715,
+            "batchToTurnCompleted": 1005.266
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 10,
+          "session": 2,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 40.423,
+            "admissionToDurableQueue": 50.593,
+            "serverToDurableQueue": 91.016,
+            "queueWait": 339.406,
+            "preparation": 376.57,
+            "invocation": 29.399,
+            "serverToWriteQueued": 836.487,
+            "serverToWriteCompleted": 893.355,
+            "applicationDispatchExcludingQueue": 553.949,
+            "streamWrite": 56.909,
+            "otelWriteQueuedMs": 836.045,
+            "writeCompletedToAck": 15.73,
+            "writeCompletedToFirstOutput": 56.218,
+            "ackToFirstOutput": 40.488,
+            "serverToFirstOutput": 949.572,
+            "submissionSkew": 0.099,
+            "clientToHandler": 83.268,
+            "clientToWriteCompleted": 976.623,
+            "batchToWriteCompleted": 976.722,
+            "batchToTurnCompleted": 1036.063
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 11,
+          "session": 3,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 41.953,
+            "admissionToDurableQueue": 55.076,
+            "serverToDurableQueue": 97.029,
+            "queueWait": 248.14,
+            "preparation": 397.087,
+            "invocation": 28.637,
+            "serverToWriteQueued": 770.938,
+            "serverToWriteCompleted": 799.143,
+            "applicationDispatchExcludingQueue": 551.003,
+            "streamWrite": 28.243,
+            "otelWriteQueuedMs": 771.042,
+            "writeCompletedToAck": 20.624,
+            "writeCompletedToFirstOutput": 88.525,
+            "ackToFirstOutput": 67.901,
+            "serverToFirstOutput": 887.668,
+            "submissionSkew": 0.144,
+            "clientToHandler": 177.44,
+            "clientToWriteCompleted": 976.583,
+            "batchToWriteCompleted": 976.727,
+            "batchToTurnCompleted": 1068.472
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 12,
+          "session": 4,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 41.956,
+            "admissionToDurableQueue": 45.457,
+            "serverToDurableQueue": 87.413,
+            "queueWait": 165.356,
+            "preparation": 417.758,
+            "invocation": 28.089,
+            "serverToWriteQueued": 698.643,
+            "serverToWriteCompleted": 698.763,
+            "applicationDispatchExcludingQueue": 533.407,
+            "streamWrite": 0.163,
+            "otelWriteQueuedMs": 699.047,
+            "writeCompletedToAck": 119.258,
+            "writeCompletedToFirstOutput": 134.98,
+            "ackToFirstOutput": 15.722,
+            "serverToFirstOutput": 833.742,
+            "submissionSkew": 0.161,
+            "clientToHandler": 277.805,
+            "clientToWriteCompleted": 976.568,
+            "batchToWriteCompleted": 976.729,
+            "batchToTurnCompleted": 1114.913
+          },
+          "admissionPhases": []
+        }
+      ],
+      "resources": {
+        "elapsedMs": 3766.677,
+        "process": {
+          "cpuMs": {
+            "user": 2884.164,
+            "system": 1162.092
+          },
+          "cpuPercentOfOneCore": 107.422,
+          "memory": {
+            "samples": 24,
+            "sampleIntervalMs": 20,
+            "startRssBytes": 433274880,
+            "endRssBytes": 612876288,
+            "maxSampledRssBytes": 612876288,
+            "maxSampledHeapUsedBytes": 323325592
+          }
+        },
+        "host": {
+          "logicalCpus": 14,
+          "totalMemoryBytes": 51539607552,
+          "startFreeMemoryBytes": 194871296,
+          "endFreeMemoryBytes": 71974912,
+          "minSampledFreeMemoryBytes": 64929792,
+          "cpuBusyFraction": 0.454
+        },
+        "eventLoop": {
+          "resolutionMs": 20,
+          "sampleCount": 22,
+          "utilization": 0.9772771171099593,
+          "delayMs": {
+            "mean": 164.27566545454548,
+            "max": 699.400191,
+            "p50": 71.237631,
+            "p95": 592.969727,
+            "p99": 699.400191
+          }
+        }
+      },
+      "fixture": {
+        "provider": "controlled in-process stdio peer per session",
+        "ackDelayMs": 40,
+        "outputAfterAckDelayMs": 10,
+        "queuePolicy": "hold every second turn until all third commands are durably queued, then release together",
+        "queuedBatchToReleaseMs": 367.004,
+        "workspacePreparedBeforeMeasurement": true,
+        "realOwners": [
+          "HTTP router",
+          "ordinary workspace custody",
+          "SQLite EventStore",
+          "CodexConversation queue",
+          "CodexAppServerClient"
+        ],
+        "syntheticMacArtifactQualification": true,
+        "nativeProcesses": 0,
+        "modelCalls": 0
+      },
+      "run": 1,
+      "sessionsRequested": 4
+    },
+    {
+      "version": 1,
+      "route": {
+        "engine": "codex",
+        "execution": "local-synthetic",
+        "account": "synthetic-personal",
+        "model": "fixture-model",
+        "route": "chatgpt-subscription",
+        "evidence": "resolved turn spans"
+      },
+      "coverage": {
+        "started": 704,
+        "ended": 704,
+        "unfinished": 0,
+        "unattributed": 0,
+        "complete": true
+      },
+      "concurrency": {
+        "sessions": 8,
+        "commands": 24,
+        "maxOutstandingCommands": 16,
+        "maxActiveTurns": 8
+      },
+      "byKind": {
+        "cold": {
+          "serverToDurableAdmission": {
+            "n": 8,
+            "min": 17.528,
+            "median": 18.161,
+            "max": 28.111,
+            "mean": 19.396
+          },
+          "admissionToDurableQueue": {
+            "n": 8,
+            "min": 387.645,
+            "median": 607.412,
+            "max": 940.038,
+            "mean": 640.837
+          },
+          "serverToDurableQueue": {
+            "n": 8,
+            "min": 415.755,
+            "median": 625.622,
+            "max": 958.523,
+            "mean": 660.233
+          },
+          "queueWait": {
+            "n": 8,
+            "min": 38.54,
+            "median": 42.476,
+            "max": 50.99,
+            "mean": 42.887
+          },
+          "preparation": {
+            "n": 8,
+            "min": 97.057,
+            "median": 110.359,
+            "max": 114.925,
+            "mean": 108.376
+          },
+          "invocation": {
+            "n": 8,
+            "min": 28.924,
+            "median": 33.835,
+            "max": 44.395,
+            "mean": 34.256
+          },
+          "serverToWriteQueued": {
+            "n": 8,
+            "min": 624.7,
+            "median": 805.76,
+            "max": 1137.146,
+            "mean": 845.809
+          },
+          "serverToWriteCompleted": {
+            "n": 8,
+            "min": 624.994,
+            "median": 805.898,
+            "max": 1137.304,
+            "mean": 845.968
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 8,
+            "min": 574.003,
+            "median": 763.862,
+            "max": 1098.764,
+            "mean": 803.082
+          },
+          "streamWrite": {
+            "n": 8,
+            "min": 0.173,
+            "median": 0.186,
+            "max": 0.401,
+            "mean": 0.212
+          },
+          "otelWriteQueuedMs": {
+            "n": 8,
+            "min": 624.126,
+            "median": 805.553,
+            "max": 1138.054,
+            "mean": 845.686
+          },
+          "writeCompletedToAck": {
+            "n": 8,
+            "min": 57.561,
+            "median": 443.627,
+            "max": 646.251,
+            "mean": 409.745
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 8,
+            "min": 103.867,
+            "median": 801.129,
+            "max": 1064.431,
+            "mean": 720.14
+          },
+          "ackToFirstOutput": {
+            "n": 8,
+            "min": 22.072,
+            "median": 383.141,
+            "max": 448.931,
+            "mean": 310.394
+          },
+          "serverToFirstOutput": {
+            "n": 8,
+            "min": 785.273,
+            "median": 1626.805,
+            "max": 2053.13,
+            "mean": 1566.108
+          },
+          "submissionSkew": {
+            "n": 8,
+            "min": 0.053,
+            "median": 0.463,
+            "max": 0.524,
+            "mean": 0.411
+          },
+          "clientToHandler": {
+            "n": 8,
+            "min": 9.074,
+            "median": 966.723,
+            "max": 2672.837,
+            "mean": 1123.594
+          },
+          "clientToWriteCompleted": {
+            "n": 8,
+            "min": 634.068,
+            "median": 1935.817,
+            "max": 3354.243,
+            "mean": 1969.562
+          },
+          "batchToWriteCompleted": {
+            "n": 8,
+            "min": 634.121,
+            "median": 1936.281,
+            "max": 3354.767,
+            "mean": 1969.973
+          },
+          "batchToTurnCompleted": {
+            "n": 8,
+            "min": 1703.597,
+            "median": 2830.714,
+            "max": 3463.159,
+            "mean": 2694.55
+          },
+          "completionSpreadMs": 1759.562
+        },
+        "warm": {
+          "serverToDurableAdmission": {
+            "n": 8,
+            "min": 38.978,
+            "median": 43.332,
+            "max": 50.841,
+            "mean": 43.47
+          },
+          "admissionToDurableQueue": {
+            "n": 8,
+            "min": 47.987,
+            "median": 52.713,
+            "max": 56.307,
+            "mean": 52.446
+          },
+          "serverToDurableQueue": {
+            "n": 8,
+            "min": 86.964,
+            "median": 96.537,
+            "max": 102.707,
+            "mean": 95.917
+          },
+          "queueWait": {
+            "n": 8,
+            "min": 35.41,
+            "median": 38.506,
+            "max": 50.075,
+            "mean": 39.387
+          },
+          "preparation": {
+            "n": 8,
+            "min": 100.424,
+            "median": 107.074,
+            "max": 113.005,
+            "mean": 106.957
+          },
+          "invocation": {
+            "n": 8,
+            "min": 32.105,
+            "median": 34.261,
+            "max": 37.987,
+            "mean": 34.578
+          },
+          "serverToWriteQueued": {
+            "n": 8,
+            "min": 261.705,
+            "median": 276.629,
+            "max": 292.823,
+            "mean": 276.898
+          },
+          "serverToWriteCompleted": {
+            "n": 8,
+            "min": 261.787,
+            "median": 276.743,
+            "max": 292.907,
+            "mean": 277.011
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 8,
+            "min": 225.451,
+            "median": 239.599,
+            "max": 248.208,
+            "mean": 237.623
+          },
+          "streamWrite": {
+            "n": 8,
+            "min": 0.121,
+            "median": 0.129,
+            "max": 0.303,
+            "mean": 0.158
+          },
+          "otelWriteQueuedMs": {
+            "n": 8,
+            "min": 262.047,
+            "median": 276.057,
+            "max": 292.046,
+            "mean": 276.8
+          },
+          "writeCompletedToAck": {
+            "n": 8,
+            "min": 46.165,
+            "median": 294.27,
+            "max": 325.076,
+            "mean": 270.591
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 8,
+            "min": 62.665,
+            "median": 571.948,
+            "max": 623.274,
+            "mean": 491.031
+          },
+          "ackToFirstOutput": {
+            "n": 8,
+            "min": 15.895,
+            "median": 280.082,
+            "max": 304.997,
+            "mean": 220.439
+          },
+          "serverToFirstOutput": {
+            "n": 8,
+            "min": 342.889,
+            "median": 848.69,
+            "max": 904.07,
+            "mean": 768.041
+          },
+          "submissionSkew": {
+            "n": 8,
+            "min": 0.018,
+            "median": 0.17,
+            "max": 0.235,
+            "mean": 0.157
+          },
+          "clientToHandler": {
+            "n": 8,
+            "min": 2.281,
+            "median": 998.695,
+            "max": 2032.809,
+            "mean": 1003.013
+          },
+          "clientToWriteCompleted": {
+            "n": 8,
+            "min": 276.911,
+            "median": 1263.117,
+            "max": 2313.033,
+            "mean": 1280.024
+          },
+          "batchToWriteCompleted": {
+            "n": 8,
+            "min": 276.928,
+            "median": 1263.287,
+            "max": 2313.268,
+            "mean": 1280.181
+          },
+          "batchToTurnCompleted": {
+            "n": 8,
+            "min": 3152.805,
+            "median": 3168.759,
+            "max": 3183.949,
+            "mean": 3168.668
+          },
+          "completionSpreadMs": 31.144
+        },
+        "queued": {
+          "serverToDurableAdmission": {
+            "n": 8,
+            "min": 38.152,
+            "median": 39.373,
+            "max": 41.95,
+            "mean": 39.796
+          },
+          "admissionToDurableQueue": {
+            "n": 8,
+            "min": 44.308,
+            "median": 47.439,
+            "max": 58.962,
+            "mean": 48.562
+          },
+          "serverToDurableQueue": {
+            "n": 8,
+            "min": 82.46,
+            "median": 86.812,
+            "max": 100.101,
+            "mean": 88.358
+          },
+          "queueWait": {
+            "n": 8,
+            "min": 310.681,
+            "median": 593.519,
+            "max": 886.88,
+            "mean": 594.589
+          },
+          "preparation": {
+            "n": 8,
+            "min": 746.717,
+            "median": 821.408,
+            "max": 895.716,
+            "mean": 821.359
+          },
+          "invocation": {
+            "n": 8,
+            "min": 28.447,
+            "median": 28.663,
+            "max": 30.653,
+            "mean": 29.095
+          },
+          "serverToWriteQueued": {
+            "n": 8,
+            "min": 1319.549,
+            "median": 1529.891,
+            "max": 1762.626,
+            "mean": 1533.445
+          },
+          "serverToWriteCompleted": {
+            "n": 8,
+            "min": 1319.654,
+            "median": 1632.063,
+            "max": 1966.762,
+            "mean": 1636.07
+          },
+          "applicationDispatchExcludingQueue": {
+            "n": 8,
+            "min": 1008.973,
+            "median": 1038.544,
+            "max": 1079.882,
+            "mean": 1041.48
+          },
+          "streamWrite": {
+            "n": 8,
+            "min": 0.134,
+            "median": 102.201,
+            "max": 204.181,
+            "mean": 102.655
+          },
+          "otelWriteQueuedMs": {
+            "n": 8,
+            "min": 1319.034,
+            "median": 1530.033,
+            "max": 1762.051,
+            "mean": 1533.41
+          },
+          "writeCompletedToAck": {
+            "n": 8,
+            "min": 18.147,
+            "median": 36.454,
+            "max": 211.319,
+            "mean": 55.974
+          },
+          "writeCompletedToFirstOutput": {
+            "n": 8,
+            "min": 54.071,
+            "median": 164.539,
+            "max": 280.409,
+            "mean": 166.421
+          },
+          "ackToFirstOutput": {
+            "n": 8,
+            "min": 35.925,
+            "median": 100.794,
+            "max": 199.05,
+            "mean": 110.447
+          },
+          "serverToFirstOutput": {
+            "n": 8,
+            "min": 1600.062,
+            "median": 1796.602,
+            "max": 2020.834,
+            "mean": 1802.491
+          },
+          "submissionSkew": {
+            "n": 8,
+            "min": 0.027,
+            "median": 0.143,
+            "max": 0.169,
+            "mean": 0.13
+          },
+          "clientToHandler": {
+            "n": 8,
+            "min": 2.012,
+            "median": 336.611,
+            "max": 649.006,
+            "mean": 332.616
+          },
+          "clientToWriteCompleted": {
+            "n": 8,
+            "min": 1968.66,
+            "median": 1968.673,
+            "max": 1968.775,
+            "mean": 1968.686
+          },
+          "batchToWriteCompleted": {
+            "n": 8,
+            "min": 1968.802,
+            "median": 1968.817,
+            "max": 1968.829,
+            "mean": 1968.816
+          },
+          "batchToTurnCompleted": {
+            "n": 8,
+            "min": 2026.332,
+            "median": 2136.5,
+            "max": 2253.611,
+            "mean": 2138.547
+          },
+          "completionSpreadMs": 227.279
+        }
+      },
+      "sessions": [
+        {
+          "session": 1,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 16.342
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 5.432
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 7.775
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 5.694
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 11.81
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 4.526
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 113.276
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 81.908
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 14.951
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 4.989
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 7.253
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 5.87
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 12.751
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 4.662
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 100.682
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 72.349
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 3,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 17.319
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 5.224
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 7.036
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 6.34
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 11.951
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 4.761
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 88.299
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 62.989
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 4,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 17.855
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 5.361
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 7.216
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 6.004
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 11.706
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 4.465
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 75.215
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 55.023
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 5,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 16.867
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 5.475
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 6.804
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 7.02
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 11.179
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 4.444
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 62.791
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 44.328
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 6,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 16.245
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 5.397
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 7.178
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 6.317
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 12.121
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 5.092
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 50.405
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 35.133
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 7,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 14.073
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 5.375
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 6.302
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 6.593
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 12.665
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 4.863
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 35.205
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 25.952
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "session": 8,
+          "route": {
+            "engine": "codex",
+            "execution": "local-synthetic",
+            "account": "synthetic-personal",
+            "model": "fixture-model",
+            "route": "chatgpt-subscription",
+            "evidence": "resolved turn spans"
+          },
+          "coverage": {
+            "started": 88,
+            "ended": 88,
+            "unfinished": 0,
+            "unattributed": 0,
+            "complete": true
+          },
+          "concurrency": {
+            "sessions": 1,
+            "commands": 3,
+            "maxOutstandingCommands": 2,
+            "maxActiveTurns": 1
+          },
+          "commands": [
+            {
+              "sample": 1,
+              "kind": "cold",
+              "checks": {
+                "workspace_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 15.325
+                },
+                "workspace_revalidation": {
+                  "count": 1,
+                  "failed": 0,
+                  "wallMs": 5.129
+                },
+                "credential_check": {
+                  "count": 16,
+                  "failed": 0,
+                  "wallMs": 6.437
+                },
+                "repository_credential_check": {
+                  "count": 3,
+                  "failed": 0,
+                  "wallMs": 5.784
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 2,
+              "kind": "warm",
+              "checks": {
+                "workspace_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 12.049
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 12,
+                  "failed": 0,
+                  "wallMs": 6.164
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            },
+            {
+              "sample": 3,
+              "kind": "queued",
+              "checks": {
+                "workspace_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 21.909
+                },
+                "workspace_revalidation": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "credential_check": {
+                  "count": 14,
+                  "failed": 0,
+                  "wallMs": 16.67
+                },
+                "repository_credential_check": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                },
+                "keychain_read": {
+                  "count": 0,
+                  "failed": 0,
+                  "wallMs": 0
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "samples": [
+        {
+          "sample": 1,
+          "session": 1,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 28.111,
+            "admissionToDurableQueue": 387.645,
+            "serverToDurableQueue": 415.755,
+            "queueWait": 50.99,
+            "preparation": 113.581,
+            "invocation": 44.395,
+            "serverToWriteQueued": 624.7,
+            "serverToWriteCompleted": 624.994,
+            "applicationDispatchExcludingQueue": 574.003,
+            "streamWrite": 0.401,
+            "otelWriteQueuedMs": 624.126,
+            "writeCompletedToAck": 646.251,
+            "writeCompletedToFirstOutput": 1064.431,
+            "ackToFirstOutput": 418.18,
+            "serverToFirstOutput": 1689.424,
+            "submissionSkew": 0.053,
+            "clientToHandler": 9.074,
+            "clientToWriteCompleted": 634.068,
+            "batchToWriteCompleted": 634.121,
+            "batchToTurnCompleted": 1703.597
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 313.131,
+              "endMs": 313.177
+            }
+          ]
+        },
+        {
+          "sample": 2,
+          "session": 2,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 18.485,
+            "admissionToDurableQueue": 940.038,
+            "serverToDurableQueue": 958.523,
+            "queueWait": 38.54,
+            "preparation": 105.365,
+            "invocation": 34.69,
+            "serverToWriteQueued": 1137.146,
+            "serverToWriteCompleted": 1137.304,
+            "applicationDispatchExcludingQueue": 1098.764,
+            "streamWrite": 0.199,
+            "otelWriteQueuedMs": 1138.054,
+            "writeCompletedToAck": 511.17,
+            "writeCompletedToFirstOutput": 915.826,
+            "ackToFirstOutput": 404.656,
+            "serverToFirstOutput": 2053.13,
+            "submissionSkew": 0.354,
+            "clientToHandler": 137.44,
+            "clientToWriteCompleted": 1274.744,
+            "batchToWriteCompleted": 1275.098,
+            "batchToTurnCompleted": 2195.299
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 865.884,
+              "endMs": 865.898
+            }
+          ]
+        },
+        {
+          "sample": 3,
+          "session": 3,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 17.528,
+            "admissionToDurableQueue": 583.89,
+            "serverToDurableQueue": 601.417,
+            "queueWait": 41.135,
+            "preparation": 102.332,
+            "invocation": 28.924,
+            "serverToWriteQueued": 773.92,
+            "serverToWriteCompleted": 774.058,
+            "applicationDispatchExcludingQueue": 732.923,
+            "streamWrite": 0.175,
+            "otelWriteQueuedMs": 773.046,
+            "writeCompletedToAck": 303.686,
+            "writeCompletedToFirstOutput": 752.617,
+            "ackToFirstOutput": 448.931,
+            "serverToFirstOutput": 1526.676,
+            "submissionSkew": 0.423,
+            "clientToHandler": 214.427,
+            "clientToWriteCompleted": 988.486,
+            "batchToWriteCompleted": 988.908,
+            "batchToTurnCompleted": 1745.458
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 511.487,
+              "endMs": 511.502
+            }
+          ]
+        },
+        {
+          "sample": 4,
+          "session": 4,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 17.831,
+            "admissionToDurableQueue": 852.036,
+            "serverToDurableQueue": 869.867,
+            "queueWait": 44.164,
+            "preparation": 110.565,
+            "invocation": 33.577,
+            "serverToWriteQueued": 1058.252,
+            "serverToWriteCompleted": 1058.389,
+            "applicationDispatchExcludingQueue": 1014.225,
+            "streamWrite": 0.184,
+            "otelWriteQueuedMs": 1058.054,
+            "writeCompletedToAck": 487.678,
+            "writeCompletedToFirstOutput": 929.787,
+            "ackToFirstOutput": 442.11,
+            "serverToFirstOutput": 1988.176,
+            "submissionSkew": 0.45,
+            "clientToHandler": 635.577,
+            "clientToWriteCompleted": 1693.966,
+            "batchToWriteCompleted": 1694.417,
+            "batchToTurnCompleted": 2629.309
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 772.409,
+              "endMs": 772.425
+            }
+          ]
+        },
+        {
+          "sample": 5,
+          "session": 5,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 19.183,
+            "admissionToDurableQueue": 670.835,
+            "serverToDurableQueue": 690.017,
+            "queueWait": 43.816,
+            "preparation": 113.031,
+            "invocation": 32.73,
+            "serverToWriteQueued": 879.652,
+            "serverToWriteCompleted": 879.799,
+            "applicationDispatchExcludingQueue": 835.983,
+            "streamWrite": 0.192,
+            "otelWriteQueuedMs": 880.051,
+            "writeCompletedToAck": 488.015,
+            "writeCompletedToFirstOutput": 849.641,
+            "ackToFirstOutput": 361.626,
+            "serverToFirstOutput": 1729.44,
+            "submissionSkew": 0.476,
+            "clientToHandler": 1297.869,
+            "clientToWriteCompleted": 2177.669,
+            "batchToWriteCompleted": 2178.145,
+            "batchToTurnCompleted": 3032.118
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 595.1,
+              "endMs": 595.12
+            }
+          ]
+        },
+        {
+          "sample": 6,
+          "session": 6,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 17.836,
+            "admissionToDurableQueue": 613.848,
+            "serverToDurableQueue": 631.684,
+            "queueWait": 44.395,
+            "preparation": 114.925,
+            "invocation": 34.092,
+            "serverToWriteQueued": 825.196,
+            "serverToWriteCompleted": 825.337,
+            "applicationDispatchExcludingQueue": 780.942,
+            "streamWrite": 0.188,
+            "otelWriteQueuedMs": 825.055,
+            "writeCompletedToAck": 399.576,
+            "writeCompletedToFirstOutput": 738.849,
+            "ackToFirstOutput": 339.273,
+            "serverToFirstOutput": 1564.186,
+            "submissionSkew": 0.496,
+            "clientToHandler": 1793.753,
+            "clientToWriteCompleted": 2619.089,
+            "batchToWriteCompleted": 2619.585,
+            "batchToTurnCompleted": 3362.418
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 531.965,
+              "endMs": 532.002
+            }
+          ]
+        },
+        {
+          "sample": 7,
+          "session": 7,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 18.584,
+            "admissionToDurableQueue": 600.976,
+            "serverToDurableQueue": 619.559,
+            "queueWait": 39.677,
+            "preparation": 97.057,
+            "invocation": 29.978,
+            "serverToWriteQueued": 786.324,
+            "serverToWriteCompleted": 786.458,
+            "applicationDispatchExcludingQueue": 746.781,
+            "streamWrite": 0.18,
+            "otelWriteQueuedMs": 786.051,
+            "writeCompletedToAck": 384.026,
+            "writeCompletedToFirstOutput": 406.098,
+            "ackToFirstOutput": 22.072,
+            "serverToFirstOutput": 1192.556,
+            "submissionSkew": 0.512,
+            "clientToHandler": 2227.774,
+            "clientToWriteCompleted": 3014.232,
+            "batchToWriteCompleted": 3014.744,
+            "batchToTurnCompleted": 3425.044
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 536.496,
+              "endMs": 536.507
+            }
+          ]
+        },
+        {
+          "sample": 8,
+          "session": 8,
+          "kind": "cold",
+          "ms": {
+            "serverToDurableAdmission": 17.611,
+            "admissionToDurableQueue": 477.43,
+            "serverToDurableQueue": 495.041,
+            "queueWait": 40.375,
+            "preparation": 110.153,
+            "invocation": 35.662,
+            "serverToWriteQueued": 681.279,
+            "serverToWriteCompleted": 681.406,
+            "applicationDispatchExcludingQueue": 641.031,
+            "streamWrite": 0.173,
+            "otelWriteQueuedMs": 681.051,
+            "writeCompletedToAck": 57.561,
+            "writeCompletedToFirstOutput": 103.867,
+            "ackToFirstOutput": 46.306,
+            "serverToFirstOutput": 785.273,
+            "submissionSkew": 0.524,
+            "clientToHandler": 2672.837,
+            "clientToWriteCompleted": 3354.243,
+            "batchToWriteCompleted": 3354.767,
+            "batchToTurnCompleted": 3463.159
+          },
+          "admissionPhases": [
+            {
+              "name": "codex.admission.provider_environment",
+              "startMs": 404.285,
+              "endMs": 404.301
+            }
+          ]
+        },
+        {
+          "sample": 9,
+          "session": 1,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 44.038,
+            "admissionToDurableQueue": 53.733,
+            "serverToDurableQueue": 97.772,
+            "queueWait": 35.41,
+            "preparation": 107.065,
+            "invocation": 34.251,
+            "serverToWriteQueued": 274.5,
+            "serverToWriteCompleted": 274.629,
+            "applicationDispatchExcludingQueue": 239.219,
+            "streamWrite": 0.185,
+            "otelWriteQueuedMs": 274.061,
+            "writeCompletedToAck": 289.056,
+            "writeCompletedToFirstOutput": 572.529,
+            "ackToFirstOutput": 283.473,
+            "serverToFirstOutput": 847.158,
+            "submissionSkew": 0.018,
+            "clientToHandler": 2.281,
+            "clientToWriteCompleted": 276.911,
+            "batchToWriteCompleted": 276.928,
+            "batchToTurnCompleted": 3152.805
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 10,
+          "session": 2,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 41.49,
+            "admissionToDurableQueue": 56.307,
+            "serverToDurableQueue": 97.796,
+            "queueWait": 38.877,
+            "preparation": 108.833,
+            "invocation": 33.141,
+            "serverToWriteQueued": 278.757,
+            "serverToWriteCompleted": 278.857,
+            "applicationDispatchExcludingQueue": 239.98,
+            "streamWrite": 0.147,
+            "otelWriteQueuedMs": 278.052,
+            "writeCompletedToAck": 294.675,
+            "writeCompletedToFirstOutput": 571.366,
+            "ackToFirstOutput": 276.691,
+            "serverToFirstOutput": 850.223,
+            "submissionSkew": 0.104,
+            "clientToHandler": 280.245,
+            "clientToWriteCompleted": 559.102,
+            "batchToWriteCompleted": 559.206,
+            "batchToTurnCompleted": 3157.638
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 11,
+          "session": 3,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 43.914,
+            "admissionToDurableQueue": 51.387,
+            "serverToDurableQueue": 95.301,
+            "queueWait": 39.9,
+            "preparation": 100.424,
+            "invocation": 36.902,
+            "serverToWriteQueued": 272.576,
+            "serverToWriteCompleted": 272.661,
+            "applicationDispatchExcludingQueue": 232.761,
+            "streamWrite": 0.132,
+            "otelWriteQueuedMs": 273.051,
+            "writeCompletedToAck": 293.864,
+            "writeCompletedToFirstOutput": 565.575,
+            "ackToFirstOutput": 271.711,
+            "serverToFirstOutput": 838.236,
+            "submissionSkew": 0.147,
+            "clientToHandler": 569.91,
+            "clientToWriteCompleted": 842.571,
+            "batchToWriteCompleted": 842.718,
+            "batchToTurnCompleted": 3162.264
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 12,
+          "session": 4,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 42.749,
+            "admissionToDurableQueue": 50.596,
+            "serverToDurableQueue": 93.345,
+            "queueWait": 38.135,
+            "preparation": 102.02,
+            "invocation": 33.404,
+            "serverToWriteQueued": 266.977,
+            "serverToWriteCompleted": 267.056,
+            "applicationDispatchExcludingQueue": 228.921,
+            "streamWrite": 0.121,
+            "otelWriteQueuedMs": 267.047,
+            "writeCompletedToAck": 287.8,
+            "writeCompletedToFirstOutput": 592.797,
+            "ackToFirstOutput": 304.997,
+            "serverToFirstOutput": 859.853,
+            "submissionSkew": 0.164,
+            "clientToHandler": 857.531,
+            "clientToWriteCompleted": 1124.587,
+            "batchToWriteCompleted": 1124.751,
+            "batchToTurnCompleted": 3166.55
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 13,
+          "session": 5,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 38.978,
+            "admissionToDurableQueue": 47.987,
+            "serverToDurableQueue": 86.964,
+            "queueWait": 36.336,
+            "preparation": 106.201,
+            "invocation": 32.105,
+            "serverToWriteQueued": 261.705,
+            "serverToWriteCompleted": 261.787,
+            "applicationDispatchExcludingQueue": 225.451,
+            "streamWrite": 0.124,
+            "otelWriteQueuedMs": 262.047,
+            "writeCompletedToAck": 320.054,
+            "writeCompletedToFirstOutput": 623.274,
+            "ackToFirstOutput": 303.219,
+            "serverToFirstOutput": 885.061,
+            "submissionSkew": 0.177,
+            "clientToHandler": 1139.859,
+            "clientToWriteCompleted": 1401.646,
+            "batchToWriteCompleted": 1401.823,
+            "batchToTurnCompleted": 3170.968
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 14,
+          "session": 6,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 50.841,
+            "admissionToDurableQueue": 51.866,
+            "serverToDurableQueue": 102.707,
+            "queueWait": 39.757,
+            "preparation": 111.023,
+            "invocation": 34.271,
+            "serverToWriteQueued": 287.879,
+            "serverToWriteCompleted": 287.965,
+            "applicationDispatchExcludingQueue": 248.208,
+            "streamWrite": 0.125,
+            "otelWriteQueuedMs": 288.043,
+            "writeCompletedToAck": 325.076,
+            "writeCompletedToFirstOutput": 616.105,
+            "ackToFirstOutput": 291.029,
+            "serverToFirstOutput": 904.07,
+            "submissionSkew": 0.2,
+            "clientToHandler": 1416.406,
+            "clientToWriteCompleted": 1704.371,
+            "batchToWriteCompleted": 1704.571,
+            "batchToTurnCompleted": 3175.434
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 15,
+          "session": 7,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 41.503,
+            "admissionToDurableQueue": 53.561,
+            "serverToDurableQueue": 95.064,
+            "queueWait": 50.075,
+            "preparation": 113.005,
+            "invocation": 34.559,
+            "serverToWriteQueued": 292.823,
+            "serverToWriteCompleted": 292.907,
+            "applicationDispatchExcludingQueue": 242.832,
+            "streamWrite": 0.126,
+            "otelWriteQueuedMs": 292.046,
+            "writeCompletedToAck": 308.039,
+            "writeCompletedToFirstOutput": 323.934,
+            "ackToFirstOutput": 15.895,
+            "serverToFirstOutput": 616.841,
+            "submissionSkew": 0.212,
+            "clientToHandler": 1725.064,
+            "clientToWriteCompleted": 2017.971,
+            "batchToWriteCompleted": 2018.183,
+            "batchToTurnCompleted": 3179.739
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 16,
+          "session": 8,
+          "kind": "warm",
+          "ms": {
+            "serverToDurableAdmission": 44.25,
+            "admissionToDurableQueue": 54.134,
+            "serverToDurableQueue": 98.383,
+            "queueWait": 36.61,
+            "preparation": 107.082,
+            "invocation": 37.987,
+            "serverToWriteQueued": 279.963,
+            "serverToWriteCompleted": 280.224,
+            "applicationDispatchExcludingQueue": 243.614,
+            "streamWrite": 0.303,
+            "otelWriteQueuedMs": 280.05,
+            "writeCompletedToAck": 46.165,
+            "writeCompletedToFirstOutput": 62.665,
+            "ackToFirstOutput": 16.5,
+            "serverToFirstOutput": 342.889,
+            "submissionSkew": 0.235,
+            "clientToHandler": 2032.809,
+            "clientToWriteCompleted": 2313.033,
+            "batchToWriteCompleted": 2313.268,
+            "batchToTurnCompleted": 3183.949
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 17,
+          "session": 1,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 41.139,
+            "admissionToDurableQueue": 58.962,
+            "serverToDurableQueue": 100.101,
+            "queueWait": 886.88,
+            "preparation": 746.717,
+            "invocation": 28.885,
+            "serverToWriteQueued": 1762.626,
+            "serverToWriteCompleted": 1966.762,
+            "applicationDispatchExcludingQueue": 1079.882,
+            "streamWrite": 204.181,
+            "otelWriteQueuedMs": 1762.051,
+            "writeCompletedToAck": 18.147,
+            "writeCompletedToFirstOutput": 54.071,
+            "ackToFirstOutput": 35.925,
+            "serverToFirstOutput": 2020.834,
+            "submissionSkew": 0.027,
+            "clientToHandler": 2.012,
+            "clientToWriteCompleted": 1968.775,
+            "batchToWriteCompleted": 1968.802,
+            "batchToTurnCompleted": 2026.332
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 18,
+          "session": 2,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 41.95,
+            "admissionToDurableQueue": 49.167,
+            "serverToDurableQueue": 91.117,
+            "queueWait": 800.106,
+            "preparation": 768.147,
+            "invocation": 28.67,
+            "serverToWriteQueued": 1688.078,
+            "serverToWriteCompleted": 1863.515,
+            "applicationDispatchExcludingQueue": 1063.409,
+            "streamWrite": 175.464,
+            "otelWriteQueuedMs": 1688.031,
+            "writeCompletedToAck": 23.516,
+            "writeCompletedToFirstOutput": 85.16,
+            "ackToFirstOutput": 61.644,
+            "serverToFirstOutput": 1948.675,
+            "submissionSkew": 0.115,
+            "clientToHandler": 105.176,
+            "clientToWriteCompleted": 1968.692,
+            "batchToWriteCompleted": 1968.806,
+            "batchToTurnCompleted": 2057.054
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 19,
+          "session": 3,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 41.351,
+            "admissionToDurableQueue": 49.714,
+            "serverToDurableQueue": 91.065,
+            "queueWait": 714.46,
+            "preparation": 789.446,
+            "invocation": 28.656,
+            "serverToWriteQueued": 1623.647,
+            "serverToWriteCompleted": 1770.428,
+            "applicationDispatchExcludingQueue": 1055.967,
+            "streamWrite": 146.809,
+            "otelWriteQueuedMs": 1624.033,
+            "writeCompletedToAck": 28.733,
+            "writeCompletedToFirstOutput": 116.207,
+            "ackToFirstOutput": 87.474,
+            "serverToFirstOutput": 1886.635,
+            "submissionSkew": 0.129,
+            "clientToHandler": 198.254,
+            "clientToWriteCompleted": 1968.682,
+            "batchToWriteCompleted": 1968.81,
+            "batchToTurnCompleted": 2088.071
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 20,
+          "session": 4,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 38.746,
+            "admissionToDurableQueue": 46.084,
+            "serverToDurableQueue": 84.829,
+            "queueWait": 634.169,
+            "preparation": 810.426,
+            "invocation": 30.296,
+            "serverToWriteQueued": 1559.796,
+            "serverToWriteCompleted": 1676.243,
+            "applicationDispatchExcludingQueue": 1042.074,
+            "streamWrite": 116.476,
+            "otelWriteQueuedMs": 1560.034,
+            "writeCompletedToAck": 33.983,
+            "writeCompletedToFirstOutput": 148.097,
+            "ackToFirstOutput": 114.114,
+            "serverToFirstOutput": 1824.34,
+            "submissionSkew": 0.139,
+            "clientToHandler": 292.432,
+            "clientToWriteCompleted": 1968.675,
+            "batchToWriteCompleted": 1968.815,
+            "batchToTurnCompleted": 2120.117
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 21,
+          "session": 5,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 39.992,
+            "admissionToDurableQueue": 46.146,
+            "serverToDurableQueue": 86.138,
+            "queueWait": 552.868,
+            "preparation": 832.389,
+            "invocation": 28.536,
+            "serverToWriteQueued": 1499.986,
+            "serverToWriteCompleted": 1587.882,
+            "applicationDispatchExcludingQueue": 1035.014,
+            "streamWrite": 87.925,
+            "otelWriteQueuedMs": 1500.032,
+            "writeCompletedToAck": 38.925,
+            "writeCompletedToFirstOutput": 180.981,
+            "ackToFirstOutput": 142.056,
+            "serverToFirstOutput": 1768.863,
+            "submissionSkew": 0.147,
+            "clientToHandler": 380.79,
+            "clientToWriteCompleted": 1968.672,
+            "batchToWriteCompleted": 1968.819,
+            "batchToTurnCompleted": 2152.883
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 22,
+          "session": 6,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 38.754,
+            "admissionToDurableQueue": 48.731,
+            "serverToDurableQueue": 87.485,
+            "queueWait": 468.481,
+            "preparation": 853.522,
+            "invocation": 28.447,
+            "serverToWriteQueued": 1437.973,
+            "serverToWriteCompleted": 1497.389,
+            "applicationDispatchExcludingQueue": 1028.908,
+            "streamWrite": 59.441,
+            "otelWriteQueuedMs": 1438.028,
+            "writeCompletedToAck": 44.007,
+            "writeCompletedToFirstOutput": 218.231,
+            "ackToFirstOutput": 174.224,
+            "serverToFirstOutput": 1715.62,
+            "submissionSkew": 0.155,
+            "clientToHandler": 471.279,
+            "clientToWriteCompleted": 1968.668,
+            "batchToWriteCompleted": 1968.823,
+            "batchToTurnCompleted": 2190.244
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 23,
+          "session": 7,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 38.287,
+            "admissionToDurableQueue": 45.385,
+            "serverToDurableQueue": 83.672,
+            "queueWait": 389.07,
+            "preparation": 874.512,
+            "invocation": 28.617,
+            "serverToWriteQueued": 1375.905,
+            "serverToWriteCompleted": 1406.685,
+            "applicationDispatchExcludingQueue": 1017.616,
+            "streamWrite": 30.81,
+            "otelWriteQueuedMs": 1376.035,
+            "writeCompletedToAck": 49.165,
+            "writeCompletedToFirstOutput": 248.215,
+            "ackToFirstOutput": 199.05,
+            "serverToFirstOutput": 1654.9,
+            "submissionSkew": 0.162,
+            "clientToHandler": 561.979,
+            "clientToWriteCompleted": 1968.664,
+            "batchToWriteCompleted": 1968.827,
+            "batchToTurnCompleted": 2220.066
+          },
+          "admissionPhases": []
+        },
+        {
+          "sample": 24,
+          "session": 8,
+          "kind": "queued",
+          "ms": {
+            "serverToDurableAdmission": 38.152,
+            "admissionToDurableQueue": 44.308,
+            "serverToDurableQueue": 82.46,
+            "queueWait": 310.681,
+            "preparation": 895.716,
+            "invocation": 30.653,
+            "serverToWriteQueued": 1319.549,
+            "serverToWriteCompleted": 1319.654,
+            "applicationDispatchExcludingQueue": 1008.973,
+            "streamWrite": 0.134,
+            "otelWriteQueuedMs": 1319.034,
+            "writeCompletedToAck": 211.319,
+            "writeCompletedToFirstOutput": 280.409,
+            "ackToFirstOutput": 69.09,
+            "serverToFirstOutput": 1600.062,
+            "submissionSkew": 0.169,
+            "clientToHandler": 649.006,
+            "clientToWriteCompleted": 1968.66,
+            "batchToWriteCompleted": 1968.829,
+            "batchToTurnCompleted": 2253.611
+          },
+          "admissionPhases": []
+        }
+      ],
+      "resources": {
+        "elapsedMs": 8185.723,
+        "process": {
+          "cpuMs": {
+            "user": 6021.264,
+            "system": 2598.17
+          },
+          "cpuPercentOfOneCore": 105.298,
+          "memory": {
+            "samples": 35,
+            "sampleIntervalMs": 20,
+            "startRssBytes": 430243840,
+            "endRssBytes": 640892928,
+            "maxSampledRssBytes": 640892928,
+            "maxSampledHeapUsedBytes": 353675152
+          }
+        },
+        "host": {
+          "logicalCpus": 14,
+          "totalMemoryBytes": 51539607552,
+          "startFreeMemoryBytes": 64798720,
+          "endFreeMemoryBytes": 896172032,
+          "minSampledFreeMemoryBytes": 64798720,
+          "cpuBusyFraction": 0.535
+        },
+        "eventLoop": {
+          "resolutionMs": 20,
+          "sampleCount": 32,
+          "utilization": 0.9921532044190268,
+          "delayMs": {
+            "mean": 250.5536,
+            "max": 1322.254335,
+            "p50": 163.971071,
+            "p95": 496.500735,
+            "p99": 1322.254335
+          }
+        }
+      },
+      "fixture": {
+        "provider": "controlled in-process stdio peer per session",
+        "ackDelayMs": 40,
+        "outputAfterAckDelayMs": 10,
+        "queuePolicy": "hold every second turn until all third commands are durably queued, then release together",
+        "queuedBatchToReleaseMs": 734.165708,
+        "workspacePreparedBeforeMeasurement": true,
+        "realOwners": [
+          "HTTP router",
+          "ordinary workspace custody",
+          "SQLite EventStore",
+          "CodexConversation queue",
+          "CodexAppServerClient"
+        ],
+        "syntheticMacArtifactQualification": true,
+        "nativeProcesses": 0,
+        "modelCalls": 0
+      },
+      "run": 1,
+      "sessionsRequested": 8
+    }
+  ]
+}
