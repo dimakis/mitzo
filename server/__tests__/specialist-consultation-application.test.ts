@@ -204,6 +204,16 @@ it('resumes a retried reserved receipt through recovery instead of stranding its
       service.consult(authority, policy.policyId, request, approveAdmission),
     ).rejects.toThrow(/Another consultation is preparing; retain this requestId/);
     expect(recover).not.toHaveBeenCalled();
+    // A retry of the request this host is still running joins its result.
+    const joined = { joined: true };
+    internals.pending.set(authority.leadSessionId, {
+      requestId: request.requestId,
+      result: Promise.resolve(joined),
+    });
+    await expect(
+      service.consult(authority, policy.policyId, request, approveAdmission),
+    ).resolves.toBe(joined);
+    expect(recover).not.toHaveBeenCalled();
     internals.pending.delete(authority.leadSessionId);
     await expect(
       service.consult(authority, policy.policyId, request, approveAdmission),

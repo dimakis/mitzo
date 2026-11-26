@@ -477,10 +477,12 @@ export class SpecialistConsultations {
       // concurrent consult or restart. It holds an allowance slot, so retrying
       // the same requestId resumes it through the original recovery owner
       // (re-approving if its rule changed or its allowance was released).
-      // A running one joins its pending result.
+      // A retry of the request this host is still running joins its pending
+      // result, as before. Anything else reports its current state.
+      const pending = this.pending.get(a.leadSessionId);
+      if (pending?.requestId === input.requestId) return pending.result;
       if (previous.state === 'reserved') {
-        const pending = this.pending.get(a.leadSessionId);
-        if (pending && pending.requestId !== input.requestId)
+        if (pending)
           throw Error(
             'Another consultation is preparing; retain this requestId and retry after it settles',
           );

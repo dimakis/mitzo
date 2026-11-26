@@ -3605,7 +3605,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/specialist-authorization-replay.test.ts':
     'd310192427b4a1f121c290d3376bf9ea88d9f891ad6abd78c84cd3195ee56794',
   '../__tests__/specialist-consultation-application.test.ts':
-    'c0655a601cf4d62f9db9114017069addba7e8a4533390f881a7962ee7a388883',
+    '28705434c840db450e4c598ce1a922f8a09e884a86bf3bcd530e48449c75caa0',
   '../__tests__/specialist-consultation-store.test.ts':
     '7d425b2916cdbe2622bd7bd777b850e940194ea9ed4763942e156e3845652904',
   '../__tests__/specialist-review-routing.test.ts':
@@ -4719,7 +4719,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../specialist-consultation-store.ts':
     '56dc12a58e90b93bbcd168c2cb1d24f7a88061a166a9f6128e0b91a23d309617',
   '../specialist-consultations.ts':
-    'd349e96d0e5b804a95abe3f426ed0f9f1a96a98fb3cd4516b63da603f2d89dfd',
+    '69301edbfe4e512c4b6a9657ca884b6ae5441f1d754229cba85b6196c755fcee',
   '../specialist-review-routing.ts':
     '9bf82a3d6f65a9dff33105d1ff2e00985990ccf79994bd16bdcc450d9433523a',
   '../specialist-role-execution.ts':
