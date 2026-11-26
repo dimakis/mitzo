@@ -142,6 +142,22 @@ it('reconciles retained consent without live Maps but blocks durable offline log
   f.store.revokeAuthSession(f.login);
   expect(() => restored.capture('one', id)).toThrow('authority_unavailable');
 });
+it('a failed stale-revision revoke leaves no fence behind for issue or capture', async () => {
+  const f = await fixture();
+  // No Watch exists yet: the stale revoke must fail without fencing the subscription.
+  expect(() =>
+    f.consent.revoke(f.login, {
+      requestId: 'stale-revoke',
+      conversationId: 'one',
+      subscriptionId: id,
+      expectedRevision: 1,
+      expectedAuthorityRevision: 7,
+    }),
+  ).toThrow('revision_conflict');
+  const grant = f.issue();
+  expect(grant.revokedAt).toBeNull();
+  expect(() => f.consent.capture('one', id)()).not.toThrow();
+});
 it('revocation and connection/conversation changes invalidate captured before/after-read fences', async () => {
   const f = await fixture();
   const grant = f.issue();

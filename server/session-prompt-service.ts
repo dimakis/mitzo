@@ -46,6 +46,7 @@ export class SessionPromptService {
   private clock?: ReturnType<typeof setInterval>;
   private closed = false;
   private passiveDrain?: Promise<void>;
+  private passiveRun?: Promise<void>;
   private readonly controllers = new Map<string, AbortController>();
   private readonly inFlight = new Map<string, Promise<void>>();
   constructor(
@@ -133,15 +134,24 @@ export class SessionPromptService {
   }
   private async run() {
     if (this.port.maintenanceHeld?.()) return;
-    await Promise.all([
-      this.runPrompts(),
-      this.passive?.reconcileDue().catch(() =>
+    this.startPassive();
+    await this.runPrompts();
+  }
+  /** Passive GitHub reads run in their own coalesced task so a slow or stalled
+   * read never delays prompt/timer reconciliation. close()/drain() join it. */
+  private startPassive() {
+    if (!this.passive || this.passiveRun || this.closed) return;
+    this.passiveRun = this.passive
+      .reconcileDue()
+      .catch(() =>
         log.warn('Passive observation reconciliation unavailable', {
           stage: 'reconcile',
           code: 'pr_observation_unavailable',
         }),
-      ),
-    ]);
+      )
+      .finally(() => {
+        this.passiveRun = undefined;
+      });
   }
   private async runPrompts() {
     // Reconcile retained uncertain delivery even after a timer has been paused.
@@ -169,7 +179,9 @@ export class SessionPromptService {
       );
   }
   async cancelSession(sessionId: string) {
-    await this.passive?.stopConversation(sessionId, 'deleted');
+    // Removal preparation can still end in keep(): pause only. Subscriptions
+    // become terminal 'removed' when the removal's release completes.
+    await this.passive?.stopConversation(sessionId, 'stopped');
     this.store.cancelSession(sessionId);
     const pending: Promise<void>[] = [];
     for (const [id, completion] of this.inFlight) {
@@ -262,6 +274,7 @@ export class SessionPromptService {
   async drain() {
     this.close();
     await this.ticking;
+    await this.passiveRun;
     await this.passiveDrain;
   }
 }

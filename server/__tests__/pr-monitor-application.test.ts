@@ -52,7 +52,15 @@ it('uses retained ordinary admission without needing an attached browser or star
   expect(f.accounts.resume).toHaveBeenCalledWith(f.meta.accountBinding);
   expect(f.store.removals.assertAdmissible).toHaveBeenCalledWith('chat');
 });
-it.each(['workspace', 'mode', 'account', 'stopped', 'removed', 'admission'] as const)(
+it.each(['reserved', 'uncertain'] as const)(
+  'reports a turn in flight (%s admission) as transient, not unavailable',
+  (state) => {
+    const f = fixture();
+    f.admission.state = state;
+    expect(() => f.read()).toThrow('conversation_busy');
+  },
+);
+it.each(['workspace', 'mode', 'account', 'stopped', 'removed'] as const)(
   'rejects a changed %s owner before a background read',
   (reason) => {
     const f = fixture();
@@ -67,7 +75,6 @@ it.each(['workspace', 'mode', 'account', 'stopped', 'removed', 'admission'] as c
       f.store.removals.assertAdmissible.mockImplementation(() => {
         throw Error('removal pending');
       });
-    if (reason === 'admission') f.admission.state = 'reserved';
     expect(() => f.read()).toThrow('conversation_unavailable');
   },
 );

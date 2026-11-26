@@ -80,9 +80,12 @@ export class PrMonitorStore {
           )
       )
         throw Error('subscription_exists');
+      // Only active subscriptions count toward the caps: terminal (removed,
+      // merged, closed) rows are retained history and are never compacted.
       const count = this.db
         .prepare(
-          'SELECT count(*) total, sum(conversation_id=?) conversation FROM pr_monitor_subscriptions WHERE operator_id=?',
+          `SELECT count(*) total, coalesce(sum(conversation_id=?),0) conversation FROM pr_monitor_subscriptions
+           WHERE operator_id=? AND json_extract(data,'$.subscription.lifecycle') NOT IN ('removed','merged','closed')`,
         )
         .get(subscription.conversationId, subscription.operatorId) as {
         total: number;
@@ -505,7 +508,9 @@ export class PrMonitorStore {
       view.refreshState =
         diagnostic.code === 'retention_limit'
           ? 'blocked'
-          : diagnostic.code === 'rate_limited'
+          : diagnostic.code === 'rate_limited' ||
+              diagnostic.code === 'conversation_busy' ||
+              diagnostic.code === 'connection_busy'
             ? 'backoff'
             : diagnostic.code === 'quota_delayed'
               ? 'quota_delayed'

@@ -66,11 +66,33 @@ it('runs passive observation through the same tick and drain without allocating 
   expect(f.store.deliveries()).toEqual([]);
   expect(f.port.deliver).not.toHaveBeenCalled();
   await service.cancelSession('worker');
-  expect(passive.stopConversation).toHaveBeenCalledWith('worker', 'deleted');
+  // Removal preparation may still be kept; release makes subscriptions terminal.
+  expect(passive.stopConversation).toHaveBeenCalledWith('worker', 'stopped');
   await service.drain();
   expect(passive.close).toHaveBeenCalledTimes(1);
   await service.tick();
   expect(passive.reconcileDue).toHaveBeenCalledTimes(1);
+});
+it('does not hold prompt ticks behind a stalled passive read, and drain joins it', async () => {
+  const f = fixture();
+  let finish = () => {};
+  const passive = {
+    reconcileDue: vi.fn(() => new Promise<void>((resolve) => (finish = resolve))),
+    close: vi.fn(async () => undefined),
+    stopConversation: vi.fn(),
+  };
+  const service = new SessionPromptService(f.store, f.port, passive);
+  await service.tick();
+  await service.tick();
+  // The stalled read is coalesced, not restarted, and did not block either tick.
+  expect(passive.reconcileDue).toHaveBeenCalledTimes(1);
+  let drained = false;
+  const drain = service.drain().then(() => (drained = true));
+  await Promise.resolve();
+  expect(drained).toBe(false);
+  finish();
+  await drain;
+  expect(drained).toBe(true);
 });
 it('isolates passive reconciliation failures from authorized timer delivery', async () => {
   const f = fixture();

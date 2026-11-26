@@ -371,6 +371,9 @@ export class PrMonitorObserver {
           'authority_unavailable',
           'conversation_unavailable',
           'connection_unavailable',
+          // In-flight turns and pending connection changes are transient.
+          'conversation_busy',
+          'connection_busy',
           'quota_delayed',
           'retention_limit',
         ].includes(error.message)

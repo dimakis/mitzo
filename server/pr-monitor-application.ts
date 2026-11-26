@@ -6,6 +6,7 @@ import type { EventStore } from './event-store.js';
 import type { ConnectionStore } from './connections-store.js';
 import { createPrMonitorController } from './pr-monitor-controller.js';
 
+class PrMonitorTransient extends Error {}
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** Reuse the retained ordinary admission as a read fence, never as permission to
  * reopen a stopped chat or start a provider. No attached browser is required. */
@@ -21,6 +22,16 @@ export function readPrMonitorExecution(
       binding = store.getSessionRuntimeBinding(id),
       admission = store.getLatestOrdinaryCommandAdmission(id);
     const live = registry.findBySessionId(id);
+    // A turn in flight keeps its admission reserved/uncertain until it completes.
+    // That is the normal state while working on the PR in this chat: retry later
+    // instead of ending the Watch.
+    if (
+      meta &&
+      !meta.isHidden &&
+      admission &&
+      (admission.state === 'reserved' || admission.state === 'uncertain')
+    )
+      throw new PrMonitorTransient('conversation_busy');
     if (
       !meta ||
       meta.isHidden ||
@@ -52,8 +63,9 @@ export function readPrMonitorExecution(
       selectionRevision: digest(admission.selection),
       profileRevision: digest(admission.selection.agent),
     };
-  } catch {
-    throw Error('conversation_unavailable');
+  } catch (error) {
+    if (error instanceof PrMonitorTransient) throw Error(error.message, { cause: error });
+    throw Error('conversation_unavailable', { cause: error });
   }
 }
 type ControllerOptions = Parameters<typeof createPrMonitorController>[0];
@@ -72,13 +84,15 @@ export function createApplicationPrMonitor(options: {
       readPrMonitorExecution(options.eventStore, options.registry, options.accounts(), id),
     connection: (id) => {
       const runtime = options.connections();
+      if (!runtime) return undefined;
+      // A pending assignment, probe or candidate is a change in progress, not a
+      // lost connection: retry later rather than ending the Watch.
       if (
-        !runtime ||
         runtime.store.pendingAssignments().some((r) => r.connectionId === id) ||
         runtime.store.pendingProbes().some((r) => r.connectionId === id) ||
         runtime.store.candidates().some((r) => r.connectionId === id)
       )
-        return undefined;
+        throw Error('connection_busy');
       return runtime.store.get(id) ?? undefined;
     },
   });

@@ -3847,6 +3847,8 @@ const resourceRemovals = new SessionResourceRemovalService({
   store: eventStore.removals,
   cancelPrompts: (id) => getSessionPrompts().cancelSession(id),
   restorePrompts: (id) => getSessionPrompts().store.keepSession(id),
+  // Called only once release is underway; preparation merely paused them.
+  releasePassive: (id) => prMonitorController.stopConversation(id, 'deleted'),
 });
 const localRemoval = createLocalSessionRemoval({
   events: eventStore,

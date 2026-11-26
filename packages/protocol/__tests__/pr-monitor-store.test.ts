@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -345,5 +346,37 @@ describe('PR monitor event-store owner', () => {
     expect(delayed.snapshot).toEqual(recovered.snapshot);
     expect(delayed.refreshState).toBe('backoff');
     expect(delayed.subscription.lastSuccessfulRefreshAt).toBe(1000);
+  });
+  it.each(['conversation_busy', 'connection_busy'] as const)(
+    'backs off on %s without ending the subscription',
+    (code) => {
+      const s = open();
+      s.prMonitor.create('request', input());
+      s.prMonitor.fail(
+        'ordinary:user',
+        'chat',
+        id,
+        1,
+        { code, stage: 'read', nextRefreshAt: 62000 },
+        2000,
+      );
+      const view = s.prMonitor.read('ordinary:user', 'chat', id);
+      expect(view.subscription.lifecycle).toBe('paused');
+      expect(view.refreshState).toBe('backoff');
+      expect(view.subscription.nextRefreshAt).not.toBeNull();
+    },
+  );
+  it('counts only active subscriptions toward the registration caps', () => {
+    const s = open();
+    const create = (n: number) =>
+      s.prMonitor.create(`request-${n}`, {
+        ...input(),
+        id: randomUUID(),
+        github: { ...input().github, pr: n, prNodeId: `pr-node-${n}` },
+      });
+    for (let n = 1; n <= 20; n++) create(n);
+    expect(() => create(21)).toThrow('subscription_limit');
+    s.prMonitor.stopConversation('chat', 'deleted');
+    expect(() => create(21)).not.toThrow();
   });
 });

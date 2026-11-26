@@ -88,6 +88,21 @@ it('records successful release once and allows exact receipt recovery after resp
   expect(release).toHaveBeenCalledTimes(1);
   expect(f.store.read('chat')?.phase).toBe('completed');
 });
+it('makes passive observations terminal only on release, never on a kept removal', async () => {
+  const kept = fixture();
+  const releasePassive = vi.fn();
+  const keptService = new SessionResourceRemovalService({ ...kept.deps, releasePassive });
+  const record = await keptService.prepare('chat', kept.current);
+  keptService.keep('chat', record.operationId, kept.current);
+  expect(releasePassive).not.toHaveBeenCalled();
+
+  const released = fixture();
+  const service = new SessionResourceRemovalService({ ...released.deps, releasePassive });
+  const prepared = await service.prepare('chat', released.current);
+  await service.release('chat', prepared.operationId, released.current, async () => {});
+  expect(releasePassive).toHaveBeenCalledExactlyOnceWith('chat');
+  expect(released.store.read('chat')?.phase).toBe('completed');
+});
 it('joins an in-flight preparation before a concurrent deletion can release resources', async () => {
   const f = fixture();
   let finish!: () => void;

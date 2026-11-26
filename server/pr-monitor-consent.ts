@@ -26,7 +26,9 @@ type Ports = {
 /** Durable extension of SessionCapabilityGrants, using its interactive Access
  * entrypoint and the existing logout owner. Stored consent is never a login. */
 export class PrMonitorConsent {
-  private readonly revoking = new Set<string>();
+  // The revocation fence is the durable pending revocation only. Begin and
+  // complete are synchronous transactions, so an in-memory set added nothing and
+  // leaked whenever a revoke failed (stale revision, conflict, no Watch).
   constructor(private readonly ports: Ports) {}
   private interactive(auth: AuthSession) {
     if (
@@ -43,10 +45,7 @@ export class PrMonitorConsent {
   }
   issue(auth: AuthSession, input: PrWatchRequest): PrMonitorAuthority {
     this.interactive(auth);
-    if (
-      this.revoking.has(input.subscriptionId) ||
-      this.ports.store.pendingWatchRevocation(input.subscriptionId)
-    )
+    if (this.ports.store.pendingWatchRevocation(input.subscriptionId))
       throw Error('revocation_pending');
     if (
       !Number.isInteger(input.durationMinutes) ||
@@ -108,7 +107,6 @@ export class PrMonitorConsent {
     const fingerprint = createHash('sha256')
       .update(JSON.stringify(['revoke', 'ordinary:user', input]))
       .digest('hex');
-    this.revoking.add(input.subscriptionId);
     this.ports.store.beginWatchRevocation({
       ...input,
       operatorId: 'ordinary:user',
@@ -126,7 +124,6 @@ export class PrMonitorConsent {
         return { ...previous, revision: previous.revision + 1, revokedAt: Date.now() };
       },
     });
-    this.revoking.delete(input.subscriptionId);
     return result;
   }
   capture(
@@ -136,10 +133,7 @@ export class PrMonitorConsent {
     const saved = this.ports.store.authority(subscriptionId, 'pr-watch');
     if (!saved) throw Error('authority_unavailable');
     const check = () => {
-      if (
-        this.revoking.has(subscriptionId) ||
-        this.ports.store.pendingWatchRevocation(subscriptionId)
-      )
+      if (this.ports.store.pendingWatchRevocation(subscriptionId))
         throw Error('authority_unavailable');
       if (!this.ports.hasPersistentRevocationAuthority()) throw Error('authority_unavailable');
       const s = this.subscription(conversationId, subscriptionId);

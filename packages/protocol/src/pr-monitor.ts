@@ -145,6 +145,9 @@ export type PrMonitorDiagnostic = {
     | 'authority_unavailable'
     | 'connection_unavailable'
     | 'conversation_unavailable'
+    // Transient: a turn or connection change is in flight. Retry with backoff.
+    | 'conversation_busy'
+    | 'connection_busy'
     | 'head_changed'
     | 'incomplete'
     | 'retention_limit'
