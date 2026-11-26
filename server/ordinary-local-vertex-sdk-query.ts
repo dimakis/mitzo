@@ -83,7 +83,7 @@ export function createSdkCallbackState(): SdkCallbackState {
     retired: false,
     completing: false,
     callbacks,
-    runCallback: (work) => callbacks.track(work),
+    runCallback: (work, descriptor) => callbacks.track(work, undefined, descriptor),
     repositoryCallbacks: createSdkRepositoryCallbacks({
       commandId: () => authority?.commandId,
       checkTool: (name) => state.checkTool(name),

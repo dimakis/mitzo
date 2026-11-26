@@ -1,5 +1,7 @@
 import {
   AgentMessageProjectionSchema,
+  parseBackgroundTaskObservation,
+  sameBackgroundTask,
   agentMessageTranscriptRow,
   MessageReplyContextSchema,
   type MessageReplyContext,
@@ -62,6 +64,9 @@ export interface RestoredMessage {
 }
 
 export interface RestoredSubagentState {
+  stopReason?: 'process_restart';
+  backgroundTask?: import('@mitzo/protocol').BackgroundTaskObservation;
+  lastEventSeq?: number;
   status?: import('@mitzo/protocol').SubagentStatus;
   diagnostic?: import('@mitzo/protocol').SubagentDiagnostic;
   messageId: string;
@@ -238,9 +243,12 @@ function replaySubagents(events: StoredEvent[]) {
     {
       messageId: string;
       blocks: Map<string, NestedBlock>;
+      backgroundTask?: import('@mitzo/protocol').BackgroundTaskObservation;
+      lastEventSeq?: number;
       order: string[];
       running: boolean;
       status?: import('@mitzo/protocol').SubagentStatus;
+      stopReason?: 'process_restart';
       diagnostic?: import('@mitzo/protocol').SubagentDiagnostic;
       summary?: string;
       usage?: Record<string, number>;
@@ -266,9 +274,19 @@ function replaySubagents(events: StoredEvent[]) {
     if (!parentMessageId) continue;
     const scope = key(parentMessageId, parentId);
     if (event.type === 'subagent_start' && typeof p.subagentMessageId === 'string') {
-      if (states.has(scope)) continue;
+      const previous = states.get(scope);
+      if (previous) {
+        const task = parseBackgroundTaskObservation(p.backgroundTask);
+        if (task && !previous.backgroundTask && event.seq > (previous.lastEventSeq ?? -1)) {
+          previous.backgroundTask = task;
+          previous.lastEventSeq = event.seq;
+        }
+        continue;
+      }
       states.set(scope, {
         messageId: p.subagentMessageId,
+        backgroundTask: parseBackgroundTaskObservation(p.backgroundTask),
+        lastEventSeq: event.seq,
         blocks: new Map(),
         order: [],
         running: true,
@@ -278,7 +296,18 @@ function replaySubagents(events: StoredEvent[]) {
     }
     const state = states.get(scope);
     if (!state) continue;
+    if (
+      (state.backgroundTask &&
+        parseBackgroundTaskObservation(p.backgroundTask) &&
+        !sameBackgroundTask(
+          state.backgroundTask,
+          parseBackgroundTaskObservation(p.backgroundTask)!,
+        )) ||
+      (state.lastEventSeq !== undefined && event.seq <= state.lastEventSeq)
+    )
+      continue;
     if (state.status && ['completed', 'failed', 'cancelled'].includes(state.status)) continue;
+    state.lastEventSeq = event.seq;
     if (event.type === 'subagent_block_start' && typeof p.blockId === 'string') {
       state.blocks.set(p.blockId, {
         blockId: p.blockId,
@@ -314,6 +343,8 @@ function replaySubagents(events: StoredEvent[]) {
           ? 'cancelled'
           : ((p.status as import('@mitzo/protocol').SubagentStatus | undefined) ?? 'completed');
       state.diagnostic = p.diagnostic as import('@mitzo/protocol').SubagentDiagnostic | undefined;
+      if (state.status === 'cancelled' && p.stopReason === 'process_restart')
+        state.stopReason = 'process_restart';
       if (typeof p.summary === 'string') state.summary = p.summary;
       else if (event.type === 'subagent_cancelled') state.summary = 'Cancelled';
       if (p.usage && typeof p.usage === 'object') state.usage = p.usage as Record<string, number>;
@@ -325,6 +356,9 @@ function replaySubagents(events: StoredEvent[]) {
     const blocks = state.order.map((id) => state.blocks.get(id)!);
     const subagent: RestoredSubagentState = {
       messageId: state.messageId,
+      ...(state.stopReason ? { stopReason: state.stopReason } : {}),
+      ...(state.backgroundTask ? { backgroundTask: state.backgroundTask } : {}),
+      ...(state.lastEventSeq !== undefined ? { lastEventSeq: state.lastEventSeq } : {}),
       status: state.status,
       ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
       blocks: active && state.running ? blocks : blocks.map(({ done: _done, ...rest }) => rest),

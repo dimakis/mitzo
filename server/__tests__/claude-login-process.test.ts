@@ -2,7 +2,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { claudeLoginFailureReason, createClaudeLoginProcess } from '../claude-login-process.js';
+import {
+  claudeLoginFailureReason,
+  createClaudeLoginProcess,
+  nativeLoginText,
+} from '../claude-login-process.js';
 import { spawn } from 'node:child_process';
 const boundarySpawn = vi.hoisted(() => vi.fn());
 vi.mock('../credential-sdk-boundary.js', () => ({
@@ -53,6 +57,13 @@ function fixture(body: string) {
 // stripVTControlCharacters cannot parse an OSC 8 hyperlink whose target contains `+`.
 const url =
   'https://claude.com/cai/oauth/authorize?code=true&client_id=synthetic-client&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference&code_challenge=challenge&code_challenge_method=S256&state=state';
+it.each(['\u0007', '\u001b\\', '\u009c'])(
+  'sanitizes native login hyperlinks through the shared terminal parser (%#)',
+  (terminator) => {
+    const text = `Sign in at: \u001b]8;;${url}${terminator}${url}\u001b]8;;${terminator}\n`;
+    expect(nativeLoginText(text)).toBe(`Sign in at: ${url}\n`);
+  },
+);
 it('uses clean routing, receives chunked manual URL, and hands codes to the native process without logging them', async () => {
   vi.stubEnv('ANTHROPIC_API_KEY', 'synthetic-enmaas-key');
   vi.stubEnv('CLAUDE_CODE_USE_VERTEX', '1');
