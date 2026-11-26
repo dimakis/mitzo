@@ -10,6 +10,20 @@ const input = {
   baseBranch: 'main',
 };
 const approved = `<!-- centaur:sha:${head} -->\n## Centaur Review\nLGTM — no issues found.\n\n### Convergence\n**Recommendation:** \`merge\`\n- New blocking findings: 0\n- Unresolved blocking findings: 0\n`;
+const withFindings = (summary: string, recommendation = 'merge', newBlocking = 0) =>
+  approved
+    .replace('LGTM — no issues found.', summary)
+    .replace('`merge`', `\`${recommendation}\``)
+    .replace('- New blocking findings: 0', `- New blocking findings: ${newBlocking}`) +
+  '- Non-blocking follow-ups: 1\n\n### `server/x.ts`\n- **missing_tests** `[follow-up]`\n';
+const followUpOnly = ['Found **1** issue(s).', 'Found **2** issue(s) (1 warning).'];
+const stillBlocked = [
+  withFindings('Found **1** issue(s).', 'merge', 1),
+  withFindings('Found **1** issue(s) (1 critical).'),
+  withFindings('Found **1** issue(s).', 'fix'),
+  withFindings('Found **1** issue(s).', 'human_decision'),
+  withFindings('Found **1** issue(s).') + '\n> **Recommendation:** `merge`\n',
+];
 function fixture(
   options: {
     reports?: unknown[];
@@ -329,6 +343,20 @@ describe('final trusted review chronology', () => {
     await expect(publisher.accept(input)).rejects.toThrow('Centaur');
     expect(run.mock.calls.some((call) => call[1][1] === 'merge')).toBe(false);
   });
+  it.each(followUpOnly)(
+    'accepts a merge verdict whose only findings are follow-ups: %s',
+    (summary) => {
+      expect(
+        finalKnowledgeApproval([{ ...review, body: withFindings(summary) }], head, 'owner'),
+      ).toBe(true);
+    },
+  );
+  it.each(stillBlocked)(
+    'rejects blockers, critical, non-merge or forged follow-up reports %#',
+    (body) => {
+      expect(finalKnowledgeApproval([{ ...review, body }], head, 'owner')).toBe(false);
+    },
+  );
   it('allows a newly edited final approval to supersede an earlier blocking verdict', () => {
     expect(
       finalKnowledgeApproval(
