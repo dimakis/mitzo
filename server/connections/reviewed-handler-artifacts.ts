@@ -31,8 +31,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../terminal-output-text.ts':
-    '0c6807fa18211ff56299ea80c211d3c536c8b5b7e003b331deba978dc00ac537',
+  '../terminal-output-text.ts': '0c6807fa18211ff56299ea80c211d3c536c8b5b7e003b331deba978dc00ac537',
   '../host-github-credential.ts':
     '4caa2e872d96736951a5153224b8c0b52441e6c8e22f7064f8eaa1057953c1ba',
   '../__tests__/host-github-credential.test.ts':
@@ -3874,7 +3873,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1fcdffe7e7eacbb2d9d3c8cf5b457c48771d5f0832d93cf8d866cd71cdb0212f',
   '../codex-approved-search.ts': 'eaec7066315ae88f4f72e0af04f2bc1a37f916385e7eecb4abe708097b0f5a01',
   '../codex-borrowed-search.ts': '9614d2109b5ee0d65d641ca6e743d3c22a3cd8d70c48178d1a0bdfefcbcf35e1',
-  '../codex-chat-session.ts': 'd0dfd119dfeff2aab0abbe432acdf415bae681a171fb04b27c58095ea456d420',
+  '../codex-chat-session.ts': '4a92186e2f63d57cd5ef1e271073aec6999a4bcecd34e3bd0c29bb12d7753770',
   '../codex-conversation-store.ts':
     '640aa060c1e44e436983c799abe491d7d2475b2dea3196d855434de98ba2adef',
   '../codex-conversation.ts': '60b362e357e04a980a475d7b0244e92e78401947b19d437ccceb63846418957c',
