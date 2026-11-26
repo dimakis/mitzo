@@ -119,7 +119,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'd6eb0e0f6aa82b33b5dbe3f135d14e6959788a2e379f486767e551fae85c8a80',
+    '5afb20efcb5ba102fe1de1429ba47e44f3c46a00551bc254399dc1d43cbf8148',
   '../../.github/workflows/pr-landing-reconcile.yml':
     'c4f43fcbd69bc4bbd657f2d89982b307c158bc7363d118f436eb2083a6daf91a',
   '../../.github/workflows/pr-landing-request.yml':
@@ -1815,7 +1815,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-source-preflight.test.ts':
     '5d5c5d72d3153966f59dad8f7974a3064fe02cdc592a523517abb093414d508b',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
-    '384e7d73fa170ac90e231ec815f6fef7244a74af66b5d1df206759a9c320e0e1',
+    '8f9852ba85f9c665652be138b87315589f12a8fb32716ef6503fda694dbaedcb',
   '../../scripts/__tests__/ci-unit-rebalance.test.ts':
     '9e35dffcf400461a73ab9730e3287e73baf9f0bf24673df1281b1ea198bf6b8a',
   '../../scripts/__tests__/ci-unit-sequencer.test.ts':
