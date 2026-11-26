@@ -4,6 +4,31 @@ import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 const mutations: { path: string; body: Record<string, unknown> }[] = [];
+test('an opening failure shows its recovery action without a stale connecting label', async ({
+  page,
+}) => {
+  await page.route('**/api/terminals', (route) =>
+    route.fulfill({
+      status: 409,
+      json: {
+        error: 'This chat’s workspace is unavailable. Resume the original chat, then retry.',
+        code: 'terminal_workspace_unavailable',
+        diagnosticId: 'offline-diagnostic',
+      },
+    }),
+  );
+  await page.goto('/terminal?sessionId=chat-a');
+  await expect(page.getByRole('alert')).toHaveText(
+    'This chat’s workspace is unavailable. Resume the original chat, then retry.',
+  );
+  await page.getByRole('button', { name: 'Show controls' }).click();
+  await expect(page.getByRole('button', { name: 'Choose terminal destination' })).toContainText(
+    'Unavailable',
+  );
+  await expect(page.getByText('Connecting…', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Run command' })).toBeDisabled();
+});
 test.beforeEach(async ({ page }) => {
   mutations.length = 0;
   let preferences = { revision: 0, names: { briefing: 'Minion', terminal: 'Minion' }, pins: [] };

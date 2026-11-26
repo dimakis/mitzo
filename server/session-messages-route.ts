@@ -5,6 +5,7 @@ import { sendTranscriptResponse } from './transcript-response.js';
 import { TranscriptReadFailure } from './transcript-read-failure.js';
 import { createLogger } from './logger.js';
 import { retainRuntimeFailure } from './runtime-failure-diagnostics.js';
+import { collaborationSourceDiagnostic } from './collaboration-source-diagnostic.js';
 
 const log = createLogger('session-transcript');
 
@@ -105,6 +106,11 @@ export function createSessionMessagesHandler(read: {
         });
         res.setHeader?.('X-Mitzo-Diagnostic-Id', failure.diagnosticId);
         observation.end(true);
+        const source = variant === 'durable' ? collaborationSourceDiagnostic(cause) : undefined;
+        if (source) {
+          res.status(422).json({ error: source.message, code: source.code });
+          return;
+        }
         // Never return partial history, retry another source, or expose stored content.
         res.status(500).json({ error: 'Session transcript unavailable' });
       }

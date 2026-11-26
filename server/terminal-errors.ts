@@ -5,3 +5,95 @@ export class TerminalSessionMissing extends Error {
     this.name = 'TerminalSessionMissing';
   }
 }
+
+const failures = {
+  terminal_open_failed: [
+    'open',
+    'Terminal could not be opened. Retry or choose another environment.',
+  ],
+  terminal_start_failed: [
+    'start',
+    'Terminal could not be opened because its shell transport failed. Retry or check the terminal service on the Mac.',
+  ],
+  terminal_limit_reached: [
+    'capacity',
+    'The terminal limit has been reached. End an unused terminal, then retry.',
+  ],
+  terminal_workspace_unavailable: [
+    'workspace',
+    'This chat’s workspace is unavailable. Resume the original chat, then retry.',
+  ],
+  terminal_sandbox_unavailable: [
+    'sandbox',
+    'This chat’s original sandbox is unavailable. Resume the original chat, then retry.',
+  ],
+  terminal_binding_changed: [
+    'binding',
+    'This chat’s saved environment no longer matches its current account or workspace. Resume the original chat, then retry.',
+  ],
+  terminal_destination_ambiguous: [
+    'destination',
+    'Choose a specific agent’s chat environment for this conversation.',
+  ],
+} as const;
+
+/** Only these bounded messages may cross the operator API. Keep raw causes internal. */
+export class TerminalOperationError extends Error {
+  readonly stage: string;
+  constructor(
+    readonly code: keyof typeof failures,
+    cause?: unknown,
+  ) {
+    super(failures[code][1], { cause });
+    this.name = 'TerminalOperationError';
+    this.stage = failures[code][0];
+  }
+}
+
+/**
+ * Process errors can contain SSH proxy arguments and short-lived grant tokens in
+ * their message, stack, cmd, stderr and stdout. Retain only the fields the
+ * diagnostic needs (error code/exit status and signal) on a fresh Error, so no
+ * later log serializer of the cause chain can expose the token.
+ */
+export function sanitizedProcessCause(error: unknown): Error {
+  const field = (name: string) =>
+    error && typeof error === 'object' && name in error
+      ? (error as Record<string, unknown>)[name]
+      : undefined;
+  const code = field('code');
+  const signal = field('signal');
+  return Object.assign(new Error('Terminal transport process failed'), {
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    ...(typeof signal === 'string' ? { signal } : {}),
+  });
+}
+
+/** Process errors can contain SSH grant tokens in message, stack, args and stderr. */
+export function terminalFailureDiagnostic(error: TerminalOperationError) {
+  let cause: unknown = error;
+  const causes: string[] = [];
+  for (let depth = 0; depth < 5 && cause instanceof Error; depth++) {
+    if (cause instanceof TerminalOperationError) causes.push(cause.code);
+    else if (
+      'code' in cause &&
+      typeof cause.code === 'string' &&
+      [
+        'ENOENT',
+        'EACCES',
+        'EPERM',
+        'ENOSPC',
+        'EMFILE',
+        'ENFILE',
+        'ETIMEDOUT',
+        'ECONNREFUSED',
+      ].includes(cause.code)
+    )
+      causes.push(cause.code);
+    else if (cause.message === 'posix_spawnp failed.' || cause.message === 'forkpty(3) failed.')
+      causes.push('pty_spawn_failed');
+    else causes.push('unclassified_error');
+    cause = cause.cause;
+  }
+  return { code: error.code, stage: error.stage, causes };
+}

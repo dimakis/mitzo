@@ -63,6 +63,33 @@ it('does not silently truncate oversized lines or lose page boundaries', () => {
   expect(githubLogPage(log, { offset: 69998 }).content).toBe('xx');
 });
 
+it('strips terminal controls before filtering and paging while retaining original source bytes', () => {
+  const body = '\u001b[31mFAIL\u001b[0m first\n\u001b]52;c;clipboard\u0007FAIL last\n';
+  const first = githubLogPage(body, { query: 'FAIL', limit: 8 });
+  const rest = githubLogPage(body, { query: 'FAIL', offset: first.nextOffset! });
+  expect(first.content + rest.content).toBe('FAIL first\nFAIL last');
+  expect(first.sourceBytes).toBe(Buffer.byteLength(body));
+  expect(rest.nextOffset).toBeNull();
+});
+
+it.each(['\u0007', '\u001b\\', '\u009c'])(
+  'removes complete OSC hyperlinks with arbitrary payloads before paging (%#)',
+  (terminator) => {
+    const body = `\u001b]8;;https://example.invalid/hidden?scope=a+b${terminator}FAIL visible\u001b]8;;${terminator}\n`;
+    expect(githubLogPage(body, {}).content).toBe('FAIL visible\n');
+    expect(githubLogPage(body, { query: 'hidden' }).content).toBe('');
+    const first = githubLogPage(body, { query: 'FAIL', limit: 5 });
+    const rest = githubLogPage(body, { query: 'FAIL', offset: first.nextOffset! });
+    expect(first.content + rest.content).toBe('FAIL visible');
+    expect(first.sourceBytes).toBe(Buffer.byteLength(body));
+  },
+);
+
+it('drops C1 and unfinished OSC payloads without returning hidden text', () => {
+  const body = 'FAIL first\n\u009d8;;hidden+target\u009cFAIL last\n\u001b]8;;unfinished+target';
+  expect(githubLogPage(body, {}).content).toBe('FAIL first\nFAIL last\n');
+});
+
 it.each([
   '/repos/owner/repo/actions/runs/123/logs',
   '/repos/owner/repo/actions/jobs/123/logs?redirect=elsewhere',
