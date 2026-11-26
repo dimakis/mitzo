@@ -1,6 +1,10 @@
+import { collaborationSourceDiagnostic } from './collaboration-source-diagnostic.js';
+
 /** Only reviewed, fixed diagnostics cross the tool boundary. Original causes
  * remain in the controller's structured log, never in a tool error string. */
 export function specialistDiagnostic(cause: unknown) {
+  const source = collaborationSourceDiagnostic(cause);
+  if (source) return source;
   const message = cause instanceof Error ? cause.message : '';
   const rules = [
     [

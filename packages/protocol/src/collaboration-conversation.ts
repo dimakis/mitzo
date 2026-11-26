@@ -320,6 +320,10 @@ export const CollaborationSnapshotMessageSchema = z.strictObject({
   conversationId: id,
   messageId: id,
   sequence,
+  /** Completion remains the ordering anchor; retained start identifies overlap. */
+  startedAtSequence: sequence.optional(),
+  /** Public correction target, not a provider acknowledgement. */
+  steersMessageId: id.optional(),
   author,
   recordedAt: sequence.optional(),
   source: CollaborationMessageSourceSchema.nullable(),
@@ -686,6 +690,7 @@ export class CollaborationContractError extends Error {
       | 'unavailable_recipient'
       | 'no_responders'
       | 'snapshot_changed'
+      | 'source_history_overlap_invalid'
       | 'capacity_refused'
       | 'invalid_transition'
       | 'allocation_conflict'

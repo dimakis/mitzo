@@ -48,7 +48,8 @@ const notification = (status: string) => ({
   task_id: 'task-1',
   tool_use_id: 'agent-call',
   status,
-  summary: 'private provider diagnostic',
+  // A completed summary is the task's result; other summaries are diagnostics.
+  summary: status === 'completed' ? 'Public task result' : 'private provider diagnostic',
   output_file: '/private/provider-output',
 });
 const childOutput = () => [
@@ -206,7 +207,8 @@ describe('Claude task outcomes through adapter, client, replay and inline UI', (
   it.each([
     ['failed', 'failed', 'Failed'],
     ['stopped', 'cancelled', 'Cancelled'],
-    ['completed', 'completed', 'Complete'],
+    // An ordinary Agent subagent (no process generation) shows its completed result.
+    ['completed', 'completed', 'Public task result'],
   ])('%s preserves output and its distinct outcome', async (sdkStatus, status, label) => {
     const { state, replay, session } = await run([
       ...parentEvents(),
@@ -541,6 +543,42 @@ describe('Claude task outcomes through adapter, client, replay and inline UI', (
       expect(
         messages.find((m) => m.messageId === 'new-parent')?.blocks[0].subagent,
       ).toBeUndefined();
+    }
+  });
+
+  it('keeps each task identity when a newer turn launches an Agent at the same block ID', async () => {
+    const { state, replay, sent } = await run([
+      ...parentEvents(),
+      taskStarted,
+      ...childOutput(),
+      { type: 'assistant' },
+      start('new-parent'),
+      stream({
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'tool_use', name: 'Agent', id: 'second-agent-call' },
+      }),
+      stream({ type: 'content_block_stop', index: 0 }),
+      {
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'task-2',
+        tool_use_id: 'second-agent-call',
+      },
+      // Late completion of the first task after the block ID was reused.
+      notification('completed'),
+    ]);
+    const firstEnd = sent.find(
+      (event) => event.type === 'subagent_end' && event.parentToolId === 'agent-call',
+    );
+    expect(firstEnd?.backgroundTask).toMatchObject({ taskId: 'task-1' });
+    for (const messages of [state.messages, replay]) {
+      expect(
+        messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent,
+      ).toMatchObject({ status: 'completed', backgroundTask: { taskId: 'task-1' } });
+      expect(messages.find((m) => m.messageId === 'new-parent')?.blocks[0].subagent).toMatchObject({
+        backgroundTask: { taskId: 'task-2' },
+      });
     }
   });
 

@@ -40,6 +40,7 @@ import { INTERNAL_TOKEN } from './internal-token.js';
 import { telosSdkDefinitions, telosSdkSchemas, telosSdkPrefix } from './telos-sdk-definitions.js';
 import {
   copyCallbackOutcome,
+  describeToolCall,
   retainCallbackOutcome,
   type TurnCallbackRunner,
 } from './turn-callbacks.js';
@@ -118,6 +119,12 @@ export function createTelosSdkServer(owners: {
         throw Error('Tool not allowed by the frozen command skill ceiling');
     };
     const signal = AbortSignal.any([session.abortController.signal, extra.signal]);
+    // Names this call if its effect turns out uncertain. Same call identity the
+    // approval audit uses; only a top-level request ID leaves with it.
+    const descriptor = describeToolCall(definition.name, input, {
+      toolUseId: `${runtimeId}:${extra.requestId}`,
+      requestHash: createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+    });
     return (owners.runCallback ?? ((work) => work()))(async () => {
       let assertDelivery: (() => void) | undefined;
       try {
@@ -417,7 +424,7 @@ export function createTelosSdkServer(owners: {
           }),
         );
       }
-    });
+    }, descriptor);
   });
   return server;
 }
