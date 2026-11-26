@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { SharedConversationSummary } from './types.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -298,35 +299,63 @@ export class CollaborationConversationStore {
     sourceConversationId: string;
     collaborationId: string;
   }> {
+    return this.navigationProjection(false).relations;
+  }
+  /** List badges and grouping share one membership scan. No conversation view,
+   * message/event projection, provider history or runtime admission is read. */
+  listNavigation() {
+    return this.navigationProjection(true);
+  }
+  private navigationProjection(includeSummaries: boolean) {
+    const discussions: SharedConversationSummary[] = [];
     const rows = this.db
       .prepare(
-        `SELECT r.collaboration_id, r.participant_session_ids FROM session_collaboration_revisions r
+        `SELECT r.collaboration_id, r.revision, r.participant_session_ids FROM session_collaboration_revisions r
       WHERE NOT EXISTS (SELECT 1 FROM session_collaboration_revisions n
       WHERE n.collaboration_id=r.collaboration_id AND n.revision>r.revision) ORDER BY r.collaboration_id`,
       )
-      .all() as Array<{ collaboration_id: string; participant_session_ids: string }>;
+      .all() as Array<{
+      collaboration_id: string;
+      revision: number;
+      participant_session_ids: string;
+    }>;
     const groups = rows.map((r) => ({
       id: r.collaboration_id,
+      revision: r.revision,
       members: z.array(z.string()).parse(JSON.parse(r.participant_session_ids)),
     }));
     const associations = new Map<string, number>();
+    // A synchronous read-only projection shares observations between its badge
+    // and navigation consumers; no authority is cached across requests.
+    const availability = new Map<string, boolean>();
+    const available = (id: string) => {
+      if (!availability.has(id)) availability.set(id, this.owners.available(id));
+      return availability.get(id)!;
+    };
     for (const group of groups)
       for (const id of group.members) associations.set(id, (associations.get(id) ?? 0) + 1);
-    return groups.flatMap((group) => {
+    const relations = groups.flatMap((group) => {
       const source = collaborationOrigin(this.db, group.id, sha);
       if (
         !source ||
         !group.members.includes(source) ||
         associations.get(source) !== 1 ||
-        !this.owners.available(source)
+        !available(source)
       )
         return [];
+      // A prepared singleton is still ordinary. Retain shared identity after
+      // members leave, using membership history rather than a title or activity.
+      if (includeSummaries && group.revision > 1) {
+        discussions.push({
+          collaborationId: group.id,
+          sourceConversationId: source,
+          membershipRevision: group.revision,
+          participantSessionIds: group.members,
+          unavailableParticipantSessionIds: group.members.filter((id) => !available(id)),
+        });
+      }
       return group.members.flatMap((sessionId) => {
-        if (
-          sessionId === source ||
-          associations.get(sessionId) !== 1 ||
-          !this.owners.available(sessionId)
-        )
+        if (sessionId === source || associations.get(sessionId) !== 1 || !available(sessionId))
           return [];
         try {
           const join = this.getLinkedJoinForSession(group.id, sessionId);
@@ -354,6 +383,7 @@ export class CollaborationConversationStore {
         }
       });
     });
+    return { relations, discussions };
   }
   begin(group: string, raw: unknown) {
     const input = CollaborationBeginSchema.parse(raw);
