@@ -23,6 +23,7 @@ import { SessionDetailsDialog } from './SessionDetailsDialog';
 import { SessionWorkLink } from './SessionWorkLink';
 import { recordTitle } from '../lib/record-title';
 import { ConversationTree } from './ConversationTree';
+import { SharedConversationMarker } from './SharedConversationMarker';
 import '../styles/session-library.css';
 export interface SessionPanelProps {
   activeSessionId: string | undefined;
@@ -70,6 +71,7 @@ function SessionPanelRow({
       >
         <span className="session-panel-item-text">
           <span className="session-panel-item-summary">{title}</span>
+          <SharedConversationMarker session={session} />
           <span className="session-panel-item-meta">
             <SessionActivityStatus
               activity={activity}
