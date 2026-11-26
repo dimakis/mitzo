@@ -297,7 +297,12 @@ function DesktopChatViewContent() {
     .filter((message) => message.role === 'user' && message.commandState === 'running')
     .at(-1)?.messageId;
   const supportsSteering = localBound && supportsUserTurnSteering(localRuntime.binding);
-  const turnSteering = useTurnSteering(activeSessionId, steerTarget, !!supportsSteering);
+  const turnSteering = useTurnSteering(
+    activeSessionId,
+    steerTarget,
+    !!supportsSteering,
+    messages.commandStates,
+  );
 
   const defaultWorkspaceAvailable =
     localRuntime.intent.execution.location === 'local'
