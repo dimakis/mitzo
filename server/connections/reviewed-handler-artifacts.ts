@@ -5036,7 +5036,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/pr-monitor-centaur.test.ts':
     'eac06590ecb659b4252235448d7a0e63899a6defec1437fd18b51617ee66e401',
   '../__tests__/pr-monitor-controller.test.ts':
-    'db83f98f2e92cf15b6c770492280078ec2f519fe2b36992d7aa9324dc837ac56',
+    '8e9bc14340aa3ff0ed7c12b3641438c815744cbb3520497c32cda3ec83c72ccf',
   '../pr-monitor-application.ts':
     '1d6c7771a709a55bd49dbf8c2b9527d65443f6595913a9b7a03f26ca714cb8d8',
   '../pr-monitor-author-policy.ts':

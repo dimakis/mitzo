@@ -404,7 +404,13 @@ it('connects the real Access registration/consent routes to the existing schedul
     expect(f.store.prMonitor.read('ordinary:user', 'chat', s.id).subscription.lifecycle).toBe(
       'paused',
     );
+    // Removal preparation only pauses (the removal can still be kept); the
+    // removal's release makes the subscription terminal.
     await service.cancelSession('chat');
+    expect(f.store.prMonitor.read('ordinary:user', 'chat', s.id).subscription.lifecycle).toBe(
+      'paused',
+    );
+    await f.controller.stopConversation('chat', 'deleted');
     expect(f.store.prMonitor.read('ordinary:user', 'chat', s.id).subscription.lifecycle).toBe(
       'removed',
     );
