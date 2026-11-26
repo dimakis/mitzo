@@ -36,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-cli-restart-resume-offline.test.ts':
     '6d036d15be2e409f2e5addc207cab41304303b8e3dea5fba4d64f26347529356',
   '../__tests__/claude-restart-interrupted-turn.test.ts':
-    '4c839055ecd9cb10a089075af0e178288459830b0c8c57ba359d94d101a6b4c7',
+    '2408a52819a0717ebf802126f57632ba037ff01f4a8df68f541af4e8983bd56f',
   '../codex-lifecycle-failure.ts':
     '51b392c30e9636a2bc96e2bdd3782447ac1f786bb4cf42f3994b6e4c8e08255d',
   '../__tests__/collaboration-runtime-reliability.test.ts':

@@ -1,7 +1,10 @@
 import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ownedVertexRuntimeFixture } from './fixtures/owned-local-vertex-runtime.js';
-import { ClaudeSubscriptionCustody } from '../claude-subscription-custody.js';
+import {
+  ClaudeSubscriptionCustody,
+  claudeSdkInstallation,
+} from '../claude-subscription-custody.js';
 import {
   OrdinaryLocalVertexOwnedRuntime,
   type OrdinaryLocalVertexOwnedDispatch,
@@ -49,6 +52,12 @@ afterEach(async () => {
 
 /** A Personal Claude repository chat whose first command reached the SDK route. */
 async function claudeChat(firstDispatch?: () => Promise<void>) {
+  // Capture the fixture's installed SDK binary, as the deploy-continuity suite
+  // does: claudeSdkExecutable() exists only on Darwin, and CI runs on Linux.
+  const capture = ClaudeSubscriptionCustody.capture;
+  vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
+    capture(env, claudeSdkInstallation.executable()!),
+  );
   vi.spyOn(ClaudeSubscriptionCustody.prototype, 'verify').mockResolvedValue();
   const f = await ownedVertexRuntimeFixture(cleanups, {
     personal: true,
