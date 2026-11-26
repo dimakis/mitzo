@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CodexTurnUsage } from '../codex-turn-usage.js';
+import { CodexTurnUsage, observedCodexUsage } from '../codex-turn-usage.js';
 
 const totals = (inputTokens: number, outputTokens: number, cachedInputTokens = 0) => ({
   inputTokens,
@@ -13,6 +13,26 @@ const update = (capture: CodexTurnUsage, turnId: string, total: ReturnType<typeo
   capture.update({ turnId, tokenUsage: { total, last: totals(1, 1) } });
 
 describe('native cumulative usage attribution', () => {
+  it('preserves legacy last-request display separately from cumulative accounting and unknown capacity', () => {
+    const params = {
+      turnId: 'one',
+      tokenUsage: { total: totals(1000, 200, 400), last: totals(10, 2, 4) },
+    };
+    expect(observedCodexUsage(params)).toEqual({
+      agentContext: 12,
+      contextCeiling: 0,
+      sessionTotal: 1200,
+      sessionTotalStatus: 'observed',
+    });
+    const capture = new CodexTurnUsage(true);
+    capture.start('one');
+    capture.update(params);
+    expect(capture.finish('one')).toEqual({
+      input_tokens: 600,
+      output_tokens: 200,
+      cache_read_input_tokens: 400,
+    });
+  });
   it('uses cumulative deltas across requests and turns, not tokenUsage.last, and deduplicates replay', () => {
     const capture = new CodexTurnUsage(true);
     capture.start('one');

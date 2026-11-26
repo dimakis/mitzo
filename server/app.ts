@@ -137,6 +137,9 @@ import { knowledgeLibraryFromEnvironment } from './knowledge-library-runtime.js'
 import { installKnowledgeDraftRuntime } from './session-knowledge-tools.js';
 import { installSessionLearningRuntime } from './session-learning-tools.js';
 import { createSessionLearningRouter } from './session-learning-router.js';
+import { createContextSnapshotRouter } from './context-snapshot-router.js';
+import { createRuntimeContextSnapshots } from './context-snapshot-runtime.js';
+import { setCodexContextSnapshots } from './codex-chat-session.js';
 import { createKnowledgeLibraryLoader } from './knowledge-library-loader.js';
 import { requestOperatorGithubPublication } from './github-publishing-tool.js';
 import { createCredentialConnectionsRouter } from './credential-connections-router.js';
@@ -3906,6 +3909,14 @@ mountObservedRouter(
 );
 
 const sessionCapabilityGrants = new SessionCapabilityGrants(registry, repositoryCapabilityIdentity);
+const contextSnapshots = createRuntimeContextSnapshots(eventStore, registry);
+setCodexContextSnapshots(registry, contextSnapshots);
+mountObservedRouter(
+  app,
+  '/api/sessions/:id/context-snapshot',
+  operatorAuthMiddleware,
+  createContextSnapshotRouter(eventStore, contextSnapshots),
+);
 mountObservedRouter(
   app,
   '/api/sessions/:id/learning',

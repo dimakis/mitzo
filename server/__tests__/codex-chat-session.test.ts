@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
   recordKnowledgeAdoption: vi.fn(),
   recordAgentContextAdoption: vi.fn(),
   privateDirectory: '/tmp',
+  contextScope: undefined as import('@mitzo/protocol').ContextSnapshotScope | undefined,
+  constructedContextSnapshots: undefined as unknown,
   conversationOptions: undefined as
     (Record<string, unknown> & { systemPrompt?: string }) | undefined,
   useTls: false,
@@ -116,15 +118,18 @@ vi.mock('../codex-conversation-store.js', async (original) => ({
 }));
 vi.mock('../codex-conversation.js', () => ({
   CodexConversation: class {
-    constructor(options: { onClosed: () => void }) {
+    constructor(options: { onClosed: () => void; contextSnapshots?: unknown }) {
       mocks.turnDispatchCount = 0;
       mocks.conversationOptions = options;
+      // Context-bearing owners copy options at construction; record what they saw.
+      mocks.constructedContextSnapshots = options.contextSnapshots;
       mocks.close.mockImplementation(options.onClosed);
     }
     recoverSavedQueue = vi.fn();
     initialize = mocks.initialize;
     getThreadId = vi.fn(() => 'thread');
     getDurableThreadId = vi.fn(() => 'thread');
+    getContextSnapshotScope = () => mocks.contextScope;
     assertPermissionModeChange = mocks.assertPermissionModeChange;
     setWebSearchGrant = mocks.setWebSearchGrant;
     getWebSearchGrant = mocks.getWebSearchGrant;
@@ -154,11 +159,14 @@ import {
   openCodexChat,
   publicCodexRuntimeError,
   publicCodexStartupError,
+  setCodexContextSnapshots,
   ordinaryRuntimeServiceProviders,
   selectedOpenShellAccountRoute,
   waitForCodexRuntime,
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
+import { createRuntimeContextSnapshots } from '../context-snapshot-runtime.js';
+import { SessionRegistry } from '../session-registry.js';
 import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
 import {
   CodexAppServerClient,
@@ -494,6 +502,84 @@ function ownedLocalOptions(
   return { eventStore, opts, lease, ownedLocal, expected };
 }
 
+async function verifyOwnedContextSnapshots() {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const { opts, eventStore, lease } = ownedLocalOptions();
+  const registry = new SessionRegistry();
+  opts.registry = registry;
+  opts.session.sessionId = opts.conversationId;
+  registry.register('context-client', {
+    ...opts.session,
+    transport: { isOpen: () => true, send() {} },
+    mode: 'agent',
+    sessionAllowList: new Set(),
+  });
+  opts.session = registry.get('context-client')!;
+  const lifecycle = createRuntimeContextSnapshots(eventStore, registry);
+  setCodexContextSnapshots(registry, lifecycle);
+  mocks.contextScope = {
+    identity: {
+      sessionId: opts.conversationId,
+      threadId: 'thread',
+      turnId: 'turn',
+      scope: 'parent',
+      ownerGeneration: 'native-generation',
+    },
+    binding: {
+      engine: 'codex',
+      placement: 'local',
+      model: opts.binding.model,
+      accountRef: opts.binding.accountId,
+      runtimeBindingRevision: 'runtime',
+    },
+  };
+  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    query = await openCodexChat(opts);
+    const port =
+      mocks.constructedContextSnapshots as import('../codex-context-snapshot.js').CodexContextSnapshotEvents;
+    expect(port).toBeDefined();
+    port.turnStarted();
+    const breakdown = {
+      inputTokens: 10,
+      cachedInputTokens: 2,
+      outputTokens: 2,
+      reasoningOutputTokens: 1,
+      totalTokens: 12,
+    };
+    port.usage({
+      threadId: 'thread',
+      turnId: 'turn',
+      tokenUsage: { total: breakdown, last: breakdown },
+    });
+    expect(eventStore.contextSnapshots.read(opts.conversationId).snapshot).toMatchObject({
+      identity: { ownerGeneration: 'native-generation' },
+      requestUsage: { totalTokens: 12 },
+    });
+    const calls = mocks.send.mock.calls.length;
+    lifecycle.inspect(opts.conversationId);
+    expect(mocks.send).toHaveBeenCalledTimes(calls);
+    vi.mocked(lease.assertCurrentSync).mockImplementation(() => {
+      throw Error('revoked');
+    });
+    port.usage({
+      threadId: 'thread',
+      turnId: 'turn',
+      tokenUsage: { total: breakdown, last: breakdown },
+    });
+    expect(lifecycle.read(opts.conversationId)).toMatchObject({
+      status: 'stale',
+      reason: 'authority_expired',
+    });
+  } finally {
+    query?.close();
+    registry.dispose();
+    eventStore.close();
+    mocks.contextScope = undefined;
+  }
+}
+
 it('routes the selected model when provisioning an OpenShell subscription', () => {
   expect(
     selectedOpenShellAccountRoute({
@@ -530,6 +616,10 @@ it('does not open MCP processes if private storage is unavailable', async () => 
   await expect(opening).rejects.toMatchObject({ phase: 'conversation_storage' });
   expect(mocks.connect).not.toHaveBeenCalled();
 });
+it(
+  'injects the shared lifecycle only into the owned Local Mac conversation and fences authority loss',
+  verifyOwnedContextSnapshots,
+);
 it.each([
   ['openai', 'openai-api'],
   ['openai-codex', 'chatgpt-subscription'],

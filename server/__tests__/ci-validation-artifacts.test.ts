@@ -19,6 +19,7 @@ it('retains source pins for every CI execution owner and extracted native qualif
     '../../scripts/__tests__/ci-browser-batches.test.ts',
     '../../scripts/__tests__/ci-cancellation.test.ts',
     '../../scripts/__tests__/ci-joined-shards.test.ts',
+    '../../scripts/__tests__/ci-macos-runner.test.ts',
     '../../scripts/__tests__/ci-recovery.test.ts',
     '../../scripts/__tests__/ci-required-gate.test.ts',
     '../../scripts/__tests__/ci-source-preflight.test.ts',
