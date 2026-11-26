@@ -1612,11 +1612,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/deployment-store.ts':
     '06980f353fa11edc16a5e8f75fb8de4b4679853b979d71a1e3d819f76007e04a',
   '../../packages/protocol/src/event-store.ts':
-    '585270269d0e5c3bd6f11e14e6208a873f16d60071613b9fbc731cbd80b337d5',
+    'dc34c0c53e8ed13231cc5ff5be7618a2ac18291d3455c5b411e44e1d9cfa0dfd',
   '../../packages/protocol/src/execution-ledger.ts':
     '9306195c826ca603ee848d0532e2231a2a7299eb596b63df1c84928771391e94',
   '../../packages/protocol/src/index.ts':
-    '19f6a385fc375a2867f0f3ee0a7f0f4de2a5b91b6f35573d04a68753d452cadc',
+    '53e91031a90369cd2703723ba404732e8ac86433d1e3f3bb1c7e6f88c3dea47e',
   '../../packages/protocol/src/local-codex-first-command.ts':
     'dce160cff162ec58adac0e98208b93b8f332bc822654914ddf85220084405b4e',
   '../../packages/protocol/src/local-vertex-command.ts':
@@ -3478,7 +3478,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-capability-grants.test.ts':
     '36864350328570db59105ba465b157841b8ee1cf89f20152b2977973c9ef88e1',
   '../__tests__/session-capability-router.test.ts':
-    '42c24fdaf136723ae9293f76e60637545c1d154560a51a0e7b42fd91a3233d2a',
+    '9041d2e5e48bead53354acffe671fbe2c1a85793e4083d143ef81f140f9324aa',
   '../__tests__/session-chat-links.test.ts':
     'e99cd89830ae0aefc42fd42d23cbc5e1a216ad5a6b789a2e1491cfc8547f6b81',
   '../__tests__/session-collaboration-router.test.ts':
@@ -4590,9 +4590,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-agent-task-tools.ts':
     '8991da765b8d2d5f63d8f7cdc2439680e5b98b6d153f5eca34d0952b4be9f385',
   '../session-capability-grants.ts':
-    'ec450d60d6770a33aa602b7fdd5fe108d1efcc4fe1b58e10de0934788f6418f7',
+    'd2324c3da73f612ca356001df7cba86239110d554dbc96cc98a601600c09479e',
   '../session-capability-router.ts':
-    '80185fe47b950efed5b7dd81b51119be3c3225478d5a765e18be3a41f0696c13',
+    'ed3f86d0ee0a143cfca3d5c1b6a537258b255c37eb5b013aea762bae09e7a62d',
   '../session-collaboration-router.ts':
     'b8a664532370c860c765e7a0779cbe922a28df88fe63b068959e6d979d226a9b',
   '../session-connection-tools.ts':
@@ -4965,7 +4965,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../transport-auth-ownership.ts':
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
   '../trusted-native-operation.ts':
-    'bd29e98539c1c7ae94d1976918907b30fd058555d367a50909ea9817e88532a0',
+    '114598b00b9349bfc1173ed43036548400d5e25f2b4d093e7cfc4f594302b895',
   '../turn-callbacks.ts': '0a0b3ad8eab31aede7181bd1c3617c1997710c86425c6dbf800e97aa06d6d055',
   '../uncertain-operations-notice.ts':
     'e4c0dcda0d851d12f9c71eaadffb4d4ce675003d7bf8d40cbe961aa922a9d448',
@@ -5008,4 +5008,27 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
   'registry.ts': '6007fe9878fc70d915890dcbaf04d5428113597f599a595acd2fd0a9ff8cc615',
   'runtime-profiles.ts': '3632545ca52fbfad7442de08c03d5f9808b50b5bfdef92f9cd72b8fa8ab5140b',
+  '../../packages/protocol/__tests__/github-read-quota.test.ts':
+    '275b4d35b6dcf2f7fa1a5a7e1e7f9d1c1a87c10c9c7fd22647e2d95c063196fb',
+  '../../packages/protocol/__tests__/pr-monitor-store.test.ts':
+    '043da644ce69e23a6e414de48017c673d993b2d448d64a0bce3d836105038d7e',
+  '../../packages/protocol/src/github-read-quota.ts':
+    'c2cb1a89a847d9c97d56419e67a9547b3c84b0ed12f0dca64d59f793dc02ffca',
+  '../../packages/protocol/src/pr-monitor-store.ts':
+    '3a3436244693437cbc18ed6161802df8338f006911ecc0faf3931c4956d09b76',
+  '../../packages/protocol/src/pr-monitor.ts':
+    '3f24e2b14840e5fe6e0b84ca3220b5e82d336276a4e88c2179df6c024ac680be',
+  '../__tests__/pr-monitor-consent.test.ts':
+    '0584ae3ef0cb3d613808adaaf3ab9da19dccbc3da5471583268a7690ce54994e',
+  '../__tests__/pr-monitor-github.test.ts':
+    'deacc165544036447577160838e2582bf054457481f7a0b2e3c8391235b3147b',
+  '../__tests__/pr-monitor-observer.test.ts':
+    '63f24e0dc841ff6dd6c618f97fac150d72b4e880a93712a4354e6737679cf668',
+  '../__tests__/pr-monitor-runtime.test.ts':
+    '6adfaa3b3a6ededbd11f2a5c0613a913fb260da618ce53ee5d19b20844704dc8',
+  '../github-read-response.ts': 'f4cd0cdf394a46b54e6589cfb035249529d02d7adc5fd36d72ab4448b00773d8',
+  '../pr-monitor-consent.ts': '92b3f234c3fabd1de6793aac6a8ededa40f877a9b129f89d3586d75747e7f582',
+  '../pr-monitor-github.ts': 'd8571226e1f068c897164bb76b7c8257d09f45dbaa3efa11c29780d5a044861c',
+  '../pr-monitor-observer.ts': '36fbe3a4521035575a509986c15caf67f66463e08156fc4d8f9fd2539d0d684b',
+  '../pr-monitor-runtime.ts': '52c135643740bf1fbac636cfe283981530fe74d77b960a433d95d2ab8f09c379',
 });
