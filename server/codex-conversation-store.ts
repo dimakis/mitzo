@@ -1,4 +1,5 @@
 import { isIntrinsicRecoveryRead } from './builtin-tool-behavior.js';
+import { CodexLifecycleDiagnosticSchema } from './codex-lifecycle-failure.js';
 import { CodexEffectSettlements } from './codex-effect-settlements.js';
 import type {
   RetainedHostResultObserver,
@@ -241,6 +242,7 @@ const CompletionPhaseHistorySchema = z
   .refine((rows) => new Set(rows.map((row) => row.target.attempt)).size === rows.length);
 export type CompletionPhaseReceipt = z.infer<typeof CompletionPhaseReceiptSchema>;
 const CommandTransportDiagnosticSchema = z.strictObject({
+  lifecycle: CodexLifecycleDiagnosticSchema.optional(),
   stage: z.enum(['native_transport', 'workspace_transition']),
   reason: z.enum([
     'child_exit',

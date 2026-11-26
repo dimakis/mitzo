@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Script } from 'node:vm';
 import { load } from 'js-yaml';
 import { expect, it } from 'vitest';
@@ -65,7 +66,7 @@ it.each(['false', '', '1', 'yes'])('ignores a non-true operator variable: %j', (
   ).toBe('macos-26');
 });
 
-it.each(macosJobs)('%s uses the operator runner for same-repository PRs and main', (job) => {
+it.each(macosJobs)('%s uses the operator runner only for same-repository PRs', (job) => {
   expect(
     runnerFor(job, {
       variable: 'true',
@@ -73,9 +74,13 @@ it.each(macosJobs)('%s uses the operator runner for same-repository PRs and main
       headRepository: 'dimakis/mitzo',
     }),
   ).toEqual(selfHosted);
-  expect(runnerFor(job, { variable: 'true', eventName: 'push', ref: 'refs/heads/main' })).toEqual(
-    selfHosted,
+});
+
+it.each(macosJobs)('%s keeps post-merge main runs on clean hosted macOS when enabled', (job) => {
+  expect(runnerFor(job, { variable: 'true', eventName: 'push', ref: 'refs/heads/main' })).toBe(
+    'macos-26',
   );
+  expect(String(workflow.jobs[job]['runs-on'])).not.toMatch(/push|refs\/heads\/main/);
 });
 
 it.each(macosJobs)('%s never sends a fork PR to the operator runner', (job) => {
@@ -93,6 +98,54 @@ it('keeps other events and branches on hosted macOS even when enabled', () => {
     { variable: 'true', eventName: 'pull_request_target', headRepository: 'dimakis/mitzo' },
   ])
     expect(runnerFor('native', context)).toBe('macos-26');
+});
+
+const workflowSources = ['.github/workflows', '.github/actions']
+  .flatMap((root) =>
+    readdirSync(root, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.ya?ml$/.test(entry.name))
+      .map((entry) => join(entry.parentPath, entry.name)),
+  )
+  .sort();
+
+it('finds every workflow and composite action', () => {
+  expect(workflowSources).toContain('.github/workflows/ci.yml');
+  expect(workflowSources).toContain(join('.github/actions/ci-canonical-browser', 'action.yml'));
+});
+
+it.each(workflowSources)('%s never hardcodes the hosted runner home or tool cache', (file) => {
+  const text = readFileSync(file, 'utf8');
+  expect(text).not.toContain('/Users/' + 'runner');
+  expect(text).not.toContain('/home/' + 'runner');
+  expect(text).not.toContain('hostedtoolcache');
+});
+
+it('installs Python with setup-python only on GitHub-hosted runners', () => {
+  const action = load(readFileSync('.github/actions/ci-canonical-browser/action.yml', 'utf8')) as {
+    runs: { steps: Array<{ uses?: string; if?: string; run?: string }> };
+  };
+  const steps = action.runs.steps;
+  const setup = steps.find((step) => step.uses?.startsWith('actions/setup-python@'));
+  expect(setup?.if).toBe("runner.environment == 'github-hosted'");
+  const venv = steps.find((step) => step.run?.includes('-m venv'))!.run!;
+  expect(venv).toContain('command -v python3.13');
+  expect(venv).toContain('sys.version_info[:2] == (3, 13)');
+});
+
+it('selects and verifies the Swift 6.3 Xcode per runner instead of a hosted-only job path', () => {
+  const job = workflow.jobs.native as unknown as {
+    env?: Record<string, string>;
+    steps: Array<{ name?: string; run?: string }>;
+  };
+  expect(job.env?.DEVELOPER_DIR).toBeUndefined();
+  const select = job.steps.find((step) => step.name === 'Select the Swift 6.3 Xcode toolchain');
+  expect(select?.run).toContain('RUNNER_ENVIRONMENT');
+  expect(select?.run).toContain('MITZO_CI_DEVELOPER_DIR');
+  expect(select?.run).toContain('"DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"');
+  const build = job.steps.findIndex(
+    (step) => step.name === 'Build iPhone app with Watch companion',
+  );
+  expect(job.steps.indexOf(select!)).toBeLessThan(build);
 });
 
 it('never runs privileged fork-controlled events that could reach the operator runner', () => {

@@ -43,6 +43,20 @@ export function createConversationJoiningApplicationOwner(options: {
     kind: 'application',
     sourceConversationId,
     collaborationId,
+    async loadArtifacts(signal) {
+      assertCurrent(signal);
+      const clientId =
+        CollaborationApplicationReviewRequestSchema.shape.clientId.parse(getClientId());
+      const catalog = await api.collaborations.sourceArtifacts(
+        collaborationId,
+        sourceConversationId,
+        clientId,
+        signal,
+      );
+      assertCurrent(signal);
+      if (catalog.sourceConversationId !== sourceConversationId) throw unavailable();
+      return catalog.artifacts;
+    },
     async captureReview(request, signal) {
       assertCurrent(signal);
       if (typeof request.joiningBrief !== 'string') throw unavailable();

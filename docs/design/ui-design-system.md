@@ -726,6 +726,22 @@ empty search/collection, readable tabs and session isolation. Captures show
 
 ## Token usage
 
+The existing usage details include **Inspect context**, which opens `HomeDialog`
+with the native snapshot contract. The ring, its recorded counters and composer
+placement retain their existing owners. Per-agent inspection remains scoped to
+that agent; the legacy recorded-usage endpoint is not a snapshot substitute.
+Use quiet definition rows, semantic tokens and `MotionPresence` disclosures for
+categories, source contributions and explicit full-detail consent. Show exact
+numeric token values, observation time, accounting basis and freshness. Unknown
+occupancy/capacity never becomes zero or a percentage. Contributions are not added
+to occupancy, and opaque references do not open sources.
+
+Opening reads saved evidence only. Summary refresh is explicit; full detail has
+a separate unchecked consent for token-count API/network overhead and possible
+charges. Close, chat change and authentication changes retire reads. There is no
+automatic retry or polling. See [implementation checks and visual verification
+limits](../evidence/context-snapshot-inspector.md).
+
 The conversation token popover groups latest context/request capacity separately
 from cumulative usage, with short explanatory notes. Native request totals and
 session input-context observations retain their distinct labels. Runtime-reported
@@ -1785,6 +1801,29 @@ confirmation, failure preservation and replacement. Captures show
 [desktop light](assets/sandbox-obsolete-desktop-light.png).
 
 ## Symposium participant presentation
+
+### Starting-context source selection — 21 November 2026
+
+Dimitri explicitly requested compact selectable message cards, actual author/time/type,
+formatted expansion, search/author filters, collapsible recorded progress and stable
+selection/count review for finding18. The existing Starting context editor reuses
+quiet labelled selection rows, `MotionDetails`, sanitized Markdown, `HomeDialog`
+and the shared color/type/spacing/control tokens. Preview is separate from selection;
+links and images in previews cannot fetch files or remote content. Filters change
+visibility only; selected missing messages and exact artifact revision/hash pins remain
+visible and removable. The existing frozen Before joining review remains authoritative.
+
+Only existing source metadata supplies author, time, type and artifact availability.
+Unknown author/access and unrecorded progress classification stay explicit; the UI
+does not infer them from prose, paths or membership. The existing retained-artifact
+catalog is read lazily for an already shared source. A source without retained
+membership explains its unavailable catalog rather than beginning sharing on preview.
+Selection creates no file capture, access grant or automatic reply inclusion.
+
+The focused offline fixture covers keyboard disclosure/focus, exact pins, filters,
+touch geometry and narrow layouts in both themes with alternate appearance choices.
+Fixture availability is distinct from rendered verification; see
+[finding18 evidence and remaining gates](../evidence/symposium-starting-context-2026-11-21.md).
 
 ### Continuous ordinary discussion — 14 November 2026
 

@@ -573,5 +573,5 @@ it('refuses canonical interleaving even for an empty selection with an explicit 
           [settings],
           source(),
         ),
-      ).rejects.toMatchObject({ code: 'snapshot_changed' });
+      ).rejects.toMatchObject({ code: 'source_history_overlap_invalid' });
 });

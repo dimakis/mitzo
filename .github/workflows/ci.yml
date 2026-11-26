@@ -487,18 +487,33 @@ jobs:
     needs: [changes, preflight, frontend-build]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs['frontend-build'].result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
     name: Native Swift tests and builds
-    # Opt-in operator runner; fork PRs never reach it.
-    runs-on: ${{ vars.MITZO_MACOS_SELF_HOSTED == 'true' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","macOS","ARM64","mitzo-ci"]') || 'macos-26' }}
+    # Opt-in operator runner for same-repository PRs only; main and forks stay hosted.
+    runs-on: ${{ vars.MITZO_MACOS_SELF_HOSTED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","macOS","ARM64","mitzo-ci"]') || 'macos-26' }}
     # Cold boot, first launch and WebKit readiness have separate bounded waits.
     # Leave time for the build, retained diagnostics and owned-fixture cleanup.
     timeout-minutes: 40
     permissions:
       contents: read
-    env:
-      # MitzoShared requires Swift 6.3; keep the toolchain explicit.
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
+
+      # MitzoShared requires Swift 6.3; keep the toolchain explicit. Hosted
+      # images pin Xcode 26.6; a self-hosted runner names its own Xcode through
+      # MITZO_CI_DEVELOPER_DIR (runner .env) or its xcode-select default.
+      - name: Select the Swift 6.3 Xcode toolchain
+        run: |
+          if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then
+            developer_dir=/Applications/Xcode_26.6.app/Contents/Developer
+          else
+            developer_dir=${MITZO_CI_DEVELOPER_DIR:-$(xcode-select -p)}
+          fi
+          version=$(DEVELOPER_DIR="$developer_dir" xcrun swift --version 2>&1 | grep -Eo 'Swift version [0-9]+\.[0-9]+' | head -1 | cut -d' ' -f3)
+          echo "Swift $version from $developer_dir"
+          if [ -z "$version" ] || [ "$(printf '%s\n6.3\n' "$version" | sort -V | head -1)" != 6.3 ]; then
+            echo "::error::$developer_dir does not provide Swift 6.3 or newer"
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/ci-node
         with:
@@ -548,8 +563,8 @@ jobs:
     needs: [changes, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.ordinary == 'true') }}
     name: Native repository and authorization workflows
-    # Opt-in operator runner; fork PRs never reach it.
-    runs-on: ${{ vars.MITZO_MACOS_SELF_HOSTED == 'true' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","macOS","ARM64","mitzo-ci"]') || 'macos-26' }}
+    # Opt-in operator runner for same-repository PRs only; main and forks stay hosted.
+    runs-on: ${{ vars.MITZO_MACOS_SELF_HOSTED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","macOS","ARM64","mitzo-ci"]') || 'macos-26' }}
     # Native workflows and signed authority checks; joined cases have their own matrix.
     # Individual acceptance, first-response and reader deadlines stay unchanged.
     timeout-minutes: 30
@@ -752,8 +767,8 @@ jobs:
     needs: [changes, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.ordinary == 'true') }}
     name: Telos joined acceptance (macOS ${{ matrix.shard }}/3)
-    # Opt-in operator runner; fork PRs never reach it.
-    runs-on: ${{ vars.MITZO_MACOS_SELF_HOSTED == 'true' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","macOS","ARM64","mitzo-ci"]') || 'macos-26' }}
+    # Opt-in operator runner for same-repository PRs only; main and forks stay hosted.
+    runs-on: ${{ vars.MITZO_MACOS_SELF_HOSTED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","macOS","ARM64","mitzo-ci"]') || 'macos-26' }}
     timeout-minutes: 20
     permissions:
       contents: read

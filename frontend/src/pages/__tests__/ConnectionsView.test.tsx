@@ -933,6 +933,64 @@ describe('ConnectionsView', () => {
     expect(container.textContent).toContain('Connection changed; refresh and try again.');
     expect(vi.mocked(connections.getConnections).mock.calls.length).toBeGreaterThan(1);
   });
+  describe('a tapped assignment awaiting identity confirmation', () => {
+    const nativeBox = () =>
+      Array.from(container.querySelectorAll('input[type="checkbox"]')).find((item) =>
+        item.parentElement?.textContent?.includes('native'),
+      ) as HTMLInputElement;
+    const submitPassphrase = async () => {
+      act(() => fireEvent.change(input('Passphrase'), { target: { value: 'pass' } }));
+      await act(async () => button('Reauthorize').click());
+      await flush();
+    };
+    const applied = {
+      id: 'jira-1',
+      revision: 2,
+      accountIds: ['work', 'native'],
+      csrf: 'c'.repeat(32),
+    };
+
+    it('keeps the change after a failed confirmation and applies it on the next one', async () => {
+      vi.mocked(connections.updateAssignments).mockResolvedValue(catalog.connections[0]!);
+      vi.mocked(connections.reauthorize).mockRejectedValueOnce(new Error('Wrong passphrase'));
+      await render();
+      await act(async () => nativeBox().click());
+      expect(input('Passphrase')).toBeTruthy();
+      await submitPassphrase();
+      expect(container.textContent).toContain('Wrong passphrase');
+      expect(connections.updateAssignments).not.toHaveBeenCalled();
+      await submitPassphrase();
+      expect(connections.updateAssignments).toHaveBeenCalledTimes(1);
+      expect(connections.updateAssignments).toHaveBeenCalledWith(applied);
+    });
+
+    it('withdraws the change on Cancel so a later authorization cannot resurrect it', async () => {
+      await render();
+      await act(async () => nativeBox().click());
+      act(() => button('Cancel').click());
+      expect(input('Passphrase')).toBeNull();
+      await reauthorize();
+      await flush();
+      expect(connections.updateAssignments).not.toHaveBeenCalled();
+    });
+
+    it('does not send the change after navigating away during confirmation', async () => {
+      let confirm!: (value: { csrf: string; expiresAt: number }) => void;
+      vi.mocked(connections.reauthorize).mockReturnValueOnce(
+        new Promise((resolve) => {
+          confirm = resolve;
+        }),
+      );
+      await render();
+      await act(async () => nativeBox().click());
+      act(() => fireEvent.change(input('Passphrase'), { target: { value: 'pass' } }));
+      await act(async () => button('Reauthorize').click());
+      act(() => root.render(<MemoryRouter>{null}</MemoryRouter>));
+      await act(async () => confirm({ csrf: 'c'.repeat(32), expiresAt: Date.now() + 300_000 }));
+      await flush();
+      expect(connections.updateAssignments).not.toHaveBeenCalled();
+    });
+  });
   it('clears rotation secrets when dismissed and supplies generic credential maps', async () => {
     await render();
     await act(async () => button('Rotate credentials').click());
