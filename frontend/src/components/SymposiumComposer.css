@@ -55,20 +55,13 @@
     order: 4;
     flex-shrink: 0;
   }
-  /* A retained source Stop puts five 44px actions on each row; at 280px the
-     composer is only about 232px wide, so tighten the gaps for this case. */
-  .chat-input--compact .composer-toolbar[data-symposium][data-source-stop] {
-    column-gap: 2px;
-  }
-  .chat-input--compact .composer-toolbar[data-symposium][data-source-stop]::before {
-    margin-inline-end: -2px;
-  }
-  /* A retained source Stop adds a sixth action; balance the rows at 280px by
-     placing context usage at the end of the first row. */
+  /* A retained source Stop adds a sixth action; balance the rows at 280px (a
+     254px toolbar) by placing context usage, either the single-agent wheel or
+     the multi-agent wheel button, at the end of the first row. */
   .chat-input--compact
     .composer-toolbar[data-symposium][data-source-stop]
     .composer-actions
-    > .token-wheel-control {
+    > :is(.token-wheel-control, .conversation-context-wheel) {
     order: 1;
   }
   .chat-input--compact .composer-toolbar[data-symposium] .composer-responder-names {

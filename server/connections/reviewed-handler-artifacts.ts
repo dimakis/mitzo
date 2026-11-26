@@ -79,7 +79,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-steered-join.test.ts':
     '2c119f54e3f4ac40126e9eaf6314a0bd2a163a2729d57144dda6fb4ecec67b58',
   '../../frontend/src/components/SymposiumComposer.css':
-    'd504f3d705b5d046c42af2c090ed3e97945ca9dd359c8d3b56a8b64ee3a47a1f',
+    '0201fb868f440b7a1c09c52b545d5c2bd52ef50ba4fcfc9fe9c72fe9525516dd',
   '../../tests/fixtures/composer-responsive.tsx':
     'f11043b10b6685e3b4b1c34a4f8ab3721668e9f6ec6cd29badddacea5190c11e',
   '../../tests/offline/composer-responsive.spec.ts':
