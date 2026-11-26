@@ -1,3 +1,4 @@
+import { uncertainOperationsNotice } from '../uncertain-operations-notice.js';
 import { expect, it } from 'vitest';
 import {
   TurnCallbacks,
@@ -201,9 +202,35 @@ it('retains which operations are uncertain, with their original request IDs, and
       { tool: 'TelosCreateChild', requestId: 'req-1' },
       { tool: 'TelosUpdateItem', requestId: 'req-2' },
     ],
+    uncertain_operation_count: 2,
   });
   expect(JSON.stringify(notice)).not.toContain('secret');
   expect(runs).toBe(1);
+});
+it('counts uncertain callbacks without a descriptor so a named notice never implies a complete list', async () => {
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  await callbacks.track(
+    async () => ({ isError: true, content: 'Telos item operation unavailable' }),
+    undefined,
+    describeToolCall('TelosCreateChild', { requestId: 'req-1' }, { toolUseId: 'u1' }),
+  );
+  // A repository or Bash runner has no descriptor yet; it is counted, not listed.
+  await callbacks
+    .track(async () => {
+      throw Error('unidentified owner failed after effects');
+    })
+    .catch(() => {});
+  const notice = withUncertainOutcomeNotice({ type: 'result' }, callbacks) as Record<
+    string,
+    unknown
+  >;
+  expect(notice).toMatchObject({
+    uncertain_operations: [{ tool: 'TelosCreateChild', requestId: 'req-1' }],
+    uncertain_operation_count: 2,
+  });
+  expect(
+    uncertainOperationsNotice(notice.uncertain_operations, notice.uncertain_operation_count),
+  ).toMatch(/TelosCreateChild \(request ID req-1\), and 1 other unidentified operation\./);
   // Following up in text explains them, as before.
   observeAssistantFollowUp(assistant([{ type: 'text', text: 'Checking state.' }]), callbacks);
   expect(callbacks.uncertainOperations).toEqual([]);

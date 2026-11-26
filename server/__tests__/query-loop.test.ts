@@ -925,6 +925,7 @@ describe('runQueryLoop', () => {
             { tool: 'TelosCreateChild', toolUseId: 'use-1', requestId: 'req-9' },
             { tool: 'Bash', toolUseId: 'use-2' },
           ],
+          uncertain_operation_count: 2,
         },
       ]),
       clientId,
@@ -945,6 +946,60 @@ describe('runQueryLoop', () => {
     expect(text).toMatch(/not replayed|nothing was replayed/i);
     // Never presented as success.
     expect(text).not.toMatch(/succeeded|completed successfully/i);
+  });
+
+  it('counts unidentified uncertain operations beside the named ones on the phone', async () => {
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'result',
+          session_id: 'mixed-uncertain-chat',
+          tool_failure_notice: true,
+          tool_failure: {
+            code: 'internal_failure',
+            phase: 'execution',
+            effectStatus: 'unknown',
+            recovery: 'inspect_operation',
+          },
+          uncertain_operations: [{ tool: 'TelosCreateChild', requestId: 'req-9' }],
+          uncertain_operation_count: 2,
+        },
+      ]),
+      clientId,
+      registry,
+      abortController,
+    );
+    const text = String(
+      transport.sent.find(
+        (event) => event.type === 'error' && String(event.error).includes('TelosCreateChild'),
+      )?.error,
+    );
+    expect(text).toContain('and 1 other unidentified operation');
+  });
+
+  it('keeps the generic notice when a named list arrives without its total', async () => {
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'result',
+          session_id: 'uncounted-uncertain-chat',
+          tool_failure_notice: true,
+          tool_failure: {
+            code: 'internal_failure',
+            phase: 'execution',
+            effectStatus: 'unknown',
+            recovery: 'inspect_operation',
+          },
+          uncertain_operations: [{ tool: 'TelosCreateChild', requestId: 'req-9' }],
+        },
+      ]),
+      clientId,
+      registry,
+      abortController,
+    );
+    const errors = transport.sent.filter((event) => event.type === 'error');
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((event) => String(event.error).includes('Outcome unknown for'))).toBe(false);
   });
 
   it('logs a named diagnostic when the provider stream ends in an abort, instead of ending silently', async () => {

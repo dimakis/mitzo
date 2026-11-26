@@ -520,6 +520,7 @@ it.each([
         // The operator is told WHICH operation is uncertain and the ORIGINAL request ID,
         // so a retry reuses it instead of minting a new one. Nothing was replayed.
         uncertain_operations: [{ tool: 'TelosCreateFeature', requestId: 'refused-feature' }],
+        uncertain_operation_count: 1,
       },
     });
     // Only identity leaves the callback: never other input values.

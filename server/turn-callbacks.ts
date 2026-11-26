@@ -130,7 +130,9 @@ export function withUncertainOutcomeNotice<T extends object>(
     ...result,
     tool_failure_notice: true,
     tool_failure: toolFailure('internal_failure', 'execution', 'unknown'),
-    ...(operations.length ? { uncertain_operations: operations } : {}),
+    ...(operations.length
+      ? { uncertain_operations: operations, uncertain_operation_count: callbacks.uncertainOutcomes }
+      : {}),
   };
 }
 

@@ -1138,7 +1138,10 @@ async function _runQueryLoopInner(
           if (msg.tool_failure_notice === true && !providerFailure) {
             const failure = ToolFailureSchema.safeParse(msg.tool_failure);
             // Name the uncertain operation and its original request ID when known.
-            const operations = uncertainOperationsNotice(msg.uncertain_operations);
+            const operations = uncertainOperationsNotice(
+              msg.uncertain_operations,
+              msg.uncertain_operation_count,
+            );
             emit(
               v2('error', {
                 error:
