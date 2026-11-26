@@ -1,4 +1,7 @@
 import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
+import { randomUUID } from 'node:crypto';
+import { createLogger } from './logger.js';
+import { TerminalOperationError, terminalFailureDiagnostic } from './terminal-errors.js';
 import { Router, type RequestHandler } from 'express';
 import {
   TerminalOpenBody,
@@ -15,6 +18,8 @@ import {
   getTerminalPlanAdviserHost,
   type TerminalPlanAdviserHost,
 } from './terminal-plan-adviser.js';
+
+const log = createLogger('terminal-router');
 
 export function createTerminalRouter(options: {
   service: TerminalService;
@@ -220,8 +225,18 @@ export function createTerminalRouter(options: {
     }
     try {
       res.status(201).json(await options.service.open(res.locals.authSession.id, body.data));
-    } catch {
-      res.status(409).json({ error: 'Terminal unavailable. Check the selected environment.' });
+    } catch (cause) {
+      const error =
+        cause instanceof TerminalOperationError
+          ? cause
+          : new TerminalOperationError('terminal_open_failed', cause);
+      const diagnosticId = randomUUID();
+      log.warn('Terminal open failed', {
+        ...terminalFailureDiagnostic(error),
+        diagnosticId,
+        sessionId: body.data.sessionId,
+      });
+      res.status(409).json({ error: error.message, code: error.code, diagnosticId });
     }
   });
   router.get('/:id/events', async (req, res) => {

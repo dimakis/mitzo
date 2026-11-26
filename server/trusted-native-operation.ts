@@ -168,16 +168,23 @@ export async function executeTrustedGitHubRead(
   const home = process.env.HOME;
   if (!home) throw new Error('Trusted GitHub credentials are unavailable');
   const request = trustedGitHubReadRequest(endpoint, view);
-  const body = await run(request.file, request.args, {
-    signal,
-    timeoutMs,
-    maxOutputBytes: log ? GITHUB_LOG_SOURCE_LIMIT : maxOutputBytes,
-    env: { HOME: home, GH_HOST: 'github.com' },
-    readOnly: true,
-    boundedReadDiagnostics: log !== undefined,
-    preserveWhitespace: log !== undefined,
-    assertRuntimeCurrent: assertCurrent,
-  });
+  // The CLI rejects ANSI-bearing plain logs by default. Capture them into the
+  // bounded pipe only: githubLogPage strips terminal controls before delivery.
+  // Ordinary JSON reads retain the CLI's default refusal.
+  const body = await run(
+    request.file,
+    [...request.args, ...(log ? ['--allow-escape-sequences'] : [])],
+    {
+      signal,
+      timeoutMs,
+      maxOutputBytes: log ? GITHUB_LOG_SOURCE_LIMIT : maxOutputBytes,
+      env: { HOME: home, GH_HOST: 'github.com' },
+      readOnly: true,
+      boundedReadDiagnostics: log !== undefined,
+      preserveWhitespace: log !== undefined,
+      assertRuntimeCurrent: assertCurrent,
+    },
+  );
   signal.throwIfAborted();
   assertCurrent?.();
   if (log) {

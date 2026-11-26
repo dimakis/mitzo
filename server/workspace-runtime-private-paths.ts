@@ -1,7 +1,7 @@
 /** Discover operator authority before any runtime request or model tool can write it. */
 import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 
 function privateJson(path: string): Record<string, unknown> {
   const file = lstatSync(path);
@@ -155,6 +155,11 @@ export function registerWorkspaceRuntimeAuthorityPaths(
   }
 }
 export function workspaceRuntimeAuthorityPaths(): string[] {
+  // Public verified dependency bytes remain readable. The fixed host namespace
+  // is write authority even before the first seed, including future versions.
+  registerWorkspaceRuntimeAuthorityPaths([
+    join(userInfo().homedir, '.local', 'share', 'mitzo-dependency-store'),
+  ]);
   const configured = configuredWorkspaceRuntimePrivatePaths();
   registerWorkspaceRuntimeAuthorityPaths(configured, configured.slice(0, 2));
   return [...observedAuthority];

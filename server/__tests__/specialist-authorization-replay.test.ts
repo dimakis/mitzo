@@ -55,11 +55,15 @@ vi.mock('../ordinary-local-codex-entry.js', () => ({
   }),
 }));
 vi.mock('../repository-workspace-runtime.js', () => ({
-  repositoryWorkspaceCatalog: () => ({
-    repositories: f.repositoryCurrent
-      ? [{ connectionId: 'source', repository: 'example/repo' }]
-      : [],
-  }),
+  // Authorization and replay read the same source inventory; a withdrawn
+  // repository carries its named reason like the real eligibility predicate.
+  repositoryWorkspaceSourceInventory: () =>
+    f.repositoryCurrent
+      ? {
+          available: true,
+          repositories: [{ connectionId: 'source', repository: 'example/repo' }],
+        }
+      : { available: true, repositories: [], reason: 'repository_scope_not_assigned' },
 }));
 
 const roots: string[] = [];

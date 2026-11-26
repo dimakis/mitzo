@@ -88,6 +88,24 @@ it('keeps real authentication and revocation ahead of the durable source read', 
   expect(h.read).not.toHaveBeenCalled();
 });
 
+it('delivers a specific overlap refusal through HTTP and the typed context reader', async () => {
+  const h = await fixture();
+  store.append('one', 'message_start', { messageId: 'answer' });
+  store.append('one', 'block_start', { messageId: 'answer', blockId: 'text', blockType: 'text' });
+  store.append('one', 'user_message', { messageId: 'unqualified', text: 'PRIVATE' });
+  store.append('one', 'block_end', { messageId: 'answer', blockId: 'text' });
+  store.append('one', 'message_end', { messageId: 'answer' });
+  const result = await request(h.app)
+    .get('/api/sessions/one/messages?transcript=durable')
+    .set('Cookie', h.cookie)
+    .expect(422);
+  expect(result.body).toMatchObject({ code: 'source_history_overlap_invalid' });
+  expect(result.body.error).toContain('overlapping messages');
+  expect(JSON.stringify(result.body)).not.toContain('PRIVATE');
+  await expect(h.api.getDurableSessionTranscript('one')).rejects.toThrow('overlapping messages');
+  for (const owner of Object.values(h.legacy)) expect(owner).not.toHaveBeenCalled();
+});
+
 it.each(['throughSeq=1', 'transcript=1', 'transcript=durable', 'transcript[x]=durable', 'extra=1'])(
   'rejects durable query conflict %s before any source or restore calls',
   async (query) => {
