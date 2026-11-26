@@ -43,13 +43,85 @@ export class DevelopmentSetupError extends Error {
       effectStatus: this.effectStatus,
       message: this.message,
       ...(this.cleanupReason ? { cleanupReason: this.cleanupReason } : {}),
+      ...(this.subprocess ? { subprocess: this.subprocess } : {}),
     };
   }
 }
-function failure(phase, cause, message, effectStatus = 'not_started') {
+const npmError = /^npm (?:error|ERR!)(?: |$)/;
+// npm reports per-entry extraction problems as `npm warn` and continues; a
+// sandbox that denies .gitmodules or .idea/* must not explain a different
+// failure. When npm printed error lines, only those describe the failure.
+function failureOutput(cause) {
+  const lines = `${cause?.stderr ?? ''}\n${cause?.stdout ?? ''}`.split(/\r?\n/);
+  const errors = lines.filter((line) => npmError.test(line));
+  return errors.length ? errors : lines.filter((line) => !/^npm (?:warn|WARN)\b/.test(line));
+}
+// Identity only: exit status, signal, a bounded code and a task-relative path.
+// Never env, arguments or output, which can contain credentials.
+function subprocessDetail(cause, errors, root) {
+  const npmValue = (key) =>
+    errors
+      .map((line) => line.replace(npmError, '').trim())
+      .find((line) => line.startsWith(`${key} `))
+      ?.slice(key.length + 1)
+      .trim();
+  const code = npmValue('code') ?? (typeof cause.code === 'string' ? cause.code : undefined);
+  const path = npmValue('path') ?? cause.path;
+  const scoped = root && typeof path === 'string' && isAbsolute(path) ? relative(root, path) : '';
+  return {
+    exitCode: Number.isInteger(cause.code) ? cause.code : null,
+    signal: /^SIG[A-Z0-9]{1,16}$/.test(cause.signal ?? '') ? cause.signal : null,
+    code: /^[A-Za-z0-9_]{1,64}$/.test(code ?? '') ? code : null,
+    failingPath:
+      scoped && !scoped.startsWith('..') && !isAbsolute(scoped)
+        ? (scoped
+            .split(sep)
+            .join('/')
+            .match(/^[A-Za-z0-9._@+/-]{1,256}$/)?.[0] ?? null)
+        : null,
+  };
+}
+function failure(phase, cause, message, effectStatus = 'not_started', root) {
   if (cause instanceof DevelopmentSetupError) return cause;
-  const detail = `${cause?.code ?? ''} ${cause?.message ?? ''} ${cause?.stderr ?? ''}`;
-  const reason = /\b(?:EPERM|EACCES)\b/.test(detail)
+  const subprocess =
+    typeof cause === 'object' &&
+    cause !== null &&
+    ('stderr' in cause || 'signal' in cause || Number.isInteger(cause.code));
+  const errors = subprocess ? failureOutput(cause) : [];
+  const detail = [
+    typeof cause?.code === 'string' ? cause.code : '',
+    subprocess ? '' : (cause?.message ?? ''),
+    ...errors,
+  ].join('\n');
+  const reason =
+    cause?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+      ? 'output_limit_exceeded'
+      : cause?.killed && cause?.signal
+        ? 'timed_out'
+        : failureReason(detail, cause);
+  const advice = {
+    filesystem_denied:
+      'A required filesystem write was denied. Check the selected task permissions.',
+    insufficient_space: 'The selected task has insufficient disk space.',
+    network_unavailable: 'Public npm registry or GitHub access failed.',
+    lockfile_mismatch: 'The manifest and pinned lockfile do not agree.',
+    native_toolchain: 'Check the Python, make and C++ native build toolchain.',
+    output_limit_exceeded: 'The command produced more output than setup retains and was stopped.',
+    timed_out: 'The command exceeded its setup time limit and was stopped.',
+  }[reason];
+  const result = new DevelopmentSetupError(
+    phase,
+    reason,
+    `${message}${advice ? ` ${advice}` : ''}`,
+    effectStatus,
+  );
+  Object.defineProperty(result, 'cause', { value: cause });
+  if (subprocess) result.subprocess = subprocessDetail(cause, errors, root);
+  if (cause?.cleanupCode) result.cleanupReason = 'cleanup_failed';
+  return result;
+}
+function failureReason(detail, cause) {
+  return /\b(?:EPERM|EACCES)\b/.test(detail)
     ? 'filesystem_denied'
     : /\bENOSPC\b/.test(detail)
       ? 'insufficient_space'
@@ -62,23 +134,6 @@ function failure(phase, cause, message, effectStatus = 'not_started') {
             : cause?.code === 'ENOENT'
               ? 'missing_tool_or_file'
               : 'command_failed';
-  const advice = {
-    filesystem_denied:
-      'A required filesystem write was denied. Check the selected task permissions.',
-    insufficient_space: 'The selected task has insufficient disk space.',
-    network_unavailable: 'Public npm registry or GitHub access failed.',
-    lockfile_mismatch: 'The manifest and pinned lockfile do not agree.',
-    native_toolchain: 'Check the Python, make and C++ native build toolchain.',
-  }[reason];
-  const result = new DevelopmentSetupError(
-    phase,
-    reason,
-    `${message}${advice ? ` ${advice}` : ''}`,
-    effectStatus,
-  );
-  Object.defineProperty(result, 'cause', { value: cause });
-  if (cause?.cleanupCode) result.cleanupReason = 'cleanup_failed';
-  return result;
 }
 // The caller selects an admitted task root. Refuse pre-existing setup symlinks
 // outside it before creating descendants, rather than borrowing host caches.
@@ -315,6 +370,8 @@ export async function prepareDevelopment({
           phase,
           cause,
           `Development setup is missing ${tool}. Use a sandbox image with the Node/native build toolchain.`,
+          undefined,
+          cwd,
         );
       }
     }
@@ -368,7 +425,13 @@ export async function prepareDevelopment({
           { ...options, cwd: temporary },
         );
       } catch (cause) {
-        throw failure(phase, cause, 'Development toolchain installation failed.', effectStatus);
+        throw failure(
+          phase,
+          cause,
+          'Development toolchain installation failed.',
+          effectStatus,
+          cwd,
+        );
       }
     } else if (!install && local && !verifiedToolchain) {
       throw new DevelopmentSetupError(
@@ -492,7 +555,13 @@ export async function prepareDevelopment({
       } catch (cause) {
         // A failed actual probe invalidates readiness; only explicit --install
         // authorizes repair. Filesystem/network failures keep their precise cause.
-        const classified = failure(phase, cause, 'Development dependency verification failed.');
+        const classified = failure(
+          phase,
+          cause,
+          'Development dependency verification failed.',
+          undefined,
+          cwd,
+        );
         if (
           ['filesystem_denied', 'network_unavailable', 'insufficient_space'].includes(
             classified.reason,
@@ -510,7 +579,7 @@ export async function prepareDevelopment({
       try {
         await run(npm, ['run', 'prepare', '--if-present'], options);
       } catch (cause) {
-        throw failure(phase, cause, 'Checkout lifecycle setup failed.', effectStatus);
+        throw failure(phase, cause, 'Checkout lifecycle setup failed.', effectStatus, cwd);
       }
     }
     if (install && !reused) {
@@ -520,7 +589,7 @@ export async function prepareDevelopment({
         await rm(receiptPath, { force: true });
         await run(npm, ['ci', '--include=dev', '--no-audit', '--no-fund'], options);
       } catch (cause) {
-        throw failure(phase, cause, 'Dependency installation failed.', effectStatus);
+        throw failure(phase, cause, 'Dependency installation failed.', effectStatus, cwd);
       }
     }
     if (!reused) {
@@ -533,6 +602,7 @@ export async function prepareDevelopment({
           cause,
           'Development dependencies are missing, stale, or built for another platform. Run npm run setup:dev -- --install in this sandbox.',
           effectStatus,
+          cwd,
         );
       }
     }
@@ -567,7 +637,7 @@ export async function prepareDevelopment({
       dependencyStore: storeResult,
     };
   } catch (cause) {
-    pendingError = failure(phase, cause, 'Development setup failed.', effectStatus);
+    pendingError = failure(phase, cause, 'Development setup failed.', effectStatus, cwd);
     throw pendingError;
   } finally {
     if (temporary) {
