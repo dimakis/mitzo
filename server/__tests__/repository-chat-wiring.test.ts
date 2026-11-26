@@ -121,12 +121,21 @@ it('starts a native repository chat with its claimed cwd and exact repository co
     expect(open).toHaveBeenCalledWith(
       expect.objectContaining({
         session: expect.objectContaining({ cwd: root }),
-        prompt: expect.stringContaining('example/repo'),
         repositoryWorkspace: expect.objectContaining({ id: 'repository' }),
         systemPrompt: expect.stringContaining('assigned repository task and branch'),
         onDemandCreate: undefined,
       }),
     );
+    // Workspace context reaches the provider once, through the system prompt.
+    // The command text and its stored first command stay the operator's text,
+    // so replay cannot render the context as an extra user message.
+    const started = open.mock.calls.at(-1)![0];
+    expect(started.systemPrompt).toContain(
+      'Mitzo repository workspace repository: example/repo. Starting branch main',
+    );
+    expect(started.prompt).not.toContain('Mitzo repository workspace');
+    expect(started.prompt).toContain('change the code');
+    expect(chat.eventStore.getSession(startupId)?.initialPrompt).toBe('change the code');
     // A completed/failed provider startup must use resume rather than another initial launch.
     await expect(
       chat.startChat({ send: vi.fn(), isOpen: () => true }, 'duplicate-startup', 'new prompt', {

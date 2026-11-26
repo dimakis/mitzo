@@ -2052,7 +2052,9 @@ async function _startChatInner(
       },
     );
   }
-  prompt = repositoryChatContext(repositoryWorkspace) + prompt;
+  // Repository workspace context reaches every provider once, through the
+  // system prompt. Never add it to the command text: that text is the public
+  // first command, so the envelope would replay as an extra user message.
   const nativeProviderSelected = !!apiCredentialRef || !!gemini;
 
   if (
@@ -3595,8 +3597,7 @@ async function _startChatInner(
               id === initialMessageId
                 ? fullPrompt
                 : assemblePrompt(
-                    repositoryChatContext(repositoryWorkspace) +
-                      assembleCommandPrompt(eventStore, session.sessionId!, id, frozenPayload),
+                    assembleCommandPrompt(eventStore, session.sessionId!, id, frozenPayload),
                     cwd,
                     frozenPayload.images,
                     undefined,
