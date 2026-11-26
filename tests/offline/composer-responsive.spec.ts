@@ -88,6 +88,14 @@ const rows = (boxes: Box[]) =>
     .sort((a, b) => a - b)
     .filter((y, index, ys) => index === 0 || y - ys[index - 1] > 8).length;
 
+/** Layout evidence for a failed row assertion: each control's name, x, y and width. */
+async function geometry(page: Page, label: string, boxes: Box[]) {
+  const toolbar = await page.locator('.composer-toolbar').boundingBox();
+  return `${label}; toolbar ${Math.round(toolbar?.x ?? -1)}+${Math.round(toolbar?.width ?? -1)}; ${boxes
+    .map((b) => `${b.name}@${Math.round(b.x)},${Math.round(b.y)}w${Math.round(b.width)}`)
+    .join(' | ')}`;
+}
+
 const same = (before: Box[], after: Box[]) => {
   for (const box of before) {
     const next = after.find((candidate) => candidate.name === box.name)!;
@@ -131,7 +139,10 @@ for (const sourceStop of [false, true])
           'Stop selected agents',
         ];
         const idleBoxes = await directControls(page, idle);
-        if (width <= 390) expect(rows(idleBoxes), `idle rows at ${width}px`).toBe(2);
+        if (width <= 390)
+          expect(rows(idleBoxes), await geometry(page, `idle rows at ${width}px`, idleBoxes)).toBe(
+            2,
+          );
         // Typing does not move any control.
         await input.fill(`Draft at ${width}px`);
         same(idleBoxes, await directControls(page, idle));
@@ -140,7 +151,11 @@ for (const sourceStop of [false, true])
         same(idleBoxes, await directControls(page, idle));
         await page.getByRole('button', { name: 'Toggle running' }).click();
         const runningBoxes = await directControls(page, running);
-        if (width <= 390) expect(rows(runningBoxes), `running rows at ${width}px`).toBe(2);
+        if (width <= 390)
+          expect(
+            rows(runningBoxes),
+            await geometry(page, `running rows at ${width}px`, runningBoxes),
+          ).toBe(2);
         const primary = runningBoxes.filter((box) =>
           ['Steer selected agents', 'Queue message', 'Stop selected agents'].includes(box.name),
         );

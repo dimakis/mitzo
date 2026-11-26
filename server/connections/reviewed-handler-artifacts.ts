@@ -83,7 +83,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/composer-responsive.tsx':
     'f11043b10b6685e3b4b1c34a4f8ab3721668e9f6ec6cd29badddacea5190c11e',
   '../../tests/offline/composer-responsive.spec.ts':
-    '78e1cb5e5b054929cea6eeedb545e376f9ce704727d237a0b4fc005d6ff8d2ec',
+    '8f2ad5edefa5173b3bde0000e5508eda9aa06f8042680fc6f3bedcf6a7b89ec8',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',

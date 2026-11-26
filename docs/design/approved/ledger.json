@@ -1303,7 +1303,7 @@
             },
             {
               "path": "tests/offline/composer-responsive.spec.ts",
-              "sha256": "78e1cb5e5b054929cea6eeedb545e376f9ce704727d237a0b4fc005d6ff8d2ec"
+              "sha256": "8f2ad5edefa5173b3bde0000e5508eda9aa06f8042680fc6f3bedcf6a7b89ec8"
             }
           ],
           "validation": "docs/evidence/symposium-responsive-composer-2026-11-21.md",
