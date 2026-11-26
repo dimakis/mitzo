@@ -1,6 +1,7 @@
 import type { Session } from '../types/chat';
 import type { SessionActionPoint } from '../hooks/useSessionInteraction';
 import { SavedSessionHistory } from './SavedSessionHistory';
+import { SharedConversationMarker } from './SharedConversationMarker';
 import { SessionContextUsage } from './SessionContextUsage';
 import { SessionWorkLink } from './SessionWorkLink';
 import { UiIcon } from './UiIcon';
@@ -36,6 +37,7 @@ export function SessionInspector({
         </button>
       </header>
       <h3>{recordTitle(session.summary || 'Untitled conversation')}</h3>
+      <SharedConversationMarker session={session} />
       <SessionActivityStatus
         activity={activity}
         modifiedAt={session.lastModified}
