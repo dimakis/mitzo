@@ -1,37 +1,111 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { detectDefaultBranch, fetchWorktreeBase } from './worktree.js';
-import { readOnlyGitExecutable } from './read-only-git.js';
+import { readOnlyGitExecutable, readOnlyGitExecutableAsync } from './read-only-git.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
 
 const unavailable = () => Error('Original local repository is unavailable');
+const gitArgs = (cwd: string, args: string[]) => [
+  '--no-replace-objects',
+  '-C',
+  cwd,
+  '-c',
+  'core.fsmonitor=false',
+  '-c',
+  'core.hooksPath=/dev/null',
+  ...args,
+];
+const gitOptions = {
+  encoding: 'utf8' as const,
+  timeout: 5000,
+  maxBuffer: 16384,
+  env: {
+    PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin',
+    GIT_CONFIG_SYSTEM: '/dev/null',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_NO_LAZY_FETCH: '1',
+  },
+};
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync(
-    readOnlyGitExecutable(),
-    [
-      '--no-replace-objects',
-      '-C',
-      cwd,
-      '-c',
-      'core.fsmonitor=false',
-      '-c',
-      'core.hooksPath=/dev/null',
-      ...args,
-    ],
-    {
-      encoding: 'utf8',
-      timeout: 5000,
-      maxBuffer: 16384,
-      env: {
-        PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin',
-        GIT_CONFIG_SYSTEM: '/dev/null',
-        GIT_CONFIG_GLOBAL: '/dev/null',
-        GIT_NO_LAZY_FETCH: '1',
+  execFileSync(readOnlyGitExecutable(), gitArgs(cwd, args), gitOptions).trim();
+
+/** Source capture runs on the controller event loop. These fixed rev-parse
+ * reads cannot run hooks, fsmonitor or lazy-fetch helpers. Leave mutation and
+ * default-fetch execution with their existing owners. Join close: execFile's
+ * abort callback alone does not establish that its child has been collected. */
+async function captureGit(cwd: string, signal: AbortSignal, ...args: string[]): Promise<string> {
+  signal.throwIfAborted();
+  // The per-probe deadline also covers executable resolution.
+  const deadline = new AbortController();
+  const timeout = setTimeout(
+    () =>
+      deadline.abort(new DOMException('Local repository source read timed out', 'TimeoutError')),
+    gitOptions.timeout,
+  );
+  const combined = AbortSignal.any([signal, deadline.signal]);
+  try {
+    // Resolve the selected developer Git without blocking the event loop. A bare
+    // `git` on macOS re-enters the xcrun shim on every spawn, which is slow or
+    // fails in the fenced child environment (no HOME/TMPDIR). Stop or the
+    // deadline settles immediately; the shared lookup still fills the cache.
+    const executable = await new Promise<string>((resolve, reject) => {
+      const abort = () => reject(combined.reason);
+      combined.addEventListener('abort', abort, { once: true });
+      readOnlyGitExecutableAsync().then(
+        (path) => {
+          combined.removeEventListener('abort', abort);
+          resolve(path);
+        },
+        (error: unknown) => {
+          combined.removeEventListener('abort', abort);
+          reject(error);
+        },
+      );
+    });
+    combined.throwIfAborted();
+    return await spawnCaptureGit(executable, cwd, args, combined);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function spawnCaptureGit(
+  executable: string,
+  cwd: string,
+  args: string[],
+  combined: AbortSignal,
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let failure: unknown;
+    let output = '';
+    const child = execFile(
+      executable,
+      gitArgs(cwd, args),
+      {
+        ...gitOptions,
+        timeout: 0,
+        signal: combined,
+        killSignal: 'SIGKILL',
       },
-    },
-  ).trim();
+      (error, stdout, stderr) => {
+        failure =
+          error?.code === 'ABORT_ERR' && combined.aborted
+            ? combined.reason
+            : error
+              ? Object.assign(error, { stdout, stderr })
+              : undefined;
+        output = stdout;
+      },
+    );
+    child.once('close', () => {
+      if (failure !== undefined) reject(failure);
+      else if (combined.aborted) reject(combined.reason);
+      else resolve(output.trim());
+    });
+  });
+}
 function directory(path: string) {
   if (!isAbsolute(path) || resolve(path) !== path || realpathSync(path) !== path)
     throw unavailable();
@@ -59,12 +133,15 @@ export async function captureLocalRepository(
 ) {
   signal.throwIfAborted();
   const root = directory(path);
-  const identity = git(
-    path,
-    'rev-parse',
-    '--show-toplevel',
-    '--path-format=absolute',
-    '--git-common-dir',
+  const identity = (
+    await captureGit(
+      path,
+      signal,
+      'rev-parse',
+      '--show-toplevel',
+      '--path-format=absolute',
+      '--git-common-dir',
+    )
   ).split('\n');
   if (identity.length !== 2 || identity[0] !== path) throw unavailable();
   const commonDirectory = identity[1];
@@ -80,13 +157,23 @@ export async function captureLocalRepository(
   const baseOid =
     startPoint === undefined
       ? await fetchWorktreeBase(path, signal, selectedRef)
-      : git(path, 'rev-parse', '--verify', '--end-of-options', `${startPoint}^{commit}`);
+      : await captureGit(
+          path,
+          signal,
+          'rev-parse',
+          '--verify',
+          '--end-of-options',
+          `${startPoint}^{commit}`,
+        );
   signal.throwIfAborted();
   if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(baseOid)) throw unavailable();
   // HEAD is a valid source ref, but is a reserved Git branch name. Keep the
   // reservation's display branch valid for non-main and detached repositories.
   const branch =
-    selectedRef === 'HEAD' ? git(path, 'rev-parse', '--abbrev-ref', 'HEAD') : selectedRef;
+    selectedRef === 'HEAD'
+      ? await captureGit(path, signal, 'rev-parse', '--abbrev-ref', 'HEAD')
+      : selectedRef;
+  signal.throwIfAborted();
   const baseBranch = branch === 'HEAD' ? baseOid : branch;
   return {
     localSource,
