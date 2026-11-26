@@ -38,6 +38,8 @@ export const GIT_BRANCH_TIMEOUT_MS = 5_000;
 
 // --- Server ---
 export const HEARTBEAT_INTERVAL_MS = 15_000;
+/** SSE `retry:` hint for the broadcast event stream (browser reconnect delay). */
+export const EVENT_STREAM_RETRY_MS = 1_000;
 export const PORT_DEFAULT = 3100;
 export const SHUTDOWN_GRACE_MS = 5_000;
 export const GUARD_STATS_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
