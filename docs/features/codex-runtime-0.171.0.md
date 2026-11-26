@@ -63,10 +63,17 @@ read identified GitHub CLI's refusal to emit terminal escape sequences. A
 separate authenticated integration read did not run because its approval timed
 out. No root cause is claimed for the remaining workflow failures.
 
-The version-bound 0.160.0 legacy continuity bridge remains closed after this
-upgrade. Saved proofs and histories are preserved; this change does not invent
-compatibility aliases or silently rewrite old runtime receipts. Existing runtime
-requalification/recovery is required where an old declaration is incompatible.
+The CLI version is part of every v2 Local Codex target identity. By Dimitri's
+decision (2026-11-26), `REVIEWED_V2_CLI_UPGRADES` in
+`server/host-codex-continuity.ts` admits the 0.160.0 v2 identity as a
+compatible target revision on 0.171.0. Existing v2 conversations, saved
+preparations and retained effects therefore stay continuable under their
+original identity; account, host, executable custody, workspace, receipts and
+thread are still verified independently. Other earlier CLI identities stay
+refused until separately reviewed. The v1 legacy bridge (release
+`8c3e5062c5df`) is bound to the 0.160.0 executable hash and remains closed, so
+those v1 declarations need requalification/recovery. Saved proofs and receipts
+are never rewritten.
 
 The source update does not install a production executable, rebuild a deployed
 OpenShell image, activate a release or prove consumer adoption. Those operations
