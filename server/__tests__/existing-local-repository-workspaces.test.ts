@@ -439,8 +439,6 @@ it('materializes an arbitrary repository without executing checkout hooks or Git
   git(source, 'config', 'filter.untrusted.clean', helper);
   git(source, 'config', 'filter.untrusted.required', 'true');
   const hook = join(source, '.git', 'hooks', 'post-checkout');
-  // The bounded executor intentionally uses an empty Git template directory.
-  mkdirSync(join(source, '.git', 'hooks'), { recursive: true });
   writeFileSync(hook, `#!/bin/sh\nprintf invoked > '${hookMarker}'\n`);
   chmodSync(hook, 0o700);
   const service = f.open();

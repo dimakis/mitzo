@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,11 +10,6 @@ import {
 } from '../local-repository-worktree.js';
 
 vi.mock('node:child_process', { spy: true });
-// Count Git probes independently of macOS's optional executable resolver.
-vi.mock('../read-only-git.js', () => ({
-  readOnlyGitExecutable: () => 'git',
-  readOnlyGitExecutableAsync: async () => 'git',
-}));
 const roots: string[] = [];
 afterEach(() => {
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
@@ -58,7 +53,6 @@ async function fixture() {
   const checkout = join(root, 'checkout');
   git('worktree', 'add', '-q', '-b', 'mitzo/test', checkout);
   vi.mocked(execFileSync).mockClear();
-  vi.mocked(execFile).mockClear();
   return { ...captured, repo, checkout, git };
 }
 
@@ -77,8 +71,7 @@ it('captures top-level and common-directory identity in one process', async () =
     new AbortController().signal,
     'main',
   );
-  expect(execFileSync).not.toHaveBeenCalled();
-  expect(execFile).toHaveBeenCalledTimes(2);
+  expect(execFileSync).toHaveBeenCalledTimes(2);
   expect(captured.localSource).toEqual(f.localSource);
   expect(captured.baseOid).toBe(f.baseOid);
 });
