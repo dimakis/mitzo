@@ -2833,7 +2833,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/native-provider-tool-call.ts':
     '4fec812e60bbb6cb649a7ee02e619dd7715f3483bae813366f834f7393a81e92',
   '../__tests__/fixtures/native-repository-registered-workflow.ts':
-    'bd980cedc124027d3b72c93ab12a8f5b056b7fef7fa2a67d34cc21334e9ecbb9',
+    '4418c20dbb7285b2090b9ceb08523f92936a3a8e55910a7ba8e846835c6a37de',
   '../__tests__/fixtures/native-repository-worker-sources.ts':
     '7ddb7ac5a894cad58e1342445cf92d6127ee1255ad796448b92ce50f49e089de',
   '../__tests__/fixtures/offline-user-home.ts':
@@ -3161,7 +3161,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-codex-entry.test.ts':
     'a645d3bba475f09c7e7b63716be9105f32578db992a06b90daf7ae884e26f517',
   '../__tests__/ordinary-local-codex-host-runtime.test.ts':
-    'c5f71f575cfcf99d79f988ff7af4a1b4eff80295a5744a3a788cc03dbc446cd1',
+    'f2f971c5a2f37c591f0399ff90bbd703d872bc590b8a05a603aa8c9df42eddda',
   '../__tests__/ordinary-local-codex-owned-runtime.test.ts':
     '5624be1f4c61c0ac69952af7046c80bc084095d852dcccf7b0272ab3891d4a36',
   '../__tests__/ordinary-local-codex-selection-owner.test.ts':
@@ -4119,7 +4119,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e8ec438c4288e316773da0c288845fb6a8aeb33b37d804ee9791c8425bdbad43',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../hook-bridge.ts': 'c074035575cec09da73e694c1a0226763c75ca687ca8d811ad2fa136c60cf6c2',
-  '../host-codex-continuity.ts': 'e35d7bb97c14d57b152630741dd8576d914799e974f50e06d5c54a2eeb614e88',
+  '../host-codex-continuity.ts': '5fdaceca80848193a5df82abd1a1ed1ab3279911096eb15fc48f398a563d21cd',
   '../host-codex-custody.ts': '61aa7f207e85cda995ab21ca987946db1fbe83e81e232f038b656eb235d24212',
   '../host-codex-login-files.ts':
     '0f3969c9bb283031e661f1e96c38344fdc698da7a044f767c43505dd4d23d015',
@@ -4363,7 +4363,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-admission.ts':
     'b27f086206004d344de04c671603106f036e5ced7502eaf202c0aa357f813fa4',
   '../ordinary-local-codex-capabilities.ts':
-    '6aa1d7edd2466719bd8766209dd6a6786b37436fc381c672ad4b42e260ad0d03',
+    '2f1d73e36b9883207f7b04360ef2084351da5fd3fc7365d1a3a23feb93a4e07c',
   '../ordinary-local-codex-entry.ts':
     '034b597c823da05856dd21d296d8afbe0999e1d6857813ac63a3eeaa239f0bd7',
   '../ordinary-local-codex-host-runtime.ts':

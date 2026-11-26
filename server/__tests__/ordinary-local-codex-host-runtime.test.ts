@@ -187,9 +187,28 @@ it('keeps v2 conversation identity stable across attested deployments but refuse
   expect(() => next.continuationDeclaration(revision)).toThrow(
     'Host Codex runtime observation unavailable',
   );
+  const v2 = (cliVersion: string) =>
+    createHash('sha256')
+      .update(
+        JSON.stringify([
+          'ordinary-local-codex-target-v2',
+          'local-mac',
+          hostname(),
+          'codex-native-thread-v1',
+          cliVersion,
+        ]),
+      )
+      .digest('hex');
+  // The reviewed 0.160.0 -> 0.171.0 upgrade keeps existing v2 conversations,
+  // saved preparations and retained effects continuable on their original identity.
+  expect(next.continuationDeclaration(v2('0.160.0')).targetRevision).toBe(v2('0.160.0'));
+  // Any other earlier CLI identity still needs its own review.
+  expect(() => next.continuationDeclaration(v2('0.150.0'))).toThrow(
+    'Host Codex runtime observation unavailable',
+  );
   expect(await next.observe()).toMatchObject({
     targetRevision: identity,
-    compatibleTargetRevisions: [identity],
+    compatibleTargetRevisions: [identity, v2('0.160.0')],
   });
 });
 
