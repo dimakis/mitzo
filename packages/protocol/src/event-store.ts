@@ -3032,12 +3032,40 @@ export class EventStore {
       !this.getExecutionAdmission(sessionId, commandId) &&
       this.getOrdinaryLocalVertexCommandAdmission(commandId)?.state === 'consumed' &&
       this.getOrdinarySdkTurnEvents(sessionId, commandId).length === 0 &&
-      !!this.db!.prepare(
-        `SELECT 1 FROM events WHERE session_id=? AND type='error'
-         AND json_extract(payload,'$.restartCommandId')=?
-         AND json_extract(payload,'$.restartSettlement')='not_delivered' LIMIT 1`,
-      ).get(sessionId, commandId)
+      this.hasRestartSettlementNotice(sessionId, commandId, 'not_delivered')
     );
+  }
+
+  /** Positive evidence that a restart cut this SDK input before the CLI
+   * acknowledged it: its execution was terminalized by the restart, the
+   * receipt is consumed, no SDK turn event exists, and the durable
+   * delivery-unknown notice was retained. This alone never asserts that no
+   * native history exists; the caller still reads history and resumes it
+   * when present. */
+  getOrdinarySdkInputRestartUnacknowledged(sessionId: string, commandId: string): boolean {
+    const command = this.getSendCommand(commandId);
+    const execution = this.getExecutionAdmission(sessionId, commandId);
+    return (
+      command?.sessionId === sessionId &&
+      command.error === RESTARTED_SDK_COMMAND_ERRORS.unknown &&
+      !!execution &&
+      this.getExecutionTerminalReason(execution.token) === 'server_restart' &&
+      this.getOrdinaryLocalVertexCommandAdmission(commandId)?.state === 'consumed' &&
+      this.getOrdinarySdkTurnEvents(sessionId, commandId).length === 0 &&
+      this.hasRestartSettlementNotice(sessionId, commandId, 'unknown')
+    );
+  }
+
+  private hasRestartSettlementNotice(
+    sessionId: string,
+    commandId: string,
+    settlement: 'not_delivered' | 'unknown',
+  ): boolean {
+    return !!this.db!.prepare(
+      `SELECT 1 FROM events WHERE session_id=? AND type='error'
+       AND json_extract(payload,'$.restartCommandId')=?
+       AND json_extract(payload,'$.restartSettlement')=? LIMIT 1`,
+    ).get(sessionId, commandId, settlement);
   }
 
   /** The command that owns one execution generation. */
@@ -4291,8 +4319,10 @@ export class EventStore {
     )?.client_msg_id;
   }
 
-  /** Positive pre-input cancellation evidence, not an inference from missing
-   * SDK history or missing acknowledgements. Every execution must be covered. */
+  /** Positive evidence that absent SDK history may be started fresh, never an
+   * inference from missing history or acknowledgements alone. Every input must
+   * be covered: a pre-input cancellation, or a restart settlement (not_delivered
+   * without an execution, or unknown with no CLI acknowledgement). */
   hasOnlyCancelledOrdinarySdkInputs(sessionId: string): boolean {
     const meta = this.getSession(sessionId);
     if (!meta) return false;
@@ -4316,9 +4346,14 @@ export class EventStore {
     }
     if (meta.executionPhase !== 'TERMINAL') return false;
     if (commands.length !== meta.executionGeneration) return false;
-    return commands.every(({ client_msg_id: id }) => {
-      return this.getOrdinarySdkInputCancellation(sessionId, id) !== undefined;
-    });
+    // A restart-settled unknown delivery qualifies too: if the CLI wrote no
+    // transcript before the restart, starting without history is the only way
+    // to continue; the caller still resumes any history that does exist.
+    return commands.every(
+      ({ client_msg_id: id }) =>
+        this.getOrdinarySdkInputCancellation(sessionId, id) !== undefined ||
+        this.getOrdinarySdkInputRestartUnacknowledged(sessionId, id),
+    );
   }
 
   /** Start one durable provider dispatch owned by the exact active execution token. */

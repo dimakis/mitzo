@@ -231,6 +231,28 @@ it('keeps unknown delivery visible when the restart hit between execution start 
   });
 });
 
+/** Run with no native CLI history for any conversation, then restore the mocks. */
+async function withoutNativeHistory<T>(run: () => Promise<T>): Promise<T> {
+  const account = vi.mocked(readClaudeAccountHistory);
+  const info = vi.mocked(getSessionInfo);
+  const messages = vi.mocked(getSessionMessages);
+  const originals = [
+    account.getMockImplementation(),
+    info.getMockImplementation(),
+    messages.getMockImplementation(),
+  ] as const;
+  account.mockResolvedValue({ info: undefined, messages: [] } as never);
+  info.mockResolvedValue(undefined as never);
+  messages.mockResolvedValue([]);
+  try {
+    return await run();
+  } finally {
+    account.mockImplementation(originals[0]!);
+    info.mockImplementation(originals[1]!);
+    messages.mockImplementation(originals[2]!);
+  }
+}
+
 /** What a reopened chat shows: the stored stream through the public replay contract. */
 const restoredText = (f: Awaited<ReturnType<typeof claudeChat>>['f'], sessionId: string) =>
   replayEventsToMessages(f.events.getSessionEvents(sessionId))
@@ -321,28 +343,70 @@ it('admits the next message on a cold start when the restart preceded the CLI', 
   );
   expect(f.events.hasOnlyCancelledOrdinarySdkInputs(sessionId)).toBe(true);
 
-  // The CLI never wrote native history for this conversation.
-  const account = vi.mocked(readClaudeAccountHistory);
-  const info = vi.mocked(getSessionInfo);
-  const messages = vi.mocked(getSessionMessages);
-  const originals = [
-    account.getMockImplementation(),
-    info.getMockImplementation(),
-    messages.getMockImplementation(),
-  ] as const;
-  account.mockResolvedValue({ info: undefined, messages: [] } as never);
-  info.mockResolvedValue(undefined as never);
-  messages.mockResolvedValue([]);
-  try {
-    await expect(
-      create('next').admitResume({ ...f.request, clientMsgId: 'next' }),
-    ).resolves.toEqual({ dispatched: true });
-  } finally {
-    account.mockImplementation(originals[0]!);
-    info.mockImplementation(originals[1]!);
-    messages.mockImplementation(originals[2]!);
-  }
+  await expect(
+    withoutNativeHistory(() => create('next').admitResume({ ...f.request, clientMsgId: 'next' })),
+  ).resolves.toEqual({ dispatched: true });
   expect(dispatch).toHaveBeenCalledTimes(2);
+});
+
+it.each([
+  ['before the input was pushed', false],
+  ['after the input was pushed but before its echo', true],
+] as const)(
+  'admits the next message with no CLI history when delivery was unknown %s',
+  async (_label, pushed) => {
+    const { f, create, dispatch, sessionId } = await claudeChat(
+      pushed
+        ? undefined
+        : async () => {
+            throw Error('server terminated during CLI startup');
+          },
+    );
+    const admitted = create(f.request.clientMsgId).admit(f.request);
+    if (pushed) await expect(admitted).resolves.toEqual({ dispatched: true });
+    else await expect(admitted).rejects.toThrow();
+    f.events.beginOrdinaryLocalVertexCommandExecution(sessionId, f.request.clientMsgId);
+    if (pushed) f.events.completeOrdinaryLocalVertexCommand(f.request.clientMsgId);
+
+    recoverAfterRestart(f.events);
+
+    expect(restartErrors(f, sessionId)).toEqual([
+      expect.objectContaining({ restartSettlement: 'unknown' }),
+    ]);
+    expect(
+      f.events.getOrdinarySdkInputRestartUnacknowledged(sessionId, f.request.clientMsgId),
+    ).toBe(true);
+    expect(f.events.hasOnlyCancelledOrdinarySdkInputs(sessionId)).toBe(true);
+    await expect(
+      withoutNativeHistory(() => create('next').admitResume({ ...f.request, clientMsgId: 'next' })),
+    ).resolves.toEqual({ dispatched: true });
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  },
+);
+
+it('still requires native history after a restart cut a turn the CLI acknowledged', async () => {
+  const { f, create, sessionId } = await claudeChat();
+  await expect(create(f.request.clientMsgId).admit(f.request)).resolves.toEqual({
+    dispatched: true,
+  });
+  f.events.beginOrdinaryLocalVertexCommandExecution(sessionId, f.request.clientMsgId);
+  const custody = f.events.getOrdinaryLocalVertexCustody(sessionId)!;
+  new OrdinarySdkTurnEvidence(f.events, sessionId, custody.sdkSessionId).accepted(
+    f.request.clientMsgId,
+    'input-uuid',
+  );
+
+  recoverAfterRestart(f.events);
+
+  // The CLI acknowledged this input, so its transcript must exist; absent
+  // history is a real failure, never a fresh start.
+  expect(f.events.getOrdinarySdkInputRestartUnacknowledged(sessionId, f.request.clientMsgId)).toBe(
+    false,
+  );
+  expect(f.events.hasOnlyCancelledOrdinarySdkInputs(sessionId)).toBe(false);
+  await expect(
+    withoutNativeHistory(() => create('next').admitResume({ ...f.request, clientMsgId: 'next' })),
+  ).rejects.toThrow();
 });
 
 it('does not treat absent history as undelivered without restart settlement evidence', async () => {

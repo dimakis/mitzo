@@ -36,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-cli-restart-resume-offline.test.ts':
     '6d036d15be2e409f2e5addc207cab41304303b8e3dea5fba4d64f26347529356',
   '../__tests__/claude-restart-interrupted-turn.test.ts':
-    '2408a52819a0717ebf802126f57632ba037ff01f4a8df68f541af4e8983bd56f',
+    'be6e5d026b6ca640bcfee40fc0c292edf3921e69e1e0df3a9d1878e943129cbe',
   '../restart-interruption.ts': '2d19aef1b5d256e9f119129bd69778d98e46b54199e897c0875e588953c87027',
   '../terminal-output-text.ts': '0c6807fa18211ff56299ea80c211d3c536c8b5b7e003b331deba978dc00ac537',
   '../host-github-credential.ts':
@@ -1515,7 +1515,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/reasoning/fusion.ts':
     'a45edaf4378c6f0745de26ffd01c7df763a0a7f064bd9450c4b80999dfb8cffd',
   '../../packages/harness/src/session-registry.ts':
-    'd315bd654b67cbf5c3288d0ff2bdbea38f15362a68ab2666faf3d2bd9b87b946',
+    '3f3db604286f8ecf297aa303e62c793324dd2eeafbe8967074322d87a96cc67a',
   '../../packages/harness/src/session-transport.ts':
     '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
   '../../packages/harness/src/skill-policy.ts':
@@ -1619,7 +1619,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/deployment-store.ts':
     '06980f353fa11edc16a5e8f75fb8de4b4679853b979d71a1e3d819f76007e04a',
   '../../packages/protocol/src/event-store.ts':
-    '0041188ad23fb4da5d839323953f265c7f5239aaec04541b033329b5522d2e88',
+    '596df0ddc97de7a1b7474a58a0cc9745f49da6c2d7b2d8e1ca4dabd9d1480d06',
   '../../packages/protocol/src/execution-ledger.ts':
     '1399fe4c7ffcebea20fa4374083d0e14b90aba619f3b3349439882ba01851b88',
   '../../packages/protocol/src/index.ts':
@@ -3860,7 +3860,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': '378afa461d87a557a7edb3ce64657be8214ff270e4a6da25d253286c89ae5e5d',
+  '../chat.ts': 'd7967848360c6e08347a4e3b6b022445b271aaf7919d6065c8d96f1df4b31c4d',
   '../claude-turn-attribution.ts':
     'df91ef6cf912d7ba7e3405fce233ccf563bea53740041725b40783ee3b82b64d',
   '../__tests__/claude-turn-attribution.test.ts':

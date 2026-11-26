@@ -593,11 +593,17 @@ describe('SessionRegistry', () => {
       registry.register('publication', publication.session as never);
       const startup = new AbortController();
       registry.registerStartup('starting', 'cold-chat', startup);
+      // A Symposium contributor turn starts through the same path; its owner drains it.
+      const contributorStartup = new AbortController();
+      registry.registerStartup('contributor-starting', 'seat-chat', contributorStartup, {
+        contributorExecution: true,
+      });
 
       expect(registry.abortOrdinaryRuntimeOwners()).toBe(2);
 
       expect(ordinary.abortController.signal.aborted).toBe(true);
       expect(startup.signal.aborted).toBe(true);
+      expect(contributorStartup.signal.aborted).toBe(false);
       expect(registry.isActive('ordinary')).toBe(false);
       expect(contributor.abortController.signal.aborted).toBe(false);
       expect(publication.abortController.signal.aborted).toBe(false);

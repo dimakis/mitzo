@@ -1932,6 +1932,7 @@ async function _startChatInner(
     clientId,
     options.resume ?? options.initialSessionId,
     abortController,
+    { contributorExecution: !!options.contributorExecution },
   );
   const abortAdviser = () => abortController.abort(options.adviserScope?.signal.reason);
   startupGuard.releasePreparation = () => {

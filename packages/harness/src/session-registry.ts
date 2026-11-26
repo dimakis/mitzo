@@ -194,16 +194,25 @@ export interface CloseoutEpisode {
 export type CloseoutHandler = (clientId: string, episode: CloseoutEpisode) => void;
 
 export class SessionRegistry {
-  private startups = new Map<string, { sessionId?: string; abortController: AbortController }>();
+  private startups = new Map<
+    string,
+    { sessionId?: string; abortController: AbortController; contributorExecution?: true }
+  >();
 
-  /** Cancellation ownership only; preparation is not a routable query or tool authority. */
+  /** Cancellation ownership only; preparation is not a routable query or tool authority.
+   * A contributor startup is drained by its Symposium owner, not by shutdown. */
   registerStartup(
     clientId: string,
     sessionId: string | undefined,
     abortController: AbortController,
+    options: { contributorExecution?: boolean } = {},
   ): () => void {
     if (this.startups.has(clientId)) throw Error('Session startup already in progress');
-    const owner = { sessionId, abortController };
+    const owner = {
+      sessionId,
+      abortController,
+      ...(options.contributorExecution ? { contributorExecution: true as const } : {}),
+    };
     this.startups.set(clientId, owner);
     return () => {
       if (this.startups.get(clientId) === owner) this.startups.delete(clientId);
@@ -574,7 +583,8 @@ export class SessionRegistry {
    */
   abortOrdinaryRuntimeOwners(): number {
     let aborted = 0;
-    for (const clientId of [...this.startups.keys()]) {
+    for (const [clientId, startup] of [...this.startups]) {
+      if (startup.contributorExecution) continue;
       this.abort(clientId);
       aborted++;
     }
