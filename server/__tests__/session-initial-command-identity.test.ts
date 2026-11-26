@@ -2,7 +2,9 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { CollaborationContractError } from '@mitzo/protocol';
 import { EventStore } from '../event-store.js';
+import { replayEventsToMessages } from '../conversation-transcript.js';
 import { repositoryChatContext } from '../repository-chat-startup.js';
+import { createSessionTranscriptReader } from '../session-transcript-reader.js';
 import { specialistDiagnostic } from '../specialist-consultation-diagnostics.js';
 
 const TYPED = 'yo lets do a symposium test';
@@ -140,4 +142,66 @@ it('reports a missing consultation request as not started under that request', (
     code: 'consultation_not_found',
     message: expect.stringContaining('none started'),
   });
+});
+
+function reader() {
+  return createSessionTranscriptReader({
+    store,
+    getSessionDirs: async () => [],
+    getSessionInfo: async () => undefined,
+    getLegacyMessages: async () => [],
+    getAccountMessages: async () => [],
+    onLegacyParseError: () => {
+      throw Error('Unexpected legacy projection');
+    },
+  });
+}
+
+const userTexts = (messages: Array<{ role: string; blocks: Array<{ content: string }> }>) =>
+  messages.filter((message) => message.role === 'user').map((message) => message.blocks[0].content);
+
+it('replays a repaired non-Anthropic repository chat without a phantom preamble message', async () => {
+  // Outside the Local Vertex custody projection, only the resolver can repair this row.
+  store.upsertSession({
+    sessionId: 'codex-repo',
+    conversationSource: 'mitzo',
+    cwd: '/fixture',
+    initialPrompt: ENVELOPE,
+    accountBinding: {
+      accountId: 'fixture',
+      accountLabel: 'Fixture',
+      provider: 'openai',
+      model: 'fixture-model',
+      profileRevision: 'fixture-revision',
+    },
+  });
+  admitOrdinary('codex-repo', 'cmd-1', TYPED);
+  store.append('codex-repo', 'user_message', { messageId: 'cmd-1', text: TYPED });
+  reply('codex-repo', 'answer');
+  const through = store.getSessionEvents('codex-repo').at(-1)!.seq;
+
+  const history = reader();
+  const messages = await history.getMessages('codex-repo');
+  const reconnect = history.getReconnectTranscript('codex-repo', through);
+  const transcript = await history.getSessionTranscript('codex-repo');
+  for (const restored of [messages, reconnect.messages, transcript.messages]) {
+    expect(userTexts(restored)).toEqual([TYPED]);
+    expect(restored.map((message) => message.messageId)).not.toContain('umsg-initial');
+    expect(JSON.stringify(restored)).not.toContain('Mitzo repository workspace');
+  }
+});
+
+it('keeps later identical text visible when the first command is identified', () => {
+  store.upsertSession({ sessionId: 'repeat', conversationSource: 'mitzo' });
+  store.append('repeat', 'user_message', { messageId: 'first', text: TYPED });
+  reply('repeat', 'one');
+  store.append('repeat', 'user_message', { messageId: 'again', text: TYPED });
+  reply('repeat', 'two');
+  const events = store.getSessionEvents('repeat');
+
+  const identified = replayEventsToMessages(events, { messageId: 'first', text: TYPED });
+  expect(identified.map((message) => message.messageId)).toEqual(['first', 'one', 'again', 'two']);
+  expect(userTexts(identified)).toEqual([TYPED, TYPED]);
+  // Legacy text-only rows keep their duplicate-suppressing behavior.
+  expect(userTexts(replayEventsToMessages(events, TYPED))).toEqual([TYPED]);
 });

@@ -2554,7 +2554,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-provider-admission.test.ts':
     '487b01b94336c384d247af35f4b5d0d520ebd36d0444f27f3ba45fb009f865a1',
   '../__tests__/chat-provider-startup-admission.test.ts':
-    'e61be37a4c42eb9acbd5a122ecdd9f2d7a40831e4c308e19d02a6a5a149cc543',
+    '86e43356d1dbadeb5049691b53536e9fea311397632f6ef59e959d59c23c2c38',
   '../__tests__/chat-startup-metadata.test.ts':
     '2f36612fee7a0aeb76e1d225b3d53c9481149bf9bb408a63b5cb02d2522b18ca',
   '../__tests__/chat-worktree-startup-failure.test.ts':
@@ -2777,7 +2777,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/deployment-runtime.test.ts':
     'ab0f8da1a5e2b345cc35d62e76678dd7d0655f0b99b263829add569de9f3b7bb',
   '../__tests__/discover-session.test.ts':
-    '02a7e1d24c083f25f7653edddf09d831618f1f6bdbf133e7e8ff87f1aaeb70a3',
+    'a9a0364bd8e06d1d6126a2d77eb95fef7860244e9b081227e56b3ff2a0c435e2',
   '../__tests__/enmaas-account-form.integration.test.tsx':
     'fbc69660df98e9403dae7cf5cd1271b789e2ec3500b01f127dfeb991a8232685',
   '../__tests__/existing-local-repository-workspaces.test.ts':
@@ -3331,7 +3331,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-standalone-repository-observation.test.ts':
     'de3c7ae943e87a97165186f5ca8a6e099548a9c341a9fddf31f6b0ca5f8b1855',
   '../__tests__/query-loop.test.ts':
-    '2aa783b78052173cca6f3e27321f40e20146fbd49a42be3fb11f77a1e0f8804c',
+    '5988f79060b3cbbab61c520537bb10270699f3c8fe37631014575cbdeb49aa01',
   '../__tests__/read-only-git.test.ts':
     'cc4a5ce114015a9dcaca030085709e647568a3a79cc0883b736d7d235d486c53',
   '../__tests__/reconnect-delivery.integration.test.ts':
@@ -3572,7 +3572,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-specialist-tools.test.ts':
     'fa4ca720c4648d03ff738560774ade26fe86bfad6c16ded4842ebaef77747f25',
   '../__tests__/session-transcript-reader.test.ts':
-    'a23868af8f9317a6a5c2a3faacd27e8784b2f678f6b9ada7521018ef13c3400a',
+    '4cc1ee455022e07c278b4ac83e6dba16d3175e0a20d967ea7f829a2376056781',
   '../__tests__/shared-authority-proof.test.ts':
     '39020c6622604339af01601a3d6dc19258a6fd9f860a1f203a85a8b7850e1ab5',
   '../__tests__/single-flight-reconciliation.test.ts':
@@ -3853,7 +3853,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '179119fc3d7019655b0fd7dacc94c4592ab62c24c3beaaf12b2b81f32bc9d957',
-  '../chat.ts': 'd348c0d907a5fb39b1b901b7a99aad228e0bc2e815ab6f21a9624d15160be5cb',
+  '../chat.ts': '7c13baf4f3108936bb8a87244e3e4482bc3796a25e66555e932aacad29e0fefe',
   '../claude-turn-attribution.ts':
     'df91ef6cf912d7ba7e3405fce233ccf563bea53740041725b40783ee3b82b64d',
   '../__tests__/claude-turn-attribution.test.ts':
@@ -3997,7 +3997,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../context-pack-runtime.ts': 'b88bf80b58cdb8bf95dfd950626f75d6e055d2ee5ffb3ac3637e90f85e7bafd8',
   '../context-pack-store.ts': '7e7fce4a09496f735b3ffc9da5aaf9c841a544d1d52513203f2ccdd30e2f837f',
   '../conversation-transcript.ts':
-    '265a3e992decfe9614e0d9d8cb36c96b7ad7e43d98fa3364dfef680d59a7cdb1',
+    'a8dd2b0341665bd75018f85e8cde8e630456e1e8b46e9d80a2f8c14d0304f3a1',
   '../credential-connection-schema.ts':
     '3489ff131cd0bc28de23d85e1ed7cd4749fcb12f062bdc76407bedc0efe28f47',
   '../credential-connection-tools.ts':
@@ -4677,7 +4677,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-specialist-tools.ts':
     '744f1413bae6c070e60b44094ff6c6ec9e6db1adc0b3b22a3ae4375c2e35e656',
   '../session-transcript-reader.ts':
-    'ead3dcc1c868fd6b731ca06ec65238f90b882842a3a1b51dbd7ba200d1432ee4',
+    'ac869858521b2e51827c16cf0fac2d8a77095146adba8dd77eb128ce9576a98e',
   '../shared-authority-proof.ts':
     '2d5084153d44f4701d0cabda0ac5f3fbdff29278f0bed3e0e185b458dcd5fef9',
   '../single-flight-reconciliation.ts':

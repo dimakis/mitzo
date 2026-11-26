@@ -2040,10 +2040,10 @@ async function _startChatInner(
       reasoningEffort: options.reasoningEffort ?? null,
     });
   }
-  // The user's command as typed. Public records (the first user_message and the
-  // session's initialPrompt) use only this text; `prompt` below becomes the
-  // provider envelope (reply/source context, workspace preamble) and never
-  // becomes public history. Readers identify the first command by its messageId.
+  // The user's command as typed. `prompt` below becomes the provider envelope
+  // (reply/source context, workspace preamble). Public records derive from this
+  // text (see publicCommandText) and never carry the workspace preamble. Readers
+  // identify the first command by its messageId, not by text.
   const publicPrompt = prompt;
   if (options.ordinarySdkAuthority) {
     prompt = assembleCommandPrompt(
@@ -2288,6 +2288,23 @@ async function _startChatInner(
         options.contextBlocks,
         options.ordinarySdkAuthority ? undefined : options.sourceSnapshots,
       );
+  // Public record of this command: what was stored before, minus the workspace
+  // preamble. Context-block and source envelopes stay (the Context-injected
+  // disclosure splits them back out); the preamble reaches every provider
+  // through the system prompt and never becomes public history.
+  const publicCommandText =
+    options.ordinarySdkAuthority ||
+    options.adviserScope ||
+    options.sourceSnapshots?.length ||
+    options.replyToMessageId
+      ? publicPrompt
+      : assemblePrompt(
+          publicPrompt,
+          cwd,
+          codexProfile || nativeProviderSelected ? undefined : options.images,
+          options.contextBlocks,
+          options.sourceSnapshots,
+        );
   const userIntent = options.userIntent ?? prompt;
   if (options.reattachOnly && (!options.resume || !codexProfile))
     throw new Error('Provider-only reattachment requires a resumable Codex conversation');
@@ -2316,7 +2333,7 @@ async function _startChatInner(
       ...(agentProfile ? { agentProfile } : {}),
       cwd,
       mode,
-      initialPrompt: publicPrompt,
+      initialPrompt: publicCommandText,
       initialMessageId,
       ...(accountBinding ? { accountBinding } : {}),
       selectedModel: options.model ?? accountBinding?.model ?? null,
@@ -2843,7 +2860,7 @@ async function _startChatInner(
         storeAndEchoIfNew(
           conversationId,
           messageId,
-          publicPrompt,
+          publicCommandText,
           clientId,
           transport,
           session.observers,
@@ -2966,7 +2983,7 @@ async function _startChatInner(
       storeAndEchoIfNew(
         conversationId,
         initialMessageId,
-        publicPrompt,
+        publicCommandText,
         clientId,
         transport,
         session.observers,
@@ -3751,7 +3768,7 @@ async function _startChatInner(
       storeAndEchoIfNew(
         options.resume,
         messageId,
-        publicPrompt,
+        publicCommandText,
         clientId,
         transport,
         session.observers,
@@ -3832,7 +3849,7 @@ async function _startChatInner(
       eventStore,
       options.resume || codexProfile || apiKey || gemini || options.ordinarySdkAuthority
         ? undefined
-        : publicPrompt,
+        : publicCommandText,
       {
         connRegistry: _connRegistry ?? undefined,
         onFirstEventOutcome: options.onFirstEventOutcome,
