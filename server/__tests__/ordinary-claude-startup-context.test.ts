@@ -94,7 +94,17 @@ async function fixture(personal: boolean, consumeInput = false) {
   const knowledge = await import('../published-host-knowledge.js');
   const first = hostKnowledgePublication(f.root, 'a', 'Accepted shared memory');
   const second = hostKnowledgePublication(f.root, 'b', 'Next accepted shared memory');
-  const reconcile = vi.fn().mockResolvedValueOnce(first).mockResolvedValue(second);
+  let markReconciled!: () => void;
+  const reconciled = new Promise<void>((resolve) => {
+    markReconciled = resolve;
+  });
+  const reconcile = vi
+    .fn()
+    .mockImplementationOnce(async () => {
+      markReconciled();
+      return first;
+    })
+    .mockResolvedValue(second);
   const restorePublication = knowledge.installHostKnowledgeStore({ id: 'mgmt', reconcile });
   cleanups.push(restorePublication);
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -265,6 +275,7 @@ async function fixture(personal: boolean, consumeInput = false) {
     first,
     second,
     reconcile,
+    reconciled,
     restorePublication,
   };
 }
@@ -615,8 +626,7 @@ it('runs the deep proof at prompt release and none in per-tool SDK callbacks', a
   expect(x.chat.registry.get('startup-context')!.abortController.signal.aborted).toBe(false);
 }, 20_000);
 
-it('prepares startup context while Tool Library discovery is still pending', async () => {
-  const x = await fixture(false, true);
+async function admitWithPendingToolLibrary(x: Awaited<ReturnType<typeof fixture>>) {
   const library = await import('../tool-library-sdk.js');
   let finishDiscovery!: () => void;
   const discovery = new Promise<undefined>((resolve) => {
@@ -624,7 +634,23 @@ it('prepares startup context while Tool Library discovery is still pending', asy
   });
   vi.spyOn(library, 'createSdkToolLibrary').mockReturnValue(discovery);
   const admitted = x.owner.admit(x.f.request);
-  await vi.waitFor(() => expect(x.reconcile).toHaveBeenCalled());
+  const settled = Promise.allSettled([admitted]);
+  cleanups.push(async () => {
+    // Release and observe pending admission before the fixture retires its
+    // registry; an assertion failure must not leave an unhandled dispatch.
+    finishDiscovery();
+    const [result] = await settled;
+    if (result.status === 'rejected') throw result.reason;
+  });
+  return { admitted, finishDiscovery };
+}
+
+it('prepares startup context while Tool Library discovery is still pending', async () => {
+  const x = await fixture(false, true);
+  const { admitted, finishDiscovery } = await admitWithPendingToolLibrary(x);
+  // Observe the actual event within the existing whole-test budget, rather
+  // than imposing vi.waitFor's unrelated one-second startup deadline.
+  await x.reconciled;
   expect(x.calls).toHaveLength(0);
   finishDiscovery();
   await admitted;
@@ -633,14 +659,8 @@ it('prepares startup context while Tool Library discovery is still pending', asy
 
 it('keeps the operator in control when its stream reconnects during Claude startup', async () => {
   const x = await fixture(false, true);
-  const library = await import('../tool-library-sdk.js');
-  let finishDiscovery!: () => void;
-  const discovery = new Promise<undefined>((resolve) => {
-    finishDiscovery = () => resolve(undefined);
-  });
-  vi.spyOn(library, 'createSdkToolLibrary').mockReturnValue(discovery);
-  const admitted = x.owner.admit(x.f.request);
-  await vi.waitFor(() => expect(x.reconcile).toHaveBeenCalled());
+  const { admitted, finishDiscovery } = await admitWithPendingToolLibrary(x);
+  await x.reconciled;
   // Startup is registered but the native SDK query does not exist yet.
   expect(x.calls).toHaveLength(0);
   const session = x.chat.registry.get('startup-context')!;

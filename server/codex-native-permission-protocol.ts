@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
-/** Reduced wire contract generated/qualified against upstream rust-v0.160.0.
+/** Reduced wire contract generated/qualified against upstream rust-v0.171.0.
  * Validation is not authorization: the runtime owner must bind each request to
  * its account, process, thread, turn and exact RPC callback before responding.
  * See docs/features/codex-native-permission-protocol.md for provenance and gaps.
  */
-export const NATIVE_PERMISSION_PROTOCOL_VERSION = '0.160.0';
+export const NATIVE_PERMISSION_PROTOCOL_VERSION = '0.171.0';
 export const NATIVE_APPROVAL_METHODS = [
   'item/commandExecution/requestApproval',
   'item/fileChange/requestApproval',

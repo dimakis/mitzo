@@ -1,0 +1,84 @@
+# Codex 0.171.0 upgrade
+
+Verified 20 November 2026 against the official public macOS ARM64 release and
+`@openai/codex@0.171.0`, the npm stable version at verification time. Both contain
+the executable with SHA-256
+`fc8d77cf7585aded2b9bc487dad29c4ee2f066123e4e76dd3b17653a8322ce42`.
+
+The shared runtime pin selects 0.171.0 for host version validation and subsequent
+OpenShell image builds. Codex's offline `model/list` includes `gpt-6.2-sol` and
+`gpt-6.2-astra`, each with low, medium, high, xhigh, max and ultra reasoning.
+Mitzo already consumes this catalog dynamically. The reviewed API model catalog
+also admits these IDs when the selected account advertises them; existing models
+remain available. Bundled support does not prove a particular account's entitlement.
+
+All permission declarations retained by the reduced fixture were regenerated
+with an empty isolated home and compared byte for byte with the previous fixture;
+none changed. The fixture, exact-artifact gate and CI downloader now select the
+same new executable. No credentials or production configuration were used.
+
+The native web-search contract was also regenerated from the official binary's
+experimental JSON schema. Search approval and lifecycle fields are unchanged;
+the obsolete `currentTime/read` request is absent. This repairs the unit shard's
+stale 0.160.0 contract version. The no-inference lifecycle probe checks start,
+resume and fork configuration boundaries without issuing a provider turn.
+
+The official executable is 298,198,944 bytes, exceeding the former 256 MiB
+native-custody ceiling. The inspector now admits files up to 384 MiB while still
+streaming at most 1 MiB per read and checking every byte, inode, link count,
+ownership and mutation fence. A 300 MiB sparse Mach-O fixture verifies complete
+hashing; an oversized file is rejected before streaming with a retained
+`native_executable_size_limit` cause behind the sanitized runtime error. The
+actual official executable now measures to its expected SHA-256 through this
+same inspector. This reproduces and repairs the joined workflows' shared startup
+rejection, without claiming that every later workflow stage has passed.
+The isolated device-login copier shares the same file-size ceiling, with its
+own 300 MiB pin/copy and oversized-rejection regression; no device login or
+credential enrollment was performed by these tests.
+
+Upstream `arg0/src/lib.rs` now places helpers in the OS-specific
+`CODEX_HOME/tmp/arg0-macos` directory. The kernel qualifier inspects that actual
+location while retaining the same helper-execution and credential-denial checks.
+The old `tmp/arg0` location belongs to the prior runtime. Source:
+[0.171.0 helper lifecycle](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/arg0/src/lib.rs).
+
+The existing metadata-only resume probe passed against the new executable:
+6,294,925 bytes for full history versus 2,445 for metadata only, with retained
+history and zero provider turns. Subagent schema qualification passed; it does
+not qualify subagent execution or change delegation policy.
+
+Local kernel qualification failed at the positive `command/exec` control with
+exit 71: `sandbox-exec: sandbox_apply: Operation not permitted`. The approved
+native attempt encountered the same host restriction. There is no successful
+local kernel receipt. Required macOS CI runs the actual permission qualifier and
+retains its output; a failed check blocks landing. The prior alias report remains
+historical evidence, including its host-preexisting hardlink limitations.
+
+The first candidate (`8d3aa5a3e`, [CI run 44816191824](https://github.com/dimakis/mitzo/actions/runs/44816191824))
+passed compilation/source preflight and frontend build but failed kernel and
+native joined workflows. The helper-layout correction above follows verified
+upstream source and still needs CI verification. Complete diagnostics were
+unavailable: the bounded log adapter reported a transport failure, and its raw
+read identified GitHub CLI's refusal to emit terminal escape sequences. A
+separate authenticated integration read did not run because its approval timed
+out. No root cause is claimed for the remaining workflow failures.
+
+The CLI version is part of every v2 Local Codex target identity. By Dimitri's
+decision (2026-11-26), `REVIEWED_V2_CLI_UPGRADES` in
+`server/host-codex-continuity.ts` admits the 0.160.0 v2 identity as a
+compatible target revision on 0.171.0. Existing v2 conversations, saved
+preparations and retained effects therefore stay continuable under their
+original identity; account, host, executable custody, workspace, receipts and
+thread are still verified independently. Other earlier CLI identities stay
+refused until separately reviewed. The v1 legacy bridge (release
+`8c3e5062c5df`) is bound to the 0.160.0 executable hash and remains closed, so
+those v1 declarations need requalification/recovery. Saved proofs and receipts
+are never rewritten.
+
+The source update does not install a production executable, rebuild a deployed
+OpenShell image, activate a release or prove consumer adoption. Those operations
+retain their separate review, CI and deployment authorization.
+
+Evidence: [retained no-inference metadata and diagnostics](../../implementation-evidence/codex-runtime-0.171.0.json),
+[official release](https://github.com/openai/codex/releases/tag/rust-v0.171.0),
+[permission contract](codex-native-permission-protocol.md).

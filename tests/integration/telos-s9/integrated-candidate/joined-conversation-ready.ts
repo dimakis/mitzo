@@ -10,6 +10,7 @@ export async function waitForPreparedConversation(
   page: Page,
   capturedReads: readonly unknown[],
   sessionId: string,
+  options = { timeout: 10_000 },
 ) {
   const read = (suffix: string) =>
     capturedReads.flatMap((value) => {
@@ -25,15 +26,32 @@ export async function waitForPreparedConversation(
         return [];
       return [JSON.parse(response.body)];
     });
-  await vi.waitFor(
-    () => {
-      expect(read('meta')).toContainEqual(
-        expect.objectContaining({ sessionId, runtimeCommandScope: 'prepared-first-command' }),
-      );
-      expect(read('messages').some((body) => Array.isArray(body.messages))).toBe(true);
-    },
-    { timeout: 10_000 },
-  );
+  await vi.waitFor(() => {
+    const observations = capturedReads
+      .flatMap((value) => {
+        const response = value as { path?: string; status?: number; body?: string | null };
+        if (response.path !== `/api/sessions/${sessionId}/meta`) return [];
+        return [
+          {
+            status: response.status,
+            bodyRead:
+              response.body === null || response.body === '<stream>'
+                ? 'cancelled'
+                : typeof response.body === 'string'
+                  ? 'complete'
+                  : 'pending',
+          },
+        ];
+      })
+      .slice(-10);
+    expect(
+      read('meta'),
+      `prepared conversation reads: ${JSON.stringify(observations)}`,
+    ).toContainEqual(
+      expect.objectContaining({ sessionId, runtimeCommandScope: 'prepared-first-command' }),
+    );
+    expect(read('messages').some((body) => Array.isArray(body.messages))).toBe(true);
+  }, options);
   // This actual session-selection effect follows the composer's layout commit.
   await browserExpect
     .poll(() => page.evaluate((key) => localStorage.getItem(key), LAST_SESSION_KEY))

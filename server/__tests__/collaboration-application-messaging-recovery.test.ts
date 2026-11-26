@@ -628,6 +628,9 @@ it('does not restore old reader authority after unlinking and rejoining', async 
   expect(prompts).toHaveLength(55);
 });
 
+// This complete journey performs 55 durable sends to evict the old reply.
+// Retained CI evidence reaches the incidental five-second default under load;
+// preserve every send and visibility fence within a finite whole-case budget.
 it.each([false, true])(
   'renews old attributed reply visibility before the reader turn (hidden=%s)',
   async (hidden) => {
@@ -682,6 +685,7 @@ it.each([false, true])(
       expect(prompts.at(-1)!.text).not.toContain('Old attributed reviewer answer');
     }
   },
+  20_000,
 );
 
 it('keeps unexpected pending-inventory failures observable without accepting a request', async () => {

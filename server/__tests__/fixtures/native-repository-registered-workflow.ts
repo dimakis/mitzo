@@ -94,7 +94,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
       const executable = join(artifacts, 'codex');
       await copyFile(
         process.env.S9_CODEX_NATIVE_FIXTURE ??
-          '/private/tmp/mitzo-native-protocol-0.160.0/codex-aarch64-apple-darwin',
+          '/private/tmp/mitzo-native-protocol-0.171.0/codex-aarch64-apple-darwin',
         executable,
       );
       const companion = join(artifacts, 'codex-code-mode-host');

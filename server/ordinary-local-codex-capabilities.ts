@@ -6,6 +6,7 @@ import {
   HOST_CODEX_CONTINUITY_CONTRACT,
   hostCodexContinuityTargetRevision,
   reviewedLegacyHostTargetRevisions,
+  reviewedUpgradedHostTargetRevisions,
 } from './host-codex-continuity.js';
 import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
 import type { AccountProfiles } from './account-profiles.js';
@@ -87,7 +88,10 @@ export class OrdinaryLocalCodexTarget {
     return [
       this.#descriptor.targetRevision,
       ...(config.version === 2
-        ? reviewedLegacyHostTargetRevisions(config.targetId, config.hostId, executableSha256)
+        ? [
+            ...reviewedUpgradedHostTargetRevisions(config.targetId, config.hostId),
+            ...reviewedLegacyHostTargetRevisions(config.targetId, config.hostId, executableSha256),
+          ]
         : []),
     ];
   }

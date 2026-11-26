@@ -150,7 +150,7 @@ it('refuses a private settings leaf replaced during its bounded read', async () 
   expect(() => runtime.assertCurrentSync()).toThrow('Host Codex runtime observation unavailable');
 });
 
-it('keeps v2 conversation identity stable across attested deployments and qualifies only reviewed legacy transitions', async () => {
+it('keeps v2 conversation identity stable across attested deployments but refuses the old CLI legacy bridge', async () => {
   const f = fixture();
   f.writeTarget({ version: 2, continuityContract: 'codex-native-thread-v1' });
   const first = new OrdinaryLocalCodexHostRuntime(f.env);
@@ -184,10 +184,31 @@ it('keeps v2 conversation identity stable across attested deployments and qualif
   const revision = createHash('sha256')
     .update(JSON.stringify(['ordinary-local-codex-target-v1', 'local-mac', hostname(), legacy]))
     .digest('hex');
-  expect(next.continuationDeclaration(revision).targetRevision).toBe(revision);
+  expect(() => next.continuationDeclaration(revision)).toThrow(
+    'Host Codex runtime observation unavailable',
+  );
+  const v2 = (cliVersion: string) =>
+    createHash('sha256')
+      .update(
+        JSON.stringify([
+          'ordinary-local-codex-target-v2',
+          'local-mac',
+          hostname(),
+          'codex-native-thread-v1',
+          cliVersion,
+        ]),
+      )
+      .digest('hex');
+  // The reviewed 0.160.0 -> 0.171.0 upgrade keeps existing v2 conversations,
+  // saved preparations and retained effects continuable on their original identity.
+  expect(next.continuationDeclaration(v2('0.160.0')).targetRevision).toBe(v2('0.160.0'));
+  // Any other earlier CLI identity still needs its own review.
+  expect(() => next.continuationDeclaration(v2('0.150.0'))).toThrow(
+    'Host Codex runtime observation unavailable',
+  );
   expect(await next.observe()).toMatchObject({
     targetRevision: identity,
-    compatibleTargetRevisions: expect.arrayContaining([revision]),
+    compatibleTargetRevisions: [identity, v2('0.160.0')],
   });
 });
 

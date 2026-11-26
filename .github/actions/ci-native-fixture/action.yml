@@ -11,7 +11,7 @@ runs:
           echo '::error::The native fixture download needs the GitHub CLI (gh) on the runner PATH'
           exit 1
         fi
-        PROVENANCE=server/__tests__/fixtures/codex-native-permission-protocol-0.160.0.json
+        PROVENANCE=server/__tests__/fixtures/codex-native-permission-protocol-0.171.0.json
         VERSION=$(node -p "require('./$PROVENANCE').provenance.version")
         BINARY=$(node -p "require('./$PROVENANCE').provenance.binary")
         EXPECTED_SHA=$(node -p "require('./$PROVENANCE').provenance.binarySha256")

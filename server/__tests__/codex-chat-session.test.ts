@@ -457,7 +457,7 @@ function ownedLocalOptions(
     binding,
     profile,
     privateHome: '/private/fixture-home',
-    executableSha256: '112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b',
+    executableSha256: 'fc8d77cf7585aded2b9bc487dad29c4ee2f066123e4e76dd3b17653a8322ce42',
     assertCurrent: vi.fn(async () => {}),
     assertCurrentSync: vi.fn(),
     close: vi.fn(),

@@ -11,6 +11,7 @@ import {
   rmSync,
   linkSync,
   existsSync,
+  truncateSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -26,6 +27,35 @@ import {
   FrozenHostCodexExecutable,
   measureHostCodexExecutable,
 } from '../frozen-host-codex-executable.js';
+it('measures the larger 0.171.0 artifact class but refuses files beyond the bounded 384 MiB ceiling', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-large-')));
+  try {
+    const source = join(root, 'codex');
+    writeFileSync(source, Buffer.from([0xcf, 0xfa, 0xed, 0xfe]), { mode: 0o755 });
+    truncateSync(source, 300 * 1024 * 1024);
+    const expected = createHash('sha256');
+    const chunk = Buffer.alloc(1024 * 1024);
+    chunk.set([0xcf, 0xfa, 0xed, 0xfe]);
+    expected.update(chunk);
+    chunk.fill(0);
+    for (let index = 1; index < 300; index++) expected.update(chunk);
+    expect(measureHostCodexExecutable(source).sha256).toBe(expected.digest('hex'));
+    truncateSync(source, 384 * 1024 * 1024 + 1);
+    reads.readSync.mockClear();
+    expect(() => measureHostCodexExecutable(source)).toThrowError(
+      expect.objectContaining({
+        message: 'Host Codex runtime unavailable',
+        cause: expect.objectContaining({
+          code: 'native_executable_size_limit',
+          stage: 'native_metadata',
+        }),
+      }),
+    );
+    expect(reads.readSync).not.toHaveBeenCalled();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 it('measures every byte freshly with bounded native I/O instead of thousands of small reads', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-stream-')));
   try {
