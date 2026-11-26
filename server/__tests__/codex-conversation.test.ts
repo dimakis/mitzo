@@ -23,7 +23,7 @@ import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-co
 import { mkdtempSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CodexConversation,
   codexTurnFailureDiagnostic,
@@ -1640,6 +1640,134 @@ it('refreshes native cwd and workspace policy for the exact command on the same 
     approvalPolicy: 'on-request',
   });
   expect(f.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+});
+
+describe('host GitHub login for native commands', () => {
+  const policy = () =>
+    codexNativeExecutionPolicy({
+      bindingRevision: 'owner-v1',
+      mode: 'auto',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+  // Construct without the eager setup() initialize, so the first thread/start
+  // frame is the one built from these options.
+  const start = async (overrides: Partial<CodexConversationOptions>) => {
+    const frames: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const f = startupFixture(() => {}, undefined, {
+      ...overrides,
+      createClient: () => ({
+        initialize: async () => {},
+        close: () => {},
+        request: async (method: string, params: Record<string, unknown>) => {
+          frames.push({ method, params });
+          if (method === 'config/read') return { config: {} };
+          return { thread: { id: 'gh-thread' }, model: 'test-model', modelProvider: 'openai' };
+        },
+      }),
+    } as Partial<CodexConversationOptions>);
+    await f.c.initialize();
+    const thread = frames.find(({ method }) => method === 'thread/start')!.params;
+    return { c: f.c, frames, thread, config: thread.config as Record<string, unknown> };
+  };
+  const nativeOwner = () => ({
+    nativeExecution: policy(),
+    assertNativeExecutionCurrent: () => {},
+    requestNativeApproval: async () => ({ decision: 'decline' as const }),
+  });
+
+  it('sets the operator login only on the native command environment of the private thread frame', async () => {
+    const resolve = vi.fn(() => ({ token: 'gho_fixtureLogin', gh: '/fixture/gh' }));
+    const { frames, thread, config } = await start({
+      ...nativeOwner(),
+      hostGithubCredential: resolve,
+    } as Partial<CodexConversationOptions>);
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(config['shell_environment_policy.set']).toEqual({
+      GH_TOKEN: 'gho_fixtureLogin',
+      GH_PROMPT_DISABLED: '1',
+      GH_NO_UPDATE_NOTIFIER: '1',
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_CONFIG_COUNT: '4',
+      GIT_CONFIG_KEY_0: 'credential.https://github.com.helper',
+      GIT_CONFIG_VALUE_0: '',
+      GIT_CONFIG_KEY_1: 'credential.https://github.com.helper',
+      GIT_CONFIG_VALUE_1: '!/fixture/gh auth git-credential',
+      GIT_CONFIG_KEY_2: 'commit.gpgsign',
+      GIT_CONFIG_VALUE_2: 'false',
+      GIT_CONFIG_KEY_3: 'tag.gpgsign',
+      GIT_CONFIG_VALUE_3: 'false',
+    });
+    // The named filesystem/network profiles are unchanged by the transfer.
+    expect(config.default_permissions).toBe('mitzo-native-auto');
+    expect(String(thread.developerInstructions)).not.toContain('gho_fixtureLogin');
+    const elsewhere = frames.filter(({ method }) => method !== 'thread/start');
+    expect(JSON.stringify(elsewhere)).not.toContain('gho_fixtureLogin');
+  });
+
+  it('starts native threads without a GitHub variable when the host login is unavailable', async () => {
+    const { config } = await start({
+      ...nativeOwner(),
+      hostGithubCredential: () => undefined,
+    } as Partial<CodexConversationOptions>);
+    expect(Object.keys(config)).not.toContain('shell_environment_policy.set');
+    expect(config.default_permissions).toBe('mitzo-native-auto');
+  });
+
+  it('keeps the gws broker variables alongside the operator login', async () => {
+    const { config } = await start({
+      ...nativeOwner(),
+      nativeShellEnvironment: { MITZO_GWS_SOCKET: '/fixture/gws.sock' },
+      hostGithubCredential: () => ({ token: 'gho_fixtureLogin', gh: '/fixture/gh' }),
+    } as Partial<CodexConversationOptions>);
+    expect(config['shell_environment_policy.set']).toMatchObject({
+      MITZO_GWS_SOCKET: '/fixture/gws.sock',
+      GH_TOKEN: 'gho_fixtureLogin',
+    });
+  });
+
+  it('never resolves the host login for non-native threads', async () => {
+    const resolve = vi.fn(() => ({ token: 'gho_fixtureLogin', gh: '/fixture/gh' }));
+    const { frames } = await start({ hostGithubCredential: resolve });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(JSON.stringify(frames)).not.toContain('gho_fixtureLogin');
+  });
+
+  it.each(['chatgpt-subscription', 'openai-api'] as const)(
+    'uses the operator GitHub identity independently of the %s inference account',
+    async (route) => {
+      const resolve = vi.fn(() => ({ token: 'gho_operator', gh: '/fixture/gh' }));
+      const { config, thread } = await start({
+        ...nativeOwner(),
+        route,
+        hostGithubCredential: resolve,
+      });
+      expect(resolve).toHaveBeenCalledOnce();
+      expect(config['shell_environment_policy.set']).toMatchObject({ GH_TOKEN: 'gho_operator' });
+      expect(thread).toMatchObject({ model: 'test-model', modelProvider: 'openai' });
+    },
+  );
+
+  it('refreshes the login on resume and drops it when the resolver later returns unavailable', async () => {
+    const resolve = vi
+      .fn<NonNullable<CodexConversationOptions['hostGithubCredential']>>()
+      .mockReturnValueOnce({ token: 'gho_first', gh: '/fixture/gh' })
+      .mockReturnValueOnce({ token: 'gho_rotated', gh: '/fixture/gh' })
+      .mockReturnValueOnce(undefined);
+    const { c, frames } = await start({ ...nativeOwner(), hostGithubCredential: resolve });
+    await c.setWebSearchGrant(c.getWebSearchGrant().revision, 'denied');
+    await c.setWebSearchGrant(c.getWebSearchGrant().revision, 'denied');
+    const resumes = frames.filter(({ method }) => method === 'thread/resume');
+    expect(resumes).toHaveLength(2);
+    expect(resumes[0]!.params.config).toMatchObject({
+      'shell_environment_policy.set': { GH_TOKEN: 'gho_rotated' },
+    });
+    expect(resumes[1]!.params.config).not.toHaveProperty('shell_environment_policy.set');
+    expect(JSON.stringify(resumes)).not.toContain('gho_first');
+    expect(resolve).toHaveBeenCalledTimes(3);
+  });
 });
 
 it.each(['tool-surface', 'provider-recovery'] as const)(

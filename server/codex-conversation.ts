@@ -136,6 +136,10 @@ import {
   type WebSearchBackend,
 } from './web-search-policy.js';
 import type { ConversationHistoryEntry } from './codex-rollover-context.js';
+import {
+  hostGithubCommandEnvironment,
+  type HostGithubCredentialResolver,
+} from './host-github-credential.js';
 type ObjectValue = Record<string, unknown>;
 type NativeRequestContext = CodexServerRequestContext;
 type HostToolRefusal = (error: CodexHostToolRequestError) => void;
@@ -357,6 +361,11 @@ export interface CodexConversationOptions {
   nativeExecution?: CodexNativeExecutionPolicy;
   /** Extra variables for native shell commands (for example the gws broker socket). */
   nativeShellEnvironment?: Readonly<Record<string, string>>;
+  /** Host operator's own gh login, resolved fresh for each native thread
+   * start/resume. Codex's macOS sandbox cannot reach the Keychain where gh
+   * keeps it, so it is set only on native command environments, sent over the
+   * private stdio frame rather than argv, config files or diagnostics. */
+  hostGithubCredential?: HostGithubCredentialResolver;
   resolveNativeExecutionPolicy?: (input: {
     commandId: string;
     signal: AbortSignal;
@@ -2347,7 +2356,7 @@ export class CodexConversation {
     this.assertNativeExecutionOwner();
     this.client.validateConfiguration?.(configuration);
     if (!this.opts.runtimeConfig) {
-      const config = {
+      const config: Record<string, unknown> = {
         ...codexRuntimeOverrides(
           configuration,
           this.opts.profile.workspaceId,
@@ -2357,10 +2366,17 @@ export class CodexConversation {
         ...(this.opts.nativeExecution
           ? codexNativePermissionProfiles(this.opts.nativeExecution)
           : {}),
-        ...(this.opts.nativeExecution && this.opts.nativeShellEnvironment
-          ? { 'shell_environment_policy.set': { ...this.opts.nativeShellEnvironment } }
-          : {}),
       };
+      const hostGithub = this.opts.nativeExecution ? this.opts.hostGithubCredential?.() : undefined;
+      // Applied after Codex's inherited-variable filtering, which otherwise
+      // drops *TOKEN* names; the sandbox profile and network fence still apply.
+      // The gws broker and host GitHub variables use disjoint names.
+      const shellEnvironment = {
+        ...(this.opts.nativeExecution ? this.opts.nativeShellEnvironment : undefined),
+        ...(hostGithub ? hostGithubCommandEnvironment(hostGithub) : undefined),
+      };
+      if (Object.keys(shellEnvironment).length)
+        config['shell_environment_policy.set'] = shellEnvironment;
       return {
         ...config,
         ...(this.disableWebSearch ? { web_search: 'disabled' } : {}),

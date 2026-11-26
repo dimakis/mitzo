@@ -1,5 +1,10 @@
 # Offline prompt and follow-on timing
 
+The runner also emits Phase A check counts, resource measurements, concurrency,
+synthetic route attribution and source fingerprints. See the
+[21 November Phase A baseline](phase-a-baseline-2026-11-21.md) for its measurement
+window, coverage limits and reproducible evidence.
+
 Run the real HTTP/backend validation from the repository root with Node 24:
 
 ```sh
@@ -24,8 +29,9 @@ Two explicit warm follow-ons and one genuinely queued follow-on use the same
 conversation, retained workspace, bootstrap, transport and thread. Exact command
 IDs from serialized frames must match the original HTTP commands in FIFO order.
 
-The sanitized JSON retains trace/span IDs and relative phase times, but no prompt,
-credential, account identity, filesystem path, raw attribute/event payload, prompt
+The sanitized JSON retains trace/span IDs, relative phase times and the qualified
+synthetic account alias, but no prompt, credential, real account identity,
+filesystem path, raw attribute/event payload, prompt
 hash or provider content. Sample numbers are aliases for private command IDs.
 Raw spans stay in memory; disposable roots are removed. No OTLP export is needed.
 

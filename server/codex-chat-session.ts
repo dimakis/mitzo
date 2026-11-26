@@ -156,6 +156,7 @@ import {
   NativeExecutionPolicyChangedError,
   type CodexNativeExecutionPolicy,
 } from './codex-native-execution-policy.js';
+import type { HostGithubCredentialResolver } from './host-github-credential.js';
 import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
 import {
   assertQualifiedNativeMacExecutionArtifact,
@@ -764,6 +765,8 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
 interface Options {
   /** Trusted selected execution-target read ceiling, never caller JSON. */
   nativeExecutionReadRoots?: readonly string[];
+  /** Host operator's gh login for Local Mac native commands (not advisers). */
+  hostGithubCredential?: HostGithubCredentialResolver;
   /** Safe-point workspace authority; roots do not retarget already queued commands. */
   resolveNativeExecutionPolicy?: CodexConversationOptions['resolveNativeExecutionPolicy'];
   assertNativeExecutionCurrent?: CodexConversationOptions['assertNativeExecutionCurrent'];
@@ -2775,6 +2778,9 @@ async function openCodexChatBound(
       ? {
           nativeExecution,
           ...(gwsBroker ? { nativeShellEnvironment: gwsBroker.env() } : {}),
+          ...(options.hostGithubCredential && !options.adviserScope
+            ? { hostGithubCredential: options.hostGithubCredential }
+            : {}),
           resolveNativeExecutionPolicy:
             options.resolveNativeExecutionPolicy ??
             (async ({ commandId, signal }) => {

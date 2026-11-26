@@ -5,6 +5,20 @@ import { extname, resolve } from 'node:path';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
 
+/** Geometry is only stable once finite motion (e.g. the popover's translate-in)
+ * has finished; WebKit reports float-imprecise boxes mid-animation. */
+async function settled(page: Page) {
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+        // A cancelled animation has nothing left to wait for.
+        .map((animation) => animation.finished.catch(() => undefined)),
+    ),
+  );
+}
+
 async function fixtureUsage(page: Page, reported = true) {
   await page.addInitScript(() => {
     localStorage.setItem('mitzo:transport', 'ws');
@@ -124,6 +138,7 @@ test('token usage separates capacity from cumulative usage with reachable help',
   await page.goto('/chat/token-fixture');
   const wheel = page.getByRole('button', { name: 'Token usage', exact: true });
   await expect(wheel).toBeVisible();
+  await settled(page);
   expect((await wheel.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await expect(page.locator('.token-bar--normal')).toBeVisible();
   await wheel.click();
@@ -134,6 +149,7 @@ test('token usage separates capacity from cumulative usage with reachable help',
   await expect(panel.getByText('634,199', { exact: true })).toBeVisible();
   const help = panel.locator('summary');
   await expect(help).toHaveText('How these numbers work');
+  await settled(page);
   expect((await help.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   for (const appearance of ['dark', 'light'] as const) {
     await page.evaluate((theme) => {
@@ -156,6 +172,7 @@ test('token usage separates capacity from cumulative usage with reachable help',
       path: testInfo.outputPath(`token-help-${appearance}.png`),
       animations: 'disabled',
     });
+    await settled(page);
     const bounds = await panel.boundingBox();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.y).toBeGreaterThanOrEqual(0);
@@ -215,6 +232,7 @@ test('token usage fits the narrow desktop center with both sidebars expanded', a
   const panel = page.locator('.token-bar-detail');
   for (const expanded of [false, true]) {
     if (expanded) await panel.locator('summary').click();
+    await settled(page);
     const bounds = await panel.boundingBox();
     const center = await page.locator('.desktop-center').boundingBox();
     const toolbar = await page.locator('.composer-toolbar').boundingBox();
