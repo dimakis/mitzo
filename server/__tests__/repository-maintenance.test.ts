@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runWorktreeCleanupForRepos } from '../repository-maintenance.js';
+import {
+  collectSessionWorkspaceClaims,
+  dedupeRepoEntriesByPath,
+  reportWorkspaceLifecycleInventory,
+  runWorktreeCleanupForRepos,
+} from '../repository-maintenance.js';
+import type { WorkspaceLifecycleInventory } from '../workspace-lifecycle.js';
 
 describe('repository maintenance', () => {
   it('uses the same cleanup policy for startup and periodic runs', () => {
@@ -44,4 +50,74 @@ it('runs bounded lifecycle reconciliation alongside legacy inventory and coalesc
   finish();
   await Promise.all([first, second]);
   expect(onError).not.toHaveBeenCalled();
+});
+
+it('scans a repository configured under two labels only once', () => {
+  const resolvePath = (path: string) => path.replace(/\/$/, '').replace('/link', '/repo');
+  expect(
+    dedupeRepoEntriesByPath(
+      [
+        ['primary', '/repo'],
+        ['mgmt', '/link/'],
+        ['other', '/other'],
+      ],
+      resolvePath,
+    ),
+  ).toEqual([
+    ['primary', '/repo'],
+    ['other', '/other'],
+  ]);
+});
+
+it('yields to the event loop while correlating many sessions with worktree records', async () => {
+  let lookups = 0;
+  let lookupsBeforeImmediate: number | undefined;
+  setImmediate(() => {
+    lookupsBeforeImmediate = lookups;
+  });
+  const claims = await collectSessionWorkspaceClaims({
+    claims: [],
+    sessions: Array.from({ length: 120 }, (_, index) => ({
+      sessionId: `s-${index}`,
+      cwd: null,
+      isActive: false,
+    })),
+    repoLabels: ['primary'],
+    latestWorktreePath: (sessionId) => {
+      lookups++;
+      return `/repo/.claude/worktrees/${sessionId}`;
+    },
+    yieldEvery: 50,
+  });
+  expect(claims).toHaveLength(120);
+  expect(lookupsBeforeImmediate).toBe(50);
+});
+
+it('logs a bounded inventory summary instead of every entry', async () => {
+  const root = '/repo/.claude/worktrees';
+  const result: WorkspaceLifecycleInventory = {
+    entries: Array.from({ length: 2000 }, (_, index) => ({
+      directory: `${root}/${'x'.repeat(150)}-${index}`,
+      claimId: `claim-${index}`,
+      disposition: 'protected',
+      reasons: ['resume-history-reference', 'lease-unreconciled'],
+    })),
+    truncated: false,
+    diagnostics: [],
+  };
+  const log = vi.fn();
+  await reportWorkspaceLifecycleInventory({
+    roots: [root],
+    claims: [],
+    sessionsTruncated: true,
+    inventory: async () => result,
+    log,
+  });
+  expect(log).toHaveBeenCalledOnce();
+  const [message, fields] = log.mock.calls[0];
+  expect(message).toBe('workspace lifecycle inventory');
+  expect(fields).not.toHaveProperty('entries');
+  expect(fields).toMatchObject({ total: 2000, truncated: true, byRoot: { [root]: 2000 } });
+  expect(fields.durationMs).toEqual(expect.any(Number));
+  expect(JSON.stringify(fields).length).toBeLessThan(16 * 1024);
 });

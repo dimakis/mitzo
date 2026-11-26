@@ -6836,18 +6836,47 @@ export function reconcileSessionsBackground(): void {
  * for all sessions to match their actual lastModified time.
  */
 export async function syncSessionTimestamps(): Promise<void> {
+  const started = performance.now();
+  // Counts and durations only: these fields diagnose startup event-loop stalls
+  // without recording session identities, paths or transcript content.
+  const stats = {
+    dirs: 0,
+    sessionsListed: 0,
+    transcriptsParsed: 0,
+    listSessionsMs: 0,
+    maxListSessionsMs: 0,
+    maxTranscriptParseMs: 0,
+  };
   const seen = new Map<
     string,
     { lastModified: number; summary: string; branch?: string; cwd?: string }
   >();
   const fetchLimit = 250;
   for (const dir of await getSessionDirs()) {
+    stats.dirs++;
     try {
+      const listStarted = performance.now();
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
+      const listMs = performance.now() - listStarted;
+      stats.listSessionsMs += listMs;
+      stats.maxListSessionsMs = Math.max(stats.maxListSessionsMs, listMs);
       for (const s of sessions) {
+        // Transcript parsing is synchronous inside the SDK; let queued requests run.
+        if (stats.sessionsListed > 0 && stats.sessionsListed % 50 === 0)
+          await new Promise<void>((resolveYield) => setImmediate(resolveYield));
+        stats.sessionsListed++;
         const registered = eventStore.getSession(s.sessionId);
         if (!isRegisteredConversation(registered) || registered.isHidden) continue;
-        if (!registered.sdkTranscriptVerified && !(await hasSdkConversation(s, dir))) continue;
+        if (!registered.sdkTranscriptVerified) {
+          const parseStarted = performance.now();
+          const hasConversation = await hasSdkConversation(s, dir);
+          stats.transcriptsParsed++;
+          stats.maxTranscriptParseMs = Math.max(
+            stats.maxTranscriptParseMs,
+            performance.now() - parseStarted,
+          );
+          if (!hasConversation) continue;
+        }
         const existing = seen.get(s.sessionId);
         if (!existing || s.lastModified > existing.lastModified) {
           seen.set(s.sessionId, {
@@ -6891,9 +6920,17 @@ export async function syncSessionTimestamps(): Promise<void> {
       });
     }
   }
-  if (synced > 0) {
-    log.info('reconciled session timestamps', { synced, total: seen.size });
-  }
+  log.info('reconciled session timestamps', {
+    synced,
+    total: seen.size,
+    durationMs: Math.round(performance.now() - started),
+    dirs: stats.dirs,
+    sessionsListed: stats.sessionsListed,
+    transcriptsParsed: stats.transcriptsParsed,
+    listSessionsMs: Math.round(stats.listSessionsMs),
+    maxListSessionsMs: Math.round(stats.maxListSessionsMs),
+    maxTranscriptParseMs: Math.round(stats.maxTranscriptParseMs),
+  });
 }
 
 /** Explicit import invoked by the user, scoped to configured project histories. */

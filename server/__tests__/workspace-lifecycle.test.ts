@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import {
   inventoryWorkspaceLifecycle,
   planWorkspaceRetirement,
+  summarizeWorkspaceLifecycleInventory,
+  type WorkspaceLifecycleEntry,
   type WorkspaceLifecycleClaim,
 } from '../workspace-lifecycle.js';
 
@@ -92,4 +94,80 @@ it('reports a verified retired allocation as retired when its live directory is 
     disposition: 'retired',
     reasons: ['retirement-receipt'],
   });
+});
+
+it('summarizes a large inventory into bounded counts and a capped non-routine sample', () => {
+  const rootA = `/repo/${'a'.repeat(120)}/.claude/worktrees`;
+  const rootB = '/repo/.cursor/worktrees';
+  const entries: WorkspaceLifecycleEntry[] = Array.from({ length: 5000 }, (_, index) => {
+    const root = index % 2 ? rootB : rootA;
+    const directory = `${root}/${'session-'.repeat(12)}${index}`;
+    if (index % 10 === 0)
+      return { directory, disposition: 'protected', reasons: ['physical-identity-unavailable'] };
+    if (index % 25 === 1)
+      return {
+        directory,
+        claimId: `claim-${index}`,
+        disposition: 'archive-required',
+        reasons: ['preservation-required'],
+      };
+    return {
+      directory,
+      claimId: `claim-${index}`,
+      disposition: 'protected',
+      reasons: ['resume-history-reference', 'lease-unreconciled'],
+    };
+  });
+  const summary = summarizeWorkspaceLifecycleInventory(
+    {
+      entries,
+      truncated: true,
+      diagnostics: [
+        { directory: rootA, reason: 'inventory-unavailable' },
+        { directory: '', reason: 'invalid-claim-path' },
+      ],
+    },
+    { roots: [rootA, rootB], sample: 1000 },
+  );
+
+  expect(JSON.stringify(summary).length).toBeLessThan(16 * 1024);
+  expect(summary).not.toHaveProperty('entries');
+  expect(summary).toMatchObject({
+    total: 5000,
+    truncated: true,
+    diagnosticCount: 2,
+    diagnosticsByReason: { 'inventory-unavailable': 1, 'invalid-claim-path': 1 },
+    byDisposition: { protected: 4800, 'archive-required': 200 },
+    byReason: {
+      'physical-identity-unavailable': 500,
+      'preservation-required': 200,
+      'resume-history-reference': 4300,
+      'lease-unreconciled': 4300,
+    },
+    byRoot: { [rootA]: 2500, [rootB]: 2500 },
+    nonRoutine: 700,
+  });
+  expect(summary.sample).toHaveLength(20);
+  expect(
+    summary.sample.every(
+      (entry) =>
+        entry.disposition !== 'protected' ||
+        entry.reasons.includes('physical-identity-unavailable'),
+    ),
+  ).toBe(true);
+});
+
+it('keeps a routine-only inventory summary free of sampled entries', () => {
+  const summary = summarizeWorkspaceLifecycleInventory({
+    entries: [
+      {
+        directory: '/claimed/elsewhere',
+        disposition: 'protected',
+        reasons: ['ownership-unproven'],
+      },
+    ],
+    truncated: false,
+    diagnostics: [],
+  });
+  expect(summary).toMatchObject({ total: 1, nonRoutine: 0, sample: [], byRoot: { other: 1 } });
 });

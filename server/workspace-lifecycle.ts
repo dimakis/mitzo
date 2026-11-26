@@ -1,5 +1,5 @@
 import { lstat, opendir, realpath } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 /** Projection of the existing workspace/session owners. This is inventory data,
  * never an enrollment, lease, current authorization, or permission to delete. */
@@ -148,4 +148,79 @@ export async function inventoryWorkspaceLifecycle(input: {
   }
   for (const directory of claims.keys()) await add(directory);
   return result;
+}
+
+/** Reasons expected for ordinary retained task history; they need no per-entry report. */
+const ROUTINE_REASONS: ReadonlySet<string> = new Set([
+  'ownership-unproven',
+  'external-owner',
+  'active-work',
+  'queued-work',
+  'resume-history-reference',
+  'active-lease',
+  'lease-unreconciled',
+]);
+const MAX_SUMMARY_SAMPLE = 20;
+const MAX_SUMMARY_KEYS = 32;
+
+export interface WorkspaceLifecycleInventorySummary {
+  total: number;
+  truncated: boolean;
+  nonRoutine: number;
+  diagnosticCount: number;
+  diagnosticsByReason: Record<string, number>;
+  byDisposition: Record<string, number>;
+  byReason: Record<string, number>;
+  byRoot: Record<string, number>;
+  sample: WorkspaceLifecycleEntry[];
+}
+
+function increment(counts: Record<string, number>, key: string) {
+  if (key in counts || Object.keys(counts).length < MAX_SUMMARY_KEYS)
+    counts[key] = (counts[key] ?? 0) + 1;
+  else counts.other = (counts.other ?? 0) + 1;
+}
+
+/** Log-sized projection of an inventory: counts plus a capped sample of entries
+ * that need attention. The size depends on the configured roots, not entry count. */
+export function summarizeWorkspaceLifecycleInventory(
+  result: WorkspaceLifecycleInventory,
+  options: { roots?: readonly string[]; sample?: number } = {},
+): WorkspaceLifecycleInventorySummary {
+  const sampleLimit = Math.max(
+    0,
+    Math.min(MAX_SUMMARY_SAMPLE, options.sample ?? MAX_SUMMARY_SAMPLE),
+  );
+  const roots = new Set(options.roots);
+  const summary: WorkspaceLifecycleInventorySummary = {
+    total: result.entries.length,
+    truncated: result.truncated,
+    nonRoutine: 0,
+    diagnosticCount: result.diagnostics.length,
+    diagnosticsByReason: {},
+    byDisposition: {},
+    byReason: {},
+    byRoot: {},
+    sample: [],
+  };
+  for (const { reason } of result.diagnostics) increment(summary.diagnosticsByReason, reason);
+  for (const entry of result.entries) {
+    increment(summary.byDisposition, entry.disposition);
+    for (const reason of entry.reasons) increment(summary.byReason, reason);
+    // Root keys come only from the configured roots; claim paths elsewhere are 'other'.
+    const parent = dirname(entry.directory);
+    const root = roots.has(parent) ? parent : 'other';
+    summary.byRoot[root] = (summary.byRoot[root] ?? 0) + 1;
+    if (entry.disposition === 'protected' && entry.reasons.every((r) => ROUTINE_REASONS.has(r)))
+      continue;
+    summary.nonRoutine++;
+    if (summary.sample.length < sampleLimit)
+      summary.sample.push({
+        directory: entry.directory,
+        ...(entry.claimId ? { claimId: entry.claimId } : {}),
+        disposition: entry.disposition,
+        reasons: entry.reasons.slice(0, 4),
+      });
+  }
+  return summary;
 }
