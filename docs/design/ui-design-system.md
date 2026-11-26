@@ -48,6 +48,18 @@ This implements Dimitri's explicit 21 November S9 handoff, using the shared
 spacing/type/color tokens and existing row/trigger patterns. See
 [source evidence and outstanding visual gates](../evidence/symposium-chat-identity-2026-11-21.md).
 
+## Background task receipts
+
+Verified background-task receipts reuse the existing nested tool/activity
+transcript disclosure. Show their description and explicit lifecycle label,
+retaining inert, bounded, keyboard-scrollable output on failure or observation
+loss. Stop is a separate request state; it never implies terminal cancellation.
+Current runtimes without exact task-only authority display a disabled control
+and explain the limitation. Use shared secondary controls, MotionPresence,
+UiIcon, semantic tokens and 44px targets; preserve the composer and approved
+activity hierarchy. No replacement task feed or parent-chat Stop fallback is
+introduced. See [implementation, evidence and integration limits](../features/background-task-ui.md).
+
 ## Shared conversation controls — approved revision 3
 
 Preserve the existing Agents menu and icon-only composer. Status and recipients
