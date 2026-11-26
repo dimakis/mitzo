@@ -2,6 +2,7 @@ import { MotionPresence } from './MotionPresence';
 import { useEffect, useId, useState } from 'react';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { formatTokens } from '../lib/formatTokens';
+import { ContextSnapshotInspector } from './ContextSnapshotInspector';
 
 function getContextColor(ratio: number): string {
   if (ratio >= 0.95) return 'flashing';
@@ -15,9 +16,16 @@ interface Props {
   userTurns?: number;
   alwaysVisible?: boolean;
   ownerName?: string;
+  sessionId?: string;
 }
 
-export function TokenBar({ tokenState, userTurns, alwaysVisible = false, ownerName }: Props) {
+export function TokenBar({
+  tokenState,
+  userTurns,
+  alwaysVisible = false,
+  ownerName,
+  sessionId,
+}: Props) {
   const [, refreshExpiry] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const summaryId = useId();
@@ -127,6 +135,7 @@ export function TokenBar({ tokenState, userTurns, alwaysVisible = false, ownerNa
       </button>
       <MotionPresence open={expanded} kind="popover" appear={false}>
         <div className="token-bar-detail">
+          {sessionId && <ContextSnapshotInspector sessionId={sessionId} disabled={!expanded} />}
           {ownerName && (
             <div className="token-bar-detail-row">
               <span>Agent</span>

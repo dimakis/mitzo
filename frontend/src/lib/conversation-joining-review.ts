@@ -29,6 +29,10 @@ export interface ConversationArtifactOption {
   sha256: string;
   title: string;
   filename?: string;
+  /** Observed catalog metadata only; selection never grants access. */
+  available?: boolean;
+  authorLabel?: string;
+  accessLabel?: string;
 }
 export interface ConversationJoiningReviewResult {
   snapshot: CollaborationSnapshot;
@@ -49,6 +53,9 @@ export interface ConversationJoiningReviewRequest {
 interface JoiningOwnerBase {
   sourceConversationId: string;
   artifacts?: ConversationArtifactOption[];
+  artifactsUnavailableReason?: string;
+  /** Read existing retained references only. Never begins sharing or captures files. */
+  loadArtifacts?(signal: AbortSignal): Promise<ConversationArtifactOption[]>;
   confirm(input: CollaborationJoinInput): Promise<CollaborationJoin>;
   recover(joinId: string, signal: AbortSignal): Promise<CollaborationJoin>;
 }

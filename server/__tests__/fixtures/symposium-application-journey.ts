@@ -7,7 +7,11 @@ import type { Express } from 'express';
 import type { EventStore } from '../../event-store.js';
 import { createApplicationHttpTransport } from './symposium-application-http.js';
 import { CollaborationApiClient, MitzoApiClient } from '@mitzo/client';
-import type { CollaborationSettings, CollaborationSnapshot } from '@mitzo/protocol';
+import type {
+  CollaborationDurableTranscript,
+  CollaborationSettings,
+  CollaborationSnapshot,
+} from '@mitzo/protocol';
 // External tool configuration only. Keep actual app/chat, stores, routing,
 // internal-token implementation and interactive login/cookie authentication.
 vi.mock('../../mcp-config.js', () => ({
@@ -333,11 +337,14 @@ export function createApplicationJourney(
     state.joinedSessionId = await joinReviewedParticipant(participant);
     return getApplicationJoiningJourney();
   }
-  async function joinReviewedParticipant(participant: {
-    accountId: string;
-    harness: 'codex' | 'claude-sdk';
-    targetId: string;
-  }) {
+  async function joinReviewedParticipant(
+    participant: {
+      accountId: string;
+      harness: 'codex' | 'claude-sdk';
+      targetId: string;
+    },
+    source?: CollaborationDurableTranscript,
+  ) {
     if (state.sourceBoundary === undefined) throw Error('Source selection is unavailable');
     const { ordinaryRepositoryRuntimeInventory } =
       await import('../../ordinary-local-codex-entry.js');
@@ -371,26 +378,29 @@ export function createApplicationJourney(
     expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
     const library = (await import('../../agent-library-runtime.js')).getAgentLibrary();
     const profileId = `acceptance-reviewer-${participant.accountId}`;
-    library.saveDraft('user', {
-      profileId,
-      expectedVersion: 0,
-      expectedRevision: 0,
-      idempotencyKey: `draft-${profileId}`,
-      definition: {
-        name: 'Reviewer',
-        descriptor: 'Assistant',
-        role: 'agent',
-        instructions: 'Review the selected source.',
-        expectedOutput: 'Findings',
-        acceptanceCriteria: ['Cite evidence'],
-        modelPolicyRole: 'agent',
-      },
-    });
-    const published = library.publish('user', {
-      profileId,
-      expectedVersion: 1,
-      idempotencyKey: `publish-${profileId}`,
-    });
+    if (!library.version('user', profileId, 1))
+      library.saveDraft('user', {
+        profileId,
+        expectedVersion: 0,
+        expectedRevision: 0,
+        idempotencyKey: `draft-${profileId}`,
+        definition: {
+          name: 'Reviewer',
+          descriptor: 'Assistant',
+          role: 'agent',
+          instructions: 'Review the selected source.',
+          expectedOutput: 'Findings',
+          acceptanceCriteria: ['Cite evidence'],
+          modelPolicyRole: 'agent',
+        },
+      });
+    const published =
+      library.version('user', profileId, 1) ??
+      library.publish('user', {
+        profileId,
+        expectedVersion: 1,
+        idempotencyKey: `publish-${profileId}`,
+      });
     const auth = await (
       await import('../../auth.js')
     ).authenticateToken(decodeURIComponent(state.cookie.slice('cc_auth='.length)));
@@ -413,9 +423,12 @@ export function createApplicationJourney(
         requestId: crypto.randomUUID(),
         expectedMembershipRevision: current.membershipRevision,
         sourceConversationId: 'existing-chat',
-        boundary: { sequence: state.sourceBoundary, messageId: 'selected-source' },
-        mode: 'selected',
-        messageIds: ['selected-source'],
+        boundary: source?.boundary ?? {
+          sequence: state.sourceBoundary,
+          messageId: 'selected-source',
+        },
+        mode: source ? 'conversation_so_far' : 'selected',
+        messageIds: source ? [] : ['selected-source'],
         artifacts: [],
         purpose: 'Review the selected design',
         joiningBrief: 'Edited brief retained exactly',
