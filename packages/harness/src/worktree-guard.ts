@@ -1,5 +1,7 @@
 import type { ManagedSession } from './session-registry.js';
-import { isAbsolute, resolve } from 'node:path';
+import { constants as fsConstants } from 'node:fs';
+import { access, lstat, realpath } from 'node:fs/promises';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { createLogger } from './logger.js';
 
 const log = createLogger('worktree-guard');
@@ -46,37 +48,133 @@ export type OnDemandCreateFn = (
   signal?: AbortSignal,
 ) => Promise<{ repoName: string; worktreePath: string } | null>;
 
+/**
+ * Filesystem facts used to decide whether this process could create a shell
+ * path at all. Injected by tests; defaults to the real filesystem.
+ */
+export interface PathCreationProbe {
+  /** Whether an entry exists without following a final symlink (lstat). */
+  exists(path: string): Promise<boolean>;
+  realpath(path: string): Promise<string>;
+  /** Whether this process may write the directory entry (access W_OK). */
+  isWritable(path: string): Promise<boolean>;
+}
+
+function hasErrorCode(error: unknown, codes: readonly string[]): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && codes.includes(code);
+}
+
+export const nodePathCreationProbe: PathCreationProbe = {
+  async exists(path) {
+    try {
+      await lstat(path);
+      return true;
+    } catch (error) {
+      if (hasErrorCode(error, ['ENOENT', 'ENOTDIR'])) return false;
+      throw error;
+    }
+  },
+  realpath: (path) => realpath(path),
+  async isWritable(path) {
+    try {
+      await access(path, fsConstants.W_OK);
+      return true;
+    } catch (error) {
+      if (hasErrorCode(error, ['EACCES', 'EPERM', 'EROFS'])) return false;
+      throw error;
+    }
+  },
+};
+
 export interface CheckWorktreePolicyOptions {
   onDemandCreate?: OnDemandCreateFn;
   signal?: AbortSignal;
   /** Replaces the generic guidance when no session worktree maps the path. */
   outOfRootHint?: string;
+  /** Defaults to {@link nodePathCreationProbe}. */
+  pathProbe?: PathCreationProbe;
+}
+
+interface ShellPathReference {
+  path: string;
+  /**
+   * The shell would use exactly this text as the path: no expansion,
+   * concatenation or parent segments can turn it into a different one.
+   */
+  literal: boolean;
+}
+
+/** Characters that let the shell expand or rewrite the surrounding word. */
+const SHELL_EXPANSION_CHARS = /[$`\\*?[{~]/;
+/** Characters that end the path within its word (shell operators and common code punctuation). */
+const PATH_TERMINATOR = /^(?:$|[\s;|&)<>,\]}])/;
+/** Commands that write on behalf of another, possibly privileged, user. */
+const DELEGATED_WRITER = /(?:^|[^\w-])(?:sudo|doas|pkexec|su|docker|podman|nerdctl)(?:[^\w-]|$)/;
+
+function isLiteralReference(command: string, start: number, end: number, path: string): boolean {
+  if (SHELL_EXPANSION_CHARS.test(path) || path.split('/').includes('..')) return false;
+  const wordStart = command.slice(0, start).search(/\S*$/);
+  const prefix = command.slice(wordStart, start);
+  const suffix = command.slice(end).match(/^\S*/)![0];
+  return (
+    !SHELL_EXPANSION_CHARS.test(prefix) &&
+    !SHELL_EXPANSION_CHARS.test(suffix) &&
+    PATH_TERMINATOR.test(suffix)
+  );
 }
 
 /**
  * Extract absolute paths from a shell command string. Heuristic — catches
  * explicit absolute paths but can't catch every indirect construction.
  */
-function extractAbsolutePaths(command: string): string[] {
-  const results: string[] = [];
+function extractAbsolutePaths(command: string): ShellPathReference[] {
+  const results: ShellPathReference[] = [];
   const quotedRe = /["'](\/[^"']+)["']/g;
   let m: RegExpExecArray | null;
   while ((m = quotedRe.exec(command)) !== null) {
-    results.push(m[1]);
+    const end = m.index + m[0].length;
+    results.push({ path: m[1], literal: isLiteralReference(command, m.index, end, m[1]) });
   }
   const unquotedRe = /(?:^|\s|=)(\/[\w/.@~-]+)/g;
   while ((m = unquotedRe.exec(command)) !== null) {
-    results.push(m[1]);
+    const end = m.index + m[0].length;
+    const start = end - m[1].length;
+    results.push({ path: m[1], literal: isLiteralReference(command, start, end, m[1]) });
   }
   const executableMatch = command
     .trimStart()
     .match(/^(?:["'](\/[^"']+)["']|(\/[\w/.@~-]+))(?:\s|$)/);
   const executablePath = executableMatch?.[1] ?? executableMatch?.[2];
   if (executablePath && TRUSTED_ABSOLUTE_EXECUTABLES.has(executablePath)) {
-    const executableIndex = results.indexOf(executablePath);
+    const executableIndex = results.findIndex(({ path }) => path === executablePath);
     if (executableIndex >= 0) results.splice(executableIndex, 1);
   }
-  return results.filter((path) => !STANDARD_DEVICE_PATHS.has(path));
+  return results.filter(({ path }) => !STANDARD_DEVICE_PATHS.has(path));
+}
+
+/**
+ * True only when the path does not exist and its deepest existing ancestor
+ * (symlinks resolved) is not writable by this process, so nothing this
+ * unprivileged process runs can create it. Any doubt or probe failure
+ * returns false so the caller keeps refusing.
+ */
+async function isUncreatableByThisProcess(
+  path: string,
+  probe: PathCreationProbe,
+): Promise<boolean> {
+  try {
+    if (await probe.exists(path)) return false;
+    let ancestor = path;
+    do {
+      const parent = dirname(ancestor);
+      if (parent === ancestor) return false;
+      ancestor = parent;
+    } while (!(await probe.exists(ancestor)));
+    return !(await probe.isWritable(await probe.realpath(ancestor)));
+  } catch {
+    return false;
+  }
 }
 
 function findAllowedWorktree(
@@ -198,9 +296,17 @@ export async function checkWorktreePolicy(
     const command = toolInput.command;
     if (typeof command !== 'string') return null;
 
-    const paths = extractAbsolutePaths(command);
-    for (const p of paths) {
+    const references = extractAbsolutePaths(command);
+    const probe = opts?.pathProbe ?? nodePathCreationProbe;
+    const delegatesWrites = DELEGATED_WRITER.test(command);
+    for (const { path: p, literal } of references) {
       if (findAllowedWorktree(p, session.worktreePaths)) continue;
+      // Text such as an HTTP API path in a script cannot name a creatable
+      // location when its nearest existing ancestor is unwritable to us.
+      if (literal && !delegatesWrites && (await isUncreatableByThisProcess(p, probe))) {
+        opts?.signal?.throwIfAborted();
+        continue;
+      }
 
       if (opts?.onDemandCreate) {
         const created = await (opts.signal

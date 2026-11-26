@@ -1,11 +1,51 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { chmod, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
-  checkWorktreePolicy,
+  checkWorktreePolicy as checkWorktreePolicyWithProbe,
   getWorktreeGuardStats,
   resetWorktreeGuardStats,
 } from '../src/worktree-guard.js';
 import type { ManagedSession } from '../src/session-registry.js';
-import type { OnDemandCreateFn } from '../src/worktree-guard.js';
+import type { OnDemandCreateFn, PathCreationProbe } from '../src/worktree-guard.js';
+
+/** Only `/` exists and it is writable: every shell path stays creatable, as before the probe. */
+const writableRootOnly: PathCreationProbe = {
+  exists: async (path) => path === '/',
+  realpath: async (path) => path,
+  isWritable: async () => true,
+};
+
+/** Default the probe so the fixture paths are judged independently of the host filesystem. */
+function checkWorktreePolicy(
+  ...[current, toolName, toolInput, opts]: Parameters<typeof checkWorktreePolicyWithProbe>
+) {
+  return checkWorktreePolicyWithProbe(current, toolName, toolInput, {
+    pathProbe: writableRootOnly,
+    ...opts,
+  });
+}
+
+function fakeFs(layout: {
+  writable?: string[];
+  readOnly?: string[];
+  symlinks?: Record<string, string>;
+}): PathCreationProbe {
+  const writable = new Set(layout.writable ?? []);
+  const readOnly = new Set(layout.readOnly ?? []);
+  const symlinks = layout.symlinks ?? {};
+  const present = (path: string) => writable.has(path) || readOnly.has(path);
+  return {
+    exists: async (path) => present(path) || path in symlinks,
+    realpath: async (path) => {
+      const target = symlinks[path] ?? path;
+      if (!present(target)) throw Object.assign(new Error(`ENOENT ${target}`), { code: 'ENOENT' });
+      return target;
+    },
+    isWritable: async (path) => writable.has(path),
+  };
+}
 
 function makeSession(
   worktrees: Record<string, string>,
@@ -183,6 +223,163 @@ describe('checkWorktreePolicy', () => {
       ).toContain('/dev/null/../../etc/hosts');
       expect(await checkWorktreePolicy(session, 'Bash', { command: 'dd of=/dev/disk2' })).toContain(
         '/dev/disk2',
+      );
+    });
+  });
+
+  describe('shell paths this process cannot create', () => {
+    const rootOnly = fakeFs({ readOnly: ['/'] });
+    const host = fakeFs({
+      readOnly: ['/', '/Users', '/opt', '/etc', '/etc/hosts'],
+      writable: ['/tmp', '/Users/x', '/Users/x/other'],
+      symlinks: { '/opt/link': '/Users/x/other', '/opt/dangling': '/Users/x/other/missing' },
+    });
+    const refusal = (path: string) =>
+      `Shell command references ${path} is outside session worktrees. Check $MITZO_REPO_* env vars for correct paths.`;
+
+    it('allows an HTTP API path in a heredoc script when its nearest existing ancestor is unwritable', async () => {
+      const command = [
+        "python3 - <<'EOF'",
+        'import requests',
+        'r = requests.get("/traces/abc")',
+        'print(r.status_code, 10 /2)',
+        'EOF',
+      ].join('\n');
+
+      expect(await checkWorktreePolicy(session, 'Bash', { command }, { pathProbe: rootOnly })).toBe(
+        null,
+      );
+    });
+
+    it('still refuses paths whose nearest existing ancestor is writable', async () => {
+      expect(
+        await checkWorktreePolicy(
+          session,
+          'Bash',
+          { command: 'echo x > /tmp/out' },
+          { pathProbe: host },
+        ),
+      ).toBe(refusal('/tmp/out'));
+      expect(
+        await checkWorktreePolicy(
+          session,
+          'Bash',
+          { command: `python3 -c "open('/Users/x/other/f','w')"` },
+          { pathProbe: host },
+        ),
+      ).toBe(refusal('/Users/x/other/f'));
+      expect(
+        await checkWorktreePolicy(
+          session,
+          'Bash',
+          { command: 'mkdir -p /Users/x/new/deep/dir' },
+          { pathProbe: host },
+        ),
+      ).toBe(refusal('/Users/x/new/deep/dir'));
+    });
+
+    it('follows symlinked ancestors and refuses dangling symlinks', async () => {
+      for (const path of ['/opt/link/new', '/opt/dangling', '/opt/dangling/f']) {
+        expect(
+          await checkWorktreePolicy(
+            session,
+            'Bash',
+            { command: `touch ${path}` },
+            { pathProbe: host },
+          ),
+        ).toBe(refusal(path));
+      }
+      expect(
+        await checkWorktreePolicy(
+          session,
+          'Bash',
+          { command: 'touch /opt/missing/f' },
+          { pathProbe: host },
+        ),
+      ).toBeNull();
+    });
+
+    it('keeps refusing existing paths even under unwritable directories', async () => {
+      expect(
+        await checkWorktreePolicy(
+          session,
+          'Bash',
+          { command: 'cat /etc/hosts' },
+          { pathProbe: host },
+        ),
+      ).toBe(refusal('/etc/hosts'));
+    });
+
+    it.each([
+      ['quote concatenation', 'cd "/tm"p && touch out', '/tm'],
+      ['unquoted concatenation', 'cd /tm"p" && touch out', '/tm'],
+      ['variable prefix', 'echo x > $HOME"/other/f"', '/other/f'],
+      ['tilde prefix', 'echo x > ~"/other/f"', '/other/f'],
+      ['glob', 'echo x > /t*/out', '/t'],
+      ['expansion inside double quotes', 'echo x > "/tm$P/out"', '/tm$P/out'],
+      ['parent segments', 'echo x > /nope/../tmp/out', '/nope/../tmp/out'],
+      ['privilege escalation', 'echo x | sudo tee /newdir/f', '/newdir/f'],
+    ])('refuses non-literal or privileged references (%s)', async (_case, command, path) => {
+      expect(await checkWorktreePolicy(session, 'Bash', { command }, { pathProbe: rootOnly })).toBe(
+        refusal(path),
+      );
+    });
+
+    it('refuses when the probe fails unexpectedly', async () => {
+      const failing: PathCreationProbe = {
+        ...rootOnly,
+        exists: async () => {
+          throw Object.assign(new Error('EIO'), { code: 'EIO' });
+        },
+      };
+      expect(
+        await checkWorktreePolicy(
+          session,
+          'Bash',
+          { command: 'curl -s localhost/x -o /traces/out' },
+          { pathProbe: failing },
+        ),
+      ).toBe(refusal('/traces/out'));
+    });
+
+    it('does not offer on-demand worktree creation for uncreatable paths', async () => {
+      const onDemandCreate = vi.fn();
+      expect(
+        await checkWorktreePolicy(
+          session,
+          'Bash',
+          { command: 'echo \'get("/traces/abc")\'' },
+          { pathProbe: rootOnly, onDemandCreate },
+        ),
+      ).toBeNull();
+      expect(onDemandCreate).not.toHaveBeenCalled();
+    });
+
+    describe('default filesystem probe', () => {
+      let base = '';
+      beforeEach(async () => {
+        base = await mkdtemp(join(tmpdir(), 'worktree-guard-'));
+        await mkdir(join(base, 'locked'));
+        await mkdir(join(base, 'open'));
+        await chmod(join(base, 'locked'), 0o555);
+      });
+      afterEach(async () => {
+        await chmod(join(base, 'locked'), 0o755);
+        await rm(base, { recursive: true, force: true });
+      });
+
+      it.skipIf(process.getuid?.() === 0)(
+        'probes the real filesystem when no probe is injected',
+        async () => {
+          const locked = join(base, 'locked', 'missing', 'f');
+          const open = join(base, 'open', 'missing', 'f');
+          expect(
+            await checkWorktreePolicyWithProbe(session, 'Bash', { command: `touch ${locked}` }),
+          ).toBeNull();
+          expect(
+            await checkWorktreePolicyWithProbe(session, 'Bash', { command: `touch ${open}` }),
+          ).toBe(refusal(open));
+        },
       );
     });
   });
