@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import type { KnowledgeStore } from './knowledge-store-config.js';
+import { knowledgePublicationFailureDiagnostic } from './knowledge-publication-bridge.js';
+import { createLogger } from './logger.js';
+import { beginOperationObservation } from './operation-observation.js';
 
 const sha = z.string().regex(/^[a-f0-9]{64}$/);
 const Baseline = z.object({
@@ -45,6 +49,123 @@ export function publishedKnowledgeFailureReason(error: unknown): string {
     if (error.code === 'EIO' || error.code === 'ELOOP') return 'filesystem_failed';
   }
   return 'unexpected_failure';
+}
+
+type SelectionIdentity = {
+  sessionId: string;
+  commandId?: string;
+  route: 'openai-api' | 'chatgpt-subscription';
+};
+type SelectionOutcome = {
+  outcome: 'success' | 'unavailable' | 'skipped' | 'cancelled';
+  reason:
+    | 'selected'
+    | 'store_not_enrolled'
+    | 'adviser_scope'
+    | 'publication_unavailable'
+    | 'host_view_unavailable'
+    | 'cancelled';
+  sourceCommit?: string;
+  failureStage?: string;
+  failureCode?: string;
+  failureStatus?: number;
+  diagnosticId?: string;
+};
+const knowledgeLog = createLogger('published-host-knowledge');
+/** One bounded span and log line per selection decision: fixed outcome/reason
+ * labels, identities and a short accepted commit. Never paths, URLs or content. */
+function recordSelection(
+  identity: SelectionIdentity,
+  observation: ReturnType<typeof beginOperationObservation> | undefined,
+  result: SelectionOutcome,
+  elapsedMs?: number,
+) {
+  try {
+    const span = observation ?? beginOperationObservation('local_codex.knowledge_selection');
+    span.annotate({
+      'session.id': identity.sessionId,
+      ...(identity.commandId ? { 'mitzo.command.id': identity.commandId } : {}),
+      'codex.route': identity.route,
+      'knowledge.runtime': 'local-mac',
+      'knowledge.outcome': result.outcome,
+      'knowledge.reason': result.reason,
+      ...(result.sourceCommit ? { 'knowledge.source_commit': result.sourceCommit } : {}),
+      ...(result.failureStage ? { 'knowledge.failure_stage': result.failureStage } : {}),
+      ...(result.failureCode ? { 'knowledge.failure_code': result.failureCode } : {}),
+      ...(result.failureStatus !== undefined
+        ? { 'knowledge.failure_status': result.failureStatus }
+        : {}),
+      ...(elapsedMs !== undefined ? { 'phase.elapsed_ms': elapsedMs } : {}),
+    });
+    span.end(result.outcome === 'unavailable');
+    const data = { ...identity, ...result, ...(elapsedMs !== undefined ? { elapsedMs } : {}) };
+    if (result.outcome === 'unavailable')
+      knowledgeLog.warn('Local Codex knowledge selection completed', data);
+    else if (result.outcome === 'skipped')
+      knowledgeLog.info('Local Codex knowledge selection skipped', data);
+    else knowledgeLog.info('Local Codex knowledge selection completed', data);
+  } catch {
+    /* Diagnostics cannot replace a selection or its original failure. */
+  }
+}
+
+/** Records why a Local Codex chat receives no published knowledge. */
+export function recordHostKnowledgeSelectionSkipped(
+  reason: 'store_not_enrolled' | 'adviser_scope',
+  identity: SelectionIdentity,
+) {
+  recordSelection(identity, undefined, { outcome: 'skipped', reason });
+}
+
+/** Observes one per-turn selection without changing its result or failure. */
+export async function observeHostKnowledgeSelection<T extends { sourceCommit: string } | undefined>(
+  identity: SelectionIdentity,
+  signal: AbortSignal,
+  work: () => Promise<T>,
+): Promise<T> {
+  const observation = beginOperationObservation('local_codex.knowledge_selection');
+  const start = performance.now();
+  const elapsed = () => Math.round(performance.now() - start);
+  let selected: T;
+  try {
+    selected = await observation.run(work);
+  } catch (error) {
+    let result: SelectionOutcome = { outcome: 'cancelled', reason: 'cancelled' };
+    try {
+      if (!signal.aborted) {
+        const publication = knowledgePublicationFailureDiagnostic(error);
+        result =
+          publication.stage !== 'unknown'
+            ? {
+                outcome: 'unavailable',
+                reason: 'publication_unavailable',
+                failureStage: publication.stage,
+                failureCode: publication.code,
+                ...(publication.status !== undefined ? { failureStatus: publication.status } : {}),
+                ...(publication.diagnosticId ? { diagnosticId: publication.diagnosticId } : {}),
+              }
+            : {
+                outcome: 'unavailable',
+                reason: 'host_view_unavailable',
+                failureStage: 'host_view',
+                failureCode: publishedKnowledgeFailureReason(error),
+              };
+      }
+    } catch {
+      result = { outcome: 'unavailable', reason: 'host_view_unavailable' };
+    }
+    recordSelection(identity, observation, result, elapsed());
+    throw error;
+  }
+  recordSelection(
+    identity,
+    observation,
+    selected
+      ? { outcome: 'success', reason: 'selected', sourceCommit: selected.sourceCommit.slice(0, 12) }
+      : { outcome: 'skipped', reason: 'store_not_enrolled' },
+    elapsed(),
+  );
+  return selected;
 }
 
 export function hostKnowledgeReceipt(session: object, context: string) {

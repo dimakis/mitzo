@@ -2619,7 +2619,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-selected-tools.test.ts':
     '84fb2d8174e2ac7c69554c66a03cee713a360edd2eddf23b54ebc4d1cb839c29',
   '../__tests__/codex-chat-session.test.ts':
-    'dbda0d11b8e1592a73b589c32b222e5db3ef55991eea34a32ffb6e1bae2b4f00',
+    '2e59931537ceebe7ede5ae7a95249175339370f9b7c46ff360828fa32dd08182',
   '../__tests__/codex-conversation-rpc-cleanup.integration.test.ts':
     '25267beedb7c3a0e08eaa7c78b68e2c8adb595fd9cabe1c1b0691115283da6e9',
   '../__tests__/codex-conversation-store-statements.test.ts':
@@ -3313,7 +3313,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/public-github-read.test.ts':
     'a497453d8ff9b73bfef888a0d92d641f9cd656a6ce0fd9950448223cf65df4a9',
   '../__tests__/published-host-knowledge.test.ts':
-    '9140127c9e6b79954233cbc4540032bbe580507de2b357c95569b833acca423c',
+    'f87bc622de721a975c410c562aea624a299bdae34ceed9a113c93a9182cc11c3',
   '../__tests__/pushover.test.ts':
     '5624db8d0ded8694c3888ad56703c8df8260d48a43be92f543ffcf8a3ed1a88d',
   '../__tests__/qualified-local-repository-materializer.test.ts':
@@ -3889,7 +3889,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1fcdffe7e7eacbb2d9d3c8cf5b457c48771d5f0832d93cf8d866cd71cdb0212f',
   '../codex-approved-search.ts': 'eaec7066315ae88f4f72e0af04f2bc1a37f916385e7eecb4abe708097b0f5a01',
   '../codex-borrowed-search.ts': '9614d2109b5ee0d65d641ca6e743d3c22a3cd8d70c48178d1a0bdfefcbcf35e1',
-  '../codex-chat-session.ts': '4a92186e2f63d57cd5ef1e271073aec6999a4bcecd34e3bd0c29bb12d7753770',
+  '../codex-chat-session.ts': '406046e8b84fc95f305edd5eca4abcce014f4e83240585528beed5ceef713797',
   '../codex-conversation-store.ts':
     '640aa060c1e44e436983c799abe491d7d2475b2dea3196d855434de98ba2adef',
   '../codex-conversation.ts': '60b362e357e04a980a475d7b0244e92e78401947b19d437ccceb63846418957c',
@@ -4123,7 +4123,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../inbox-reconciliation.ts': '75d1f9af6ae2dc05b6eb49fb9e147325099cbf3936ae889863ed3dbbe575566f',
   '../inbox-scanner.ts': 'ee00e0aa6dce28803d51d14ee85c3807d365a6ff1db6239913f05060fe0af161',
   '../inbox.ts': '06abae2a6e493924b18cfe44a5afd6b6ad9c5a6180b5af429aef05aa5d127ad2',
-  '../index.ts': '46e136f17bb24f87ef1e252b6f755afef9090af09adf0202813b02d71d583ec0',
+  '../index.ts': '376ba4b91ad2ec9d17f8470d9f3702ed9bcdcc5d11ed79fb4087b70287fc1304',
   '../installed-custom-tools.ts':
     '103aa54c9df80d683bb0a8f58fa296970e5be0bad0a37acb3a7b2b7e32079af3',
   '../integration-tool-discovery.ts':
@@ -4144,9 +4144,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e0ad96249c276bf5b640197adda676f14121be592abd88f99d5002fc37838c93',
   '../knowledge-library-source.ts':
     'b0192e3ff56deafaff5b506eb55c6c2325c712e825814de6d355b0fe1bbc3087',
-  '../knowledge-prewarming.ts': 'd37faec60aa617052fc5db01466aee767e494b3f23ed23529754503d8d33dcdc',
+  '../knowledge-prewarming.ts': '3a04a817cab9187a81f472a7f3d9afccd9696c305e795110f0fbc2007cc4704a',
   '../knowledge-publication-bridge.ts':
-    '79543edeacc9f8973130dcab7a80dcc26e0c32677fa5d3e73a3c75ef9a8e5cd7',
+    '123cbd0b749226642dd252b8185f1be9e122c04d9934c0212eca5a606d42cd38',
   '../knowledge-store-config.ts':
     '4b58a667a3abe0e573f022dbc98364530da73f9f7513f4b420ee0ac53220781c',
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
@@ -4481,7 +4481,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../public-replay-error.ts': 'f259c0724784f96d7553750a6ca0d5812ef69d934f123b47eeaa863dd530aefe',
   '../public-web-fetch.ts': 'df8b576dd1ca06be5a038b4a137d88a939cabb48a09528d4d761d669caeb10f4',
   '../published-host-knowledge.ts':
-    '86e2d852fe6904e90d07ffbf2908ab59d82c7f10a1eda92dd6af3be47a78b52f',
+    '47acad3d0fb60a650fa2a50a4689f9b1901ac52b612298b2a816495c7bbe8869',
   '../qualified-local-repository-actor.ts':
     '1ca1f0f907d2f806abdd6a8495868c45bbc2f35fd5fa191dfcce702acedc388c',
   '../qualified-local-repository-task.ts':
