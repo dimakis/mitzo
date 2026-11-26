@@ -44,6 +44,7 @@ export type {
   RawToolResultImage,
   ToolResultImage,
   Session,
+  SharedConversationSummary,
   SessionClosedBy,
   SessionState,
   ClientSessionState,
