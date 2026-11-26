@@ -55,6 +55,14 @@
     order: 4;
     flex-shrink: 0;
   }
+  /* A retained source Stop puts five 44px actions on each row; at 280px the
+     composer is only about 232px wide, so tighten the gaps for this case. */
+  .chat-input--compact .composer-toolbar[data-symposium][data-source-stop] {
+    column-gap: 2px;
+  }
+  .chat-input--compact .composer-toolbar[data-symposium][data-source-stop]::before {
+    margin-inline-end: -2px;
+  }
   /* A retained source Stop adds a sixth action; balance the rows at 280px by
      placing context usage at the end of the first row. */
   .chat-input--compact
