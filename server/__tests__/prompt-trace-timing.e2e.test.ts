@@ -11,12 +11,25 @@ import {
 } from '@opentelemetry/sdk-trace-node';
 import { context, trace, ROOT_CONTEXT, type Context, type Span } from '@opentelemetry/api';
 import { summarizePromptTiming, type PromptTimingCommand } from './fixtures/prompt-trace-timing.js';
+import {
+  startPhaseAResources,
+  summarizePhaseA,
+  type PhaseStart,
+} from './fixtures/phase-a-measurement.js';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import type { Response } from 'express';
 import type { ownedOrdinaryRuntimeFixture } from './fixtures/owned-ordinary-workspace-runtime.js';
 import type { SessionSseRegistry } from '../session-sse-registry.js';
 import type { ConnectionRegistry } from '@mitzo/harness';
+import {
+  summarizeMultiSession,
+  parseSessionCount,
+  type LoadCommand,
+} from './fixtures/multi-session-measurement.js';
+
+const loadSessions = process.env.MITZO_OFFLINE_LOAD_SESSIONS;
+const sessionCount = loadSessions === undefined ? 2 : parseSessionCount(loadSessions);
 
 const services = vi.hoisted(() => ({ workspace: undefined as unknown }));
 // Do not import the real singleton while constructing this mock: the combined
@@ -81,11 +94,14 @@ const processor = new SimpleSpanProcessor(exporter);
 // time independently per span. Capture real monotonic hook times without changing
 // production spans or relaxing cross-span ordering for that clock quantization.
 const monotonic = new Map<string, { start: [number, number]; end?: [number, number] }>();
+const observedStarts: PhaseStart[] = [];
 const provider = new NodeTracerProvider({
   spanProcessors: [
     {
       onStart(span, parent) {
-        monotonic.set(span.spanContext().spanId, { start: process.hrtime() });
+        const start = process.hrtime();
+        monotonic.set(span.spanContext().spanId, { start });
+        observedStarts.push({ name: span.name, ...span.spanContext(), startTime: start });
         processor.onStart(span, parent);
       },
       onEnd(span) {
@@ -104,9 +120,11 @@ const timingTracer = trace.getTracer('offline-prompt-timing');
 const writes = new Map<string, Span>();
 const writeQueuedTimes = new Map<string, [number, number]>();
 const frames: Array<{ method: string; commandId?: string; threadId?: string }> = [];
-let reply: (value: unknown) => void;
 let finishHeld: (() => void) | undefined;
-let turnSequence = 0;
+const heldTurns = new Map<string, () => void>();
+let multiSessionMode = false;
+let clients = 0;
+let preparedSessions: Array<Awaited<ReturnType<typeof ownedOrdinaryRuntimeFixture>>['first']> = [];
 let app: express.Express;
 let server: Server;
 let upstreamContext: Context | undefined;
@@ -124,7 +142,17 @@ const startup = await vi.hoisted(async () => {
 });
 beforeEach(async () => {
   vi.resetModules();
-  turnSequence = 0;
+  exporter.reset();
+  monotonic.clear();
+  observedStarts.length = 0;
+  frames.length = 0;
+  writes.clear();
+  writeQueuedTimes.clear();
+  finishHeld = undefined;
+  heldTurns.clear();
+  multiSessionMode = false;
+  clients = 0;
+  upstreamContext = undefined;
   const nativeProcess = process;
   const dlopen = nativeProcess.dlopen;
   vi.spyOn(nativeProcess, 'dlopen').mockImplementation(function (this: NodeJS.Process, ...args) {
@@ -158,6 +186,7 @@ beforeEach(async () => {
   f = await ownedOrdinaryRuntimeFixture(cleanup, {
     chatRoute: true,
   });
+  preparedSessions = [f.first];
   services.workspace = f.workspaces;
   chat = await import('../chat.js');
   native = await import('../codex-app-server-client.js');
@@ -187,15 +216,21 @@ beforeEach(async () => {
   vi.spyOn(native.CodexAppServerClient, 'launchIsolated').mockImplementation(
     (_home, _env, callbacks) => {
       expect(
-        chat.eventStore.getLatestOrdinaryCommandAdmission(f.first.receipt.sessionId)?.state,
-      ).toBe('uncertain');
+        preparedSessions.some(
+          (session) =>
+            chat.eventStore.getLatestOrdinaryCommandAdmission(session.receipt.sessionId)?.state ===
+            'uncertain',
+        ),
+      ).toBe(true);
+      const threadId = multiSessionMode ? 'offline-thread-' + ++clients : 'offline-ordinary-thread';
+      let turnSequence = 0;
       const child = Object.assign(new EventEmitter(), {
         stdin: new PassThrough(),
         stdout: new PassThrough(),
         stderr: new PassThrough(),
         kill: vi.fn(),
       });
-      reply = (value) => {
+      const reply = (value: unknown) => {
         child.stdout.write(JSON.stringify(value) + '\n');
       };
       child.stdin.on('data', (chunk: Buffer) => {
@@ -216,7 +251,7 @@ beforeEach(async () => {
             result = await raw(frame.method!);
           if (frame.method === 'thread/start' || frame.method === 'thread/resume')
             result = {
-              thread: { id: 'offline-ordinary-thread' },
+              thread: { id: threadId },
               model: 'fixture-model',
               modelProvider: 'openai',
             };
@@ -224,17 +259,19 @@ beforeEach(async () => {
             const sequence = ++turnSequence;
             const turnId = 'offline-turn-' + sequence;
             // Real monotonic elapsed time, deliberately independent ACK/provider delay.
-            await new Promise((resolve) => setTimeout(resolve, sequence === 2 ? 80 : 40));
+            await new Promise((resolve) =>
+              setTimeout(resolve, !multiSessionMode && sequence === 2 ? 80 : 40),
+            );
             reply({
               method: 'turn/started',
-              params: { threadId: 'offline-ordinary-thread', turn: { id: turnId } },
+              params: { threadId, turn: { id: turnId } },
             });
             reply({ id: frame.id, result: { turn: { id: turnId } } });
             await new Promise((resolve) => setTimeout(resolve, 10));
             reply({
               method: 'item/agentMessage/delta',
               params: {
-                threadId: 'offline-ordinary-thread',
+                threadId,
                 turnId,
                 itemId: 'output-' + sequence,
                 delta: 'Offline controlled output',
@@ -244,11 +281,12 @@ beforeEach(async () => {
               reply({
                 method: 'turn/completed',
                 params: {
-                  threadId: 'offline-ordinary-thread',
+                  threadId,
                   turn: { id: turnId, status: 'completed' },
                 },
               });
-            if (sequence === 3) finishHeld = complete;
+            if (multiSessionMode && sequence === 2) heldTurns.set(threadId, complete);
+            else if (!multiSessionMode && sequence === 3) finishHeld = complete;
             else complete();
             return;
           }
@@ -303,9 +341,10 @@ beforeEach(async () => {
 afterEach(async () => {
   if (chat && f) {
     auth.revokeAuthSession(f.auth);
-    await vi.waitFor(() =>
-      expect(chat.registry.findBySessionId(f.first.receipt.sessionId)).toBeNull(),
-    );
+    await vi.waitFor(() => {
+      for (const session of preparedSessions)
+        expect(chat.registry.findBySessionId(session.receipt.sessionId)).toBeNull();
+    });
     streams?.remove(f.operatorConnectionId);
     transportAuth.releaseTransportConnection(f.operatorConnectionId, f.auth.id);
     connections.dispose();
@@ -352,28 +391,219 @@ const first = () => ({
   sessionId: f.first.receipt.sessionId,
   workspace: { kind: 'ordinary' as const, workspaceId: f.first.reserved.id },
 });
-it('traces actual cold, warm and queued HTTP commands through durable custody to real client stream writes, ACK and output', async () => {
+it.skipIf(loadSessions !== undefined)(
+  'traces actual cold, warm and queued HTTP commands through durable custody to real client stream writes, ACK and output',
+  async () => {
+    await mount();
+    const input = first();
+    const expected: PromptTimingCommand[] = [];
+    async function send(kind: PromptTimingCommand['kind'], initial = false) {
+      const command = {
+        ...input,
+        clientMsgId: initial ? input.clientMsgId : randomUUID(),
+        payload: initial ? input.payload : { text: 'Offline timing input' },
+      };
+      const traceId = randomUUID().replaceAll('-', '');
+      expected.push({ commandId: command.clientMsgId, traceId, kind });
+      const response = await request(server)
+        .post('/api/ordinary/workspaces/commands/' + (initial ? 'first' : 'continue'))
+        .set('Authorization', 'Bearer ' + f.token)
+        .set('X-Connection-Id', f.operatorConnectionId)
+        .set('traceparent', '00-' + traceId + '-1234567890abcdef-01')
+        .send(command);
+      expect(
+        response.status,
+        JSON.stringify({ response: response.body, methods: frames.map((f) => f.method) }),
+      ).toBe(202);
+      expect(response.body).toMatchObject({
+        clientMsgId: command.clientMsgId,
+        sessionId: input.sessionId,
+        state: 'consumed',
+      });
+      return command.clientMsgId;
+    }
+    const nativeStore = (await import('../codex-chat-session.js')).getCodexConversationStore();
+    // An idle native slot can precede the next queued command's asynchronous
+    // claim. Wait for the exact submitted command, rather than that idle gap.
+    const settled = (commandId: string) =>
+      vi.waitFor(() =>
+        expect(nativeStore.commandStatus(input.sessionId, f.binding, commandId)).toBe('completed'),
+      );
+    const startOffset = observedStarts.length;
+    const resourceMonitor = startPhaseAResources();
+    cleanup.push(() => {
+      resourceMonitor.stop();
+    });
+    await settled(await send('cold', true));
+    await settled(await send('warm'));
+    await send('warm');
+    await vi.waitFor(() => expect(finishHeld).toBeTypeOf('function'));
+    const queuedSend = send('queued');
+    await vi.waitFor(() =>
+      expect(
+        nativeStore.commands(input.sessionId, f.binding).filter((c) => c.status === 'queued'),
+      ).toHaveLength(1),
+    );
+    // Hold an actual active predecessor, not a fake performance clock.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    finishHeld!();
+    await settled(await queuedSend);
+    const resources = resourceMonitor.stop();
+    const windowStarts = observedStarts.slice(startOffset);
+    expect(native.CodexAppServerClient.launchIsolated).toHaveBeenCalledOnce();
+    expect(frames.filter((f) => f.method === 'initialize')).toHaveLength(1);
+    expect(frames.filter((f) => f.method === 'thread/start')).toHaveLength(1);
+    expect(frames.filter((f) => f.method === 'thread/resume')).toHaveLength(0);
+    const turns = frames.filter((f) => f.method === 'turn/start');
+    expect(turns.map((f) => f.commandId)).toEqual(expected.map((c) => c.commandId));
+    expect(new Set(turns.map((f) => f.threadId))).toEqual(new Set(['offline-ordinary-thread']));
+    expect(chat.eventStore.getSession(input.sessionId)?.ordinaryWorkspaceId).toBe(
+      input.workspace.workspaceId,
+    );
+    for (const command of expected)
+      expect(chat.eventStore.getOrdinaryCommandAdmission(command.commandId)?.state).toBe(
+        'consumed',
+      );
+    await provider.forceFlush();
+    const budget = process.env.MITZO_PROMPT_DISPATCH_BUDGET_MS;
+    const captured = capturedSpans();
+    const result = summarizePromptTiming(
+      captured,
+      expected,
+      budget === undefined ? undefined : Number(budget),
+    );
+    expect(result.samples[3].ms.queueWait).toBeGreaterThanOrEqual(25);
+    expect(result.samples[1].ms.writeCompletedToAck).toBeGreaterThanOrEqual(70);
+    expect(f.forbidden).not.toHaveBeenCalled();
+    expect(f.legacyLookup).not.toHaveBeenCalled();
+    const artifact = {
+      ...result,
+      phaseA: summarizePhaseA(
+        captured.filter((s) =>
+          windowStarts.some((start) => start.spanId === s.spanContext().spanId),
+        ),
+        windowStarts,
+        expected,
+      ),
+      resources,
+      fixture: {
+        browser: false,
+        provider: 'controlled in-process stdio peer',
+        syntheticMacArtifactQualification: true,
+        sameConversation: true,
+        bootstrapCount: 1,
+        threadStartCount: 1,
+        workspacePreparedBeforeMeasurement: true,
+      },
+      clock:
+        'process.hrtime at genuine OTel SpanProcessor hooks; write_queued observer uses same monotonic clock; original OTel times also retained as relative offsets',
+      runtime: process.version,
+    };
+    expect(artifact).toMatchObject({
+      phaseA: {
+        coverage: { complete: true, unfinished: 0, unattributed: 0 },
+        concurrency: { sessions: 1, commands: 4, maxOutstandingCommands: 2, maxActiveTurns: 1 },
+        route: { account: 'synthetic-personal', model: 'fixture-model' },
+      },
+      resources: { eventLoop: { sampleCount: expect.any(Number) } },
+    });
+    if (process.env.MITZO_PROMPT_TIMING_OUTPUT)
+      await writeFile(
+        process.env.MITZO_PROMPT_TIMING_OUTPUT,
+        JSON.stringify(artifact, null, 2) + '\n',
+        { mode: 0o600 },
+      );
+    console.log('OFFLINE_PROMPT_TIMING ' + JSON.stringify(result.summary));
+    // Real upstream HTTP middleware context must survive an absent trace header.
+    // Explicit malformed headers retain the existing strict parser's root behavior.
+    const upstreamTrace = randomUUID().replaceAll('-', '');
+    upstreamContext = trace.setSpanContext(ROOT_CONTEXT, {
+      traceId: upstreamTrace,
+      spanId: 'fedcba0987654321',
+      traceFlags: 1,
+    });
+    for (const malformedHeader of [false, true]) {
+      const commandId = randomUUID();
+      let invalid = request(server)
+        .post('/api/ordinary/workspaces/commands/first')
+        .set('Authorization', 'Bearer ' + f.token)
+        .set('X-Connection-Id', f.operatorConnectionId);
+      if (malformedHeader) invalid = invalid.set('traceparent', 'malformed');
+      expect((await invalid.send({ clientMsgId: commandId })).status).toBe(400);
+      const entrySpan = exporter
+        .getFinishedSpans()
+        .find(
+          (span) =>
+            span.name === 'codex.command.http' && span.attributes['mitzo.command.id'] === commandId,
+        )!;
+      expect(entrySpan).toBeDefined();
+      if (malformedHeader) expect(entrySpan.spanContext().traceId).not.toBe(upstreamTrace);
+      else {
+        expect(entrySpan.spanContext().traceId).toBe(upstreamTrace);
+        expect(entrySpan.parentSpanContext?.spanId).toBe('fedcba0987654321');
+      }
+    }
+    upstreamContext = undefined;
+  },
+  30_000,
+);
+
+function capturedSpans() {
+  return exporter.getFinishedSpans().map((span) => {
+    const times = monotonic.get(span.spanContext().spanId);
+    if (!times?.end) throw Error('Finished trace lacks monotonic boundaries');
+    return {
+      ...span,
+      spanContext: () => span.spanContext(),
+      startTime: times.start,
+      endTime: times.end,
+      events: span.events.map((event) =>
+        event.name === 'write_queued'
+          ? { ...event, time: writeQueuedTimes.get(span.spanContext().spanId)! }
+          : event,
+      ),
+      otel: { startTime: span.startTime, endTime: span.endTime, events: span.events },
+    };
+  });
+}
+
+it('measures equal cold/warm/queued workloads through shared real owners in multiple isolated sessions', async () => {
+  multiSessionMode = true;
+  for (let i = 1; i < sessionCount; i++) preparedSessions.push(await f.prepareSibling());
   await mount();
-  const input = first();
-  const expected: PromptTimingCommand[] = [];
-  async function send(kind: PromptTimingCommand['kind'], initial = false) {
+  const nativeStore = (await import('../codex-chat-session.js')).getCodexConversationStore();
+  const commands: LoadCommand[] = [];
+  const inputs = preparedSessions.map((session) => ({
+    version: 2 as const,
+    ...structuredClone(session.request),
+    runOn: 'local' as const,
+    sessionId: session.receipt.sessionId,
+    workspace: { kind: 'ordinary' as const, workspaceId: session.reserved.id },
+  }));
+  async function send(index: number, kind: LoadCommand['kind'], batchAt: [number, number]) {
+    const input = inputs[index],
+      initial = kind === 'cold';
     const command = {
       ...input,
       clientMsgId: initial ? input.clientMsgId : randomUUID(),
-      payload: initial ? input.payload : { text: 'Offline timing input' },
+      payload: initial ? input.payload : { text: 'Equal offline workload' },
     };
     const traceId = randomUUID().replaceAll('-', '');
-    expected.push({ commandId: command.clientMsgId, traceId, kind });
+    commands.push({
+      commandId: command.clientMsgId,
+      traceId,
+      kind,
+      sessionId: input.sessionId,
+      batchAt,
+      issuedAt: process.hrtime(),
+    });
     const response = await request(server)
       .post('/api/ordinary/workspaces/commands/' + (initial ? 'first' : 'continue'))
       .set('Authorization', 'Bearer ' + f.token)
       .set('X-Connection-Id', f.operatorConnectionId)
       .set('traceparent', '00-' + traceId + '-1234567890abcdef-01')
       .send(command);
-    expect(
-      response.status,
-      JSON.stringify({ response: response.body, methods: frames.map((f) => f.method) }),
-    ).toBe(202);
+    expect(response.status, JSON.stringify(response.body)).toBe(202);
     expect(response.body).toMatchObject({
       clientMsgId: command.clientMsgId,
       sessionId: input.sessionId,
@@ -381,115 +611,137 @@ it('traces actual cold, warm and queued HTTP commands through durable custody to
     });
     return command.clientMsgId;
   }
-  const nativeStore = (await import('../codex-chat-session.js')).getCodexConversationStore();
-  // An idle native slot can precede the next queued command's asynchronous
-  // claim. Wait for the exact submitted command, rather than that idle gap.
-  const settled = (commandId: string) =>
-    vi.waitFor(() =>
-      expect(nativeStore.commandStatus(input.sessionId, f.binding, commandId)).toBe('completed'),
-    );
-  await settled(await send('cold', true));
-  await settled(await send('warm'));
-  await send('warm');
-  await vi.waitFor(() => expect(finishHeld).toBeTypeOf('function'));
-  const queuedSend = send('queued');
-  await vi.waitFor(() =>
-    expect(
-      nativeStore.commands(input.sessionId, f.binding).filter((c) => c.status === 'queued'),
-    ).toHaveLength(1),
-  );
-  // Hold an actual active predecessor, not a fake performance clock.
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  finishHeld!();
-  await settled(await queuedSend);
-  expect(native.CodexAppServerClient.launchIsolated).toHaveBeenCalledOnce();
-  expect(frames.filter((f) => f.method === 'initialize')).toHaveLength(1);
-  expect(frames.filter((f) => f.method === 'thread/start')).toHaveLength(1);
-  expect(frames.filter((f) => f.method === 'thread/resume')).toHaveLength(0);
-  const turns = frames.filter((f) => f.method === 'turn/start');
-  expect(turns.map((f) => f.commandId)).toEqual(expected.map((c) => c.commandId));
-  expect(new Set(turns.map((f) => f.threadId))).toEqual(new Set(['offline-ordinary-thread']));
-  expect(chat.eventStore.getSession(input.sessionId)?.ordinaryWorkspaceId).toBe(
-    input.workspace.workspaceId,
-  );
-  for (const command of expected)
-    expect(chat.eventStore.getOrdinaryCommandAdmission(command.commandId)?.state).toBe('consumed');
-  await provider.forceFlush();
-  const budget = process.env.MITZO_PROMPT_DISPATCH_BUDGET_MS;
-  const result = summarizePromptTiming(
-    exporter.getFinishedSpans().map((span) => {
-      const times = monotonic.get(span.spanContext().spanId);
-      if (!times?.end) throw Error('Finished trace lacks monotonic boundaries');
-      return {
-        ...span,
-        spanContext: () => span.spanContext(),
-        startTime: times.start,
-        endTime: times.end,
-        events: span.events.map((event) =>
-          event.name === 'write_queued'
-            ? { ...event, time: writeQueuedTimes.get(span.spanContext().spanId)! }
-            : event,
+  const settle = (index: number, commandId: string) =>
+    vi.waitFor(
+      () =>
+        expect(nativeStore.commandStatus(inputs[index].sessionId, f.binding, commandId)).toBe(
+          'completed',
         ),
-        otel: { startTime: span.startTime, endTime: span.endTime, events: span.events },
-      };
-    }),
-    expected,
-    budget === undefined ? undefined : Number(budget),
+      { timeout: 10_000 },
+    );
+  const batch = (kind: LoadCommand['kind']) => {
+    const release = process.hrtime();
+    return inputs.map((_, index) => send(index, kind, release));
+  };
+  const startOffset = observedStarts.length,
+    monitor = startPhaseAResources();
+  cleanup.push(() => {
+    monitor.stop();
+  });
+  const cold = await Promise.all(batch('cold'));
+  await Promise.all(cold.map((id, index) => settle(index, id)));
+  const warm = await Promise.all(batch('warm'));
+  await vi.waitFor(() => expect(heldTurns.size).toBe(sessionCount), { timeout: 10_000 });
+  // Keep one real active turn per session until every follow-up is durably queued.
+  const queued = Promise.all(batch('queued'));
+  await vi.waitFor(
+    () => {
+      for (const input of inputs)
+        expect(
+          nativeStore.commands(input.sessionId, f.binding).filter((c) => c.status === 'queued'),
+        ).toHaveLength(1);
+    },
+    { timeout: 10_000 },
   );
-  expect(result.samples[3].ms.queueWait).toBeGreaterThanOrEqual(25);
-  expect(result.samples[1].ms.writeCompletedToAck).toBeGreaterThanOrEqual(70);
+  const release = process.hrtime();
+  for (const complete of heldTurns.values()) complete();
+  const queuedIds = await queued;
+  await Promise.all(
+    inputs.flatMap((_, index) => [settle(index, warm[index]), settle(index, queuedIds[index])]),
+  );
+  const resources = monitor.stop();
+  await provider.forceFlush();
+  const starts = observedStarts.slice(startOffset),
+    ids = new Set(starts.map((s) => s.spanId));
+  const captured = capturedSpans().filter((s) => ids.has(s.spanContext().spanId));
+  const measurement = summarizeMultiSession(captured, starts, commands, sessionCount);
+  expect(measurement.coverage.complete).toBe(true);
+  expect(measurement.concurrency).toMatchObject({
+    sessions: sessionCount,
+    commands: sessionCount * 3,
+    maxActiveTurns: sessionCount,
+  });
+  expect(native.CodexAppServerClient.launchIsolated).toHaveBeenCalledTimes(sessionCount);
+  expect(frames.filter((f) => f.method === 'thread/start')).toHaveLength(sessionCount);
+  expect(frames.filter((f) => f.method === 'thread/resume')).toHaveLength(0);
+  for (let index = 0; index < inputs.length; index++) {
+    const own = commands.filter((c) => c.sessionId === inputs[index].sessionId);
+    const turns = frames.filter((frame) => own.some((c) => c.commandId === frame.commandId));
+    expect(turns.map((t) => t.commandId)).toEqual(own.map((c) => c.commandId));
+    expect(new Set(turns.map((t) => t.threadId)).size).toBe(1);
+    expect(chat.eventStore.getSession(inputs[index].sessionId)?.ordinaryWorkspaceId).toBe(
+      inputs[index].workspace.workspaceId,
+    );
+    for (const command of own)
+      expect(chat.eventStore.getOrdinaryCommandAdmission(command.commandId)?.state).toBe(
+        'consumed',
+      );
+  }
+  expect(new Set(frames.filter((f) => f.method === 'turn/start').map((f) => f.threadId)).size).toBe(
+    sessionCount,
+  );
   expect(f.forbidden).not.toHaveBeenCalled();
   expect(f.legacyLookup).not.toHaveBeenCalled();
+  // Outside the measured window: cross-session workspace substitution must not
+  // reach any adapter, and a subsequent correctly bound command still completes.
+  if (inputs.length > 1) {
+    const before = frames.filter((frame) => frame.method === 'turn/start').length;
+    const rejected = await request(server)
+      .post('/api/ordinary/workspaces/commands/continue')
+      .set('Authorization', 'Bearer ' + f.token)
+      .set('X-Connection-Id', f.operatorConnectionId)
+      .send({
+        ...inputs[0],
+        clientMsgId: randomUUID(),
+        workspace: inputs[1].workspace,
+        payload: { text: 'Offline substitution probe' },
+      });
+    expect(rejected.status).toBeGreaterThanOrEqual(400);
+    expect(rejected.status).toBeLessThan(500);
+    expect(frames.filter((frame) => frame.method === 'turn/start')).toHaveLength(before);
+    const commandId = randomUUID();
+    const recovered = await request(server)
+      .post('/api/ordinary/workspaces/commands/continue')
+      .set('Authorization', 'Bearer ' + f.token)
+      .set('X-Connection-Id', f.operatorConnectionId)
+      .send({ ...inputs[0], clientMsgId: commandId, payload: { text: 'Offline recovery probe' } });
+    expect(recovered.status).toBe(202);
+    await settle(0, commandId);
+  }
+  const heldBarrierMs = commands
+    .filter((c) => c.kind === 'queued')
+    .map((c) => (release[0] - c.batchAt[0]) * 1000 + (release[1] - c.batchAt[1]) / 1e6)[0];
   const artifact = {
-    ...result,
+    ...measurement,
+    resources,
     fixture: {
-      browser: false,
-      provider: 'controlled in-process stdio peer',
-      syntheticMacArtifactQualification: true,
-      sameConversation: true,
-      bootstrapCount: 1,
-      threadStartCount: 1,
+      provider: 'controlled in-process stdio peer per session',
+      ackDelayMs: 40,
+      outputAfterAckDelayMs: 10,
+      queuePolicy:
+        'hold every second turn until all third commands are durably queued, then release together',
+      queuedBatchToReleaseMs: heldBarrierMs,
       workspacePreparedBeforeMeasurement: true,
+      realOwners: [
+        'HTTP router',
+        'ordinary workspace custody',
+        'SQLite EventStore',
+        'CodexConversation queue',
+        'CodexAppServerClient',
+      ],
+      syntheticMacArtifactQualification: true,
+      nativeProcesses: 0,
+      modelCalls: 0,
     },
-    clock:
-      'process.hrtime at genuine OTel SpanProcessor hooks; write_queued observer uses same monotonic clock; original OTel times also retained as relative offsets',
-    runtime: process.version,
   };
-  if (process.env.MITZO_PROMPT_TIMING_OUTPUT)
+  if (process.env.MITZO_OFFLINE_LOAD_OUTPUT)
     await writeFile(
-      process.env.MITZO_PROMPT_TIMING_OUTPUT,
+      process.env.MITZO_OFFLINE_LOAD_OUTPUT,
       JSON.stringify(artifact, null, 2) + '\n',
       { mode: 0o600 },
     );
-  console.log('OFFLINE_PROMPT_TIMING ' + JSON.stringify(result.summary));
-  // Real upstream HTTP middleware context must survive an absent trace header.
-  // Explicit malformed headers retain the existing strict parser's root behavior.
-  const upstreamTrace = randomUUID().replaceAll('-', '');
-  upstreamContext = trace.setSpanContext(ROOT_CONTEXT, {
-    traceId: upstreamTrace,
-    spanId: 'fedcba0987654321',
-    traceFlags: 1,
-  });
-  for (const malformedHeader of [false, true]) {
-    const commandId = randomUUID();
-    let invalid = request(server)
-      .post('/api/ordinary/workspaces/commands/first')
-      .set('Authorization', 'Bearer ' + f.token)
-      .set('X-Connection-Id', f.operatorConnectionId);
-    if (malformedHeader) invalid = invalid.set('traceparent', 'malformed');
-    expect((await invalid.send({ clientMsgId: commandId })).status).toBe(400);
-    const entrySpan = exporter
-      .getFinishedSpans()
-      .find(
-        (span) =>
-          span.name === 'codex.command.http' && span.attributes['mitzo.command.id'] === commandId,
-      )!;
-    expect(entrySpan).toBeDefined();
-    if (malformedHeader) expect(entrySpan.spanContext().traceId).not.toBe(upstreamTrace);
-    else {
-      expect(entrySpan.spanContext().traceId).toBe(upstreamTrace);
-      expect(entrySpan.parentSpanContext?.spanId).toBe('fedcba0987654321');
-    }
-  }
-  upstreamContext = undefined;
-}, 30_000);
+  console.log(
+    'OFFLINE_MULTI_SESSION ' +
+      JSON.stringify({ sessions: sessionCount, concurrency: measurement.concurrency }),
+  );
+}, 60_000);

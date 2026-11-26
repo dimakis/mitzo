@@ -1,4 +1,4 @@
-import { TerminalSessionMissing } from './terminal-errors.js';
+import { TerminalOperationError, TerminalSessionMissing } from './terminal-errors.js';
 import { TerminalOwnerStore } from './terminal-owner-store.js';
 import type { AuthSession } from './interactive-auth-core.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
@@ -375,7 +375,7 @@ export class TerminalService {
       this.store.list(owner).filter((record) => record.state === 'running').length >= 5 ||
       this.store.list().filter((record) => record.state === 'running').length >= 50
     )
-      throw new Error('Terminal limit reached');
+      throw new TerminalOperationError('terminal_limit_reached');
     const record: TerminalRecord = {
       id: `term-${randomUUID()}`,
       owner,
@@ -449,7 +449,7 @@ export class TerminalService {
         else if (!resume) this.store.state(record.id, 'unavailable');
         this.live.delete(record.id);
         if (error instanceof TerminalSessionMissing) throw error;
-        throw new Error('Terminal could not be opened. Check the selected environment.');
+        throw new TerminalOperationError('terminal_start_failed', error);
       })
       .finally(() => {
         this.starts.delete(record.id);

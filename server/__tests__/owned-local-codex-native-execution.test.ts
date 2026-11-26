@@ -28,6 +28,12 @@ vi.mock('../codex-native-artifact-qualification.js', async (original) => ({
   ...(await original<typeof import('../codex-native-artifact-qualification.js')>()),
   assertQualifiedNativeMacExecutionArtifact: vi.fn(),
 }));
+// Never read the developer's real gh login; the fixture stands in for the
+// host operator's Keychain-backed token that native Codex cannot reach.
+vi.mock('../host-github-credential.js', async (original) => ({
+  ...(await original<typeof import('../host-github-credential.js')>()),
+  resolveHostGithubCredential: vi.fn(() => ({ token: 'gho_fixtureHostLogin', gh: '/fixture/gh' })),
+}));
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: () => {
     throw Error('Offline test forbids SDK/model calls');
@@ -196,6 +202,22 @@ it('reads Google documents through an admitted Local Mac chat while credentials 
     'Another repository needs its own verified preparation',
   );
   expect(JSON.stringify(thread.config)).not.toContain('.config/gh');
+  // The sandbox cannot read the Keychain, so the host login reaches native
+  // commands only through this private thread frame, never argv or prompts.
+  expect(
+    (thread.config as Record<string, Record<string, string>>)['shell_environment_policy.set'],
+  ).toMatchObject({
+    GH_TOKEN: 'gho_fixtureHostLogin',
+    GIT_CONFIG_VALUE_1: '!/fixture/gh auth git-credential',
+  });
+  expect(
+    JSON.stringify(launch.mock.calls, (_key, value) =>
+      typeof value === 'bigint' ? String(value) : value,
+    ),
+  ).not.toContain('gho_fixtureHostLogin');
+  expect(String(thread.developerInstructions)).not.toContain('gho_fixtureHostLogin');
+  expect(thread.developerInstructions).toContain('gh api user --jq .login');
+  expect(thread.developerInstructions).not.toContain('credential store is readable');
   const project = join(f.root, 'new projects', 'example');
   for (const operation of [
     {

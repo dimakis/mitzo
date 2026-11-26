@@ -22,5 +22,9 @@ docs/design/approved/enmaas-account/setup.html
 # Immutable approved chat-tree reference; the ledger verifies its original bytes.
 docs/design/approved/chat-tree/navigation.html
 
+# Byte-for-byte copy of the original background task proposal; its SHA-256 is
+# recorded in docs/features/background-task-ui.md.
+docs/design/background-task-ui/original-proposal.md
+
 # Frozen Telos acceptance provenance; preserve recorded evidence byte hashes.
 docs/evidence/telos-s9/integrated-candidate/
