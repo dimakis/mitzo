@@ -192,8 +192,10 @@ import { permissionRevision, type ResumePermission } from './session-permission-
 import { GoogleAuth } from 'google-auth-library';
 import type { GeminiOptions } from './gemini-session.js';
 import {
+  assertSessionPermissionGate,
   buildSessionPermissionHooks,
   SESSION_PERMISSION_INSTRUCTIONS,
+  startGatedSdkQuery,
 } from './session-permission-policy.js';
 import { credentials } from './credentials.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
@@ -3420,6 +3422,10 @@ async function _startChatInner(
           };
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
+        // Bare entries skip the SDK prompt and canUseTool. The matcher-less
+        // PreToolUse hook from buildSessionPermissionHooks still runs `decide`
+        // for every call and fails closed; assertSessionPermissionGate below
+        // refuses these options without it.
         allowedTools: options.ordinarySdkAuthority
           ? [
               ...ordinarySdkConnectionHelperTools,
@@ -3478,6 +3484,7 @@ async function _startChatInner(
             }
           : {}),
       };
+      assertSessionPermissionGate(sdkOptions);
       if (options.ordinarySdkAuthority) {
         // query() can consume its prompt immediately. Source cleanup changes
         // the ledger row, so settle it before the first input's ownership read.
@@ -3692,7 +3699,7 @@ async function _startChatInner(
               error,
             }),
           authorize: authorizeSdkContext,
-          create: (request) => query(request),
+          create: (request) => startGatedSdkQuery(request.options, () => query(request)),
           adapt: adaptSdkQuery,
           options: (state) => ({
             ...sdkOptions,

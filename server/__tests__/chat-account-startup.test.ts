@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
 import { createHash } from 'node:crypto';
-import { sdkFixtureBoundary } from './fixtures/sdk-query-peer.js';
+import {
+  expectAskModeSdkPermissionGate,
+  sdkFixtureBoundary,
+  sdkQueryPeer,
+} from './fixtures/sdk-query-peer.js';
+import { AsyncQueue } from '../async-queue.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
   query: vi.fn(),
@@ -1067,6 +1072,68 @@ it('confines protected SDK sessions and excludes configured MCPs and parent proj
   } finally {
     connectionServer.mockRestore();
     vi.mocked(loadMcpServers).mockReturnValue({});
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('gates bare-allowlisted helpers with the PreToolUse hook on the live legacy SDK query in Ask mode', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-sdk-permission-gate-'));
+  stubWorkspace(root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
+  vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_DIR', join(root, 'private'));
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const boundary = await import('../credential-sdk-boundary.js');
+  const fence = vi
+    .spyOn(boundary, 'credentialSdkBoundary')
+    .mockReturnValue(sdkFixtureBoundary() as never);
+  const chat = await import('../chat.js');
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  const calls: import('@anthropic-ai/claude-agent-sdk').Options[] = [];
+  const events = new AsyncQueue<Record<string, unknown>>();
+  const { CAN_USE_TOOL_SHADOWED_WARNING } = await import('../session-permission-policy.js');
+  const warnings = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+  vi.mocked(query).mockImplementation((request) => {
+    calls.push(request.options!);
+    // The real SDK emits this synchronously from query() for bare allowedTools.
+    process.emitWarning('canUseTool will not be invoked', { code: CAN_USE_TOOL_SHADOWED_WARNING });
+    // The query stays live, so the session is current while its hooks run.
+    const peer = sdkQueryPeer(
+      request,
+      (async function* () {
+        for await (const event of events) yield event;
+      })(),
+    );
+    const close = peer.close;
+    peer.close = () => {
+      events.close();
+      close();
+    };
+    return peer;
+  });
+  const sent = vi.fn();
+  const task = chat.startChat({ send: sent, isOpen: () => true }, 'gated-sdk', 'hello', {
+    cwd: root,
+    isolation: false,
+    mode: 'ask',
+  });
+  try {
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(sent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+    expect(calls[0].permissionMode).toBe('plan');
+    expect(calls[0].allowedTools).toContain('mcp__mitzo-connections__*');
+    expect(warnings).not.toHaveBeenCalledWith(expect.anything(), {
+      code: CAN_USE_TOOL_SHADOWED_WARNING,
+    });
+    await expectAskModeSdkPermissionGate(calls[0]);
+  } finally {
+    warnings.mockRestore();
+    fence.mockRestore();
+    chat.registry.dispose();
+    events.close();
+    await Promise.allSettled([task]);
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
   }

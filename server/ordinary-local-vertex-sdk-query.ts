@@ -23,6 +23,7 @@ import { assertOrdinarySynchronousFence } from './ordinary-turn-lifecycle.js';
 import type { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
 import { createLogger } from './logger.js';
 import { beginOperationObservation } from './operation-observation.js';
+import { startGatedSdkQuery } from './session-permission-policy.js';
 import {
   annotateAuthorityFailure,
   runtimeFailureAttributes,
@@ -541,7 +542,7 @@ export function createOrdinaryLocalVertexSdkQuery<
     // Captured per native query: each successor gets the trace of the turn that
     // admitted it, never the trace the runtime was created with.
     const native: Query = createRuntimeOwnerContext()(() =>
-      query({ prompt: prompt(input, () => native), options }),
+      startGatedSdkQuery(options, () => query({ prompt: prompt(input, () => native), options })),
     );
     states.set(native, state);
     return native;
