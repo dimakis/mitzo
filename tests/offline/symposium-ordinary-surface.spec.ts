@@ -46,6 +46,11 @@ for (const theme of ['dark', 'light'])
       .slice(0, 1)
       .map((policy) => ({ ...policy, readsFutureDiscussion: false, repliesByDefault: false }));
     let sends = 0;
+    let membershipUnavailable = false;
+    let finishMembershipRefresh!: () => void;
+    const membershipRefresh = new Promise<void>((resolve) => {
+      finishMembershipRefresh = resolve;
+    });
     await page.route('**/*', async (route) => {
       const path = new URL(route.request().url()).pathname;
       if (path === '/fixture/join') {
@@ -76,7 +81,13 @@ for (const theme of ['dark', 'light'])
             },
           },
         });
-      if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+      if (path.endsWith('/conversation')) {
+        if (membershipUnavailable) {
+          await membershipRefresh;
+          return route.fulfill({ status: 503, json: { error: 'Membership unavailable' } });
+        }
+        return route.fulfill({ json: view });
+      }
       if (path.endsWith('/context'))
         return route.fulfill({
           json: {
@@ -199,8 +210,13 @@ for (const theme of ['dark', 'light'])
       await heading.screenshot({
         path: info.outputPath(`ordinary-header-large-${width}-${theme}.png`),
       });
-      const names = heading.locator('.conversation-participant-names');
-      expect((await names.boundingBox())!.width).toBeGreaterThanOrEqual(64);
+      const identity = heading.getByText('Symposium · 2 agents', { exact: true });
+      await expect(identity).toBeVisible();
+      const agents = heading.getByRole('button', { name: /Agents,/ });
+      await agents.click();
+      await expect(page.getByRole('dialog', { name: 'Agents', exact: true })).toHaveCount(1);
+      await page.keyboard.press('Escape');
+      await expect(agents).toBeFocused();
       for (const action of await heading.getByRole('button').all()) {
         const bounds = (await action.boundingBox())!;
         expect(bounds.x).toBeGreaterThanOrEqual(0);
@@ -241,4 +257,33 @@ for (const theme of ['dark', 'light'])
     await page.screenshot({ path: info.outputPath(`ordinary-${theme}.png`), fullPage: true });
     expect(sends).toBe(0);
     expect(errors).toEqual([]);
+
+    // Reopening retains canonical membership while the projection loads or fails.
+    // Check rendered visibility, not just DOM presence: phone CSS used to hide
+    // the qualification while leaving the retained count looking current.
+    membershipUnavailable = true;
+    await page.reload();
+    for (const state of [
+      'Agent membership is refreshing',
+      'Agent membership could not be refreshed',
+    ]) {
+      const heading = page.locator('.workspace-controls-heading');
+      for (const width of [320, 390, 1280]) {
+        await page.setViewportSize({ width, height: 844 });
+        await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
+        await expect(heading.getByText('Symposium · 2 agents', { exact: true })).toBeVisible();
+        await expect(heading.getByLabel(state, { exact: true })).toBeVisible();
+        for (const action of await heading.getByRole('button').all()) {
+          const bounds = (await action.boundingBox())!;
+          expect(bounds.x).toBeGreaterThanOrEqual(0);
+          expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+          expect(bounds.width).toBeGreaterThanOrEqual(44);
+          expect(bounds.height).toBeGreaterThanOrEqual(44);
+        }
+        await heading.screenshot({
+          path: info.outputPath(`membership-${state}-${width}-${theme}.png`),
+        });
+      }
+      finishMembershipRefresh();
+    }
   });

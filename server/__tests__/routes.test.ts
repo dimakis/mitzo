@@ -661,6 +661,30 @@ describe('session routes', () => {
     expect(getSessionsCached).toHaveBeenCalledWith(5, 10);
   });
 
+  it.each(['', '?full=1'])(
+    'GET /api/sessions%s retains canonical shared identity through annotation',
+    async (query) => {
+      const { getSessions, getSessionsCached } = await import('../chat.js');
+      const sharedConversation = {
+        collaborationId: 'discussion',
+        sourceConversationId: 's1',
+        membershipRevision: 4,
+        participantSessionIds: ['s1', 'peer'],
+        unavailableParticipantSessionIds: ['peer'],
+      };
+      const page = {
+        sessions: [{ id: 's1', summary: 'Test', lastModified: 1, sharedConversation }],
+        hasMore: false,
+      };
+      if (query) vi.mocked(getSessions).mockResolvedValueOnce(page);
+      else vi.mocked(getSessionsCached).mockReturnValueOnce(page);
+      const res = await request(app).get(`/api/sessions${query}`).set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body.sessions[0].sharedConversation).toEqual(sharedConversation);
+      expect(res.body.sessions[0].id).toBe('s1');
+    },
+  );
+
   it('GET /api/sessions — clamps invalid offset and limit', async () => {
     const { getSessionsCached } = await import('../chat.js');
     await request(app).get('/api/sessions?offset=-1&limit=999').set('Cookie', authCookie);
