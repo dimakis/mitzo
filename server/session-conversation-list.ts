@@ -8,8 +8,14 @@ import { ZERO_TURN_GRACE_MS } from './constants.js';
  * This never changes visibility, stored identity, transcripts or execution. */
 export function sessionConversationPage(store: EventStore, offset = 0, limit = 20) {
   const now = Date.now();
-  const relations = store.collaborationConversation?.navigation() ?? [];
-  const sources = new Set(relations.map((r) => r.sourceConversationId));
+  const { relations, discussions } = store.collaborationConversation?.listNavigation() ?? {
+    relations: [],
+    discussions: [],
+  };
+  const sources = new Set([
+    ...relations.map((r) => r.sourceConversationId),
+    ...discussions.map((d) => d.sourceConversationId),
+  ]);
   const all = store.listSessions().filter((m) => {
     if (m.isHidden || !isRegisteredConversation(m)) return false;
     if (m.conversationSource === 'external_import' || m.symposiumConfig || sources.has(m.sessionId))
@@ -34,6 +40,10 @@ export function sessionConversationPage(store: EventStore, offset = 0, limit = 2
       },
     ]),
   );
+  for (const discussion of discussions) {
+    const source = rows.get(discussion.sourceConversationId);
+    if (source) source.sharedConversation = discussion;
+  }
   for (const relation of relations) {
     const source = rows.get(relation.sourceConversationId),
       participant = rows.get(relation.sessionId);

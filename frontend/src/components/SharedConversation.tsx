@@ -46,6 +46,7 @@ import {
   ConversationPromptContextButton,
 } from './ConversationPromptContext';
 import { ConversationAgents } from './ConversationAgents';
+import type { SharedConversationIdentity } from '../lib/shared-conversation-identity';
 import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
@@ -171,6 +172,7 @@ function useSharedConversation({
     group?: string;
     begun?: boolean;
     shared?: boolean;
+    agentCount?: number;
     historySource?: string;
     ordinaryHistory?: boolean;
     error?: string;
@@ -226,7 +228,12 @@ function useSharedConversation({
           begun: setup.state === 'selected',
           shared:
             setup.state === 'selected' &&
-            setup.collaboration.participantSessionIds.some((id) => id !== sourceConversationId),
+            (setup.collaboration.revision > 1 ||
+              setup.collaboration.participantSessionIds.some((id) => id !== sourceConversationId)),
+          agentCount:
+            setup.state === 'selected'
+              ? setup.collaboration.participantSessionIds.length
+              : undefined,
         });
         const id = 'shared:' + group;
         if (!getChatDraft(id)) {
@@ -469,6 +476,19 @@ function useSharedConversation({
     joiningOwner,
     names,
     active,
+    identity:
+      active && association.group
+        ? ({
+            collaborationId: association.group,
+            agentCount: view?.participantSessionIds.length ?? association.agentCount ?? 1,
+            state:
+              association.error || presentation.error || presentation.projection?.needsRefresh
+                ? 'stale'
+                : !view || presentation.loading
+                  ? 'loading'
+                  : 'current',
+          } satisfies SharedConversationIdentity)
+        : undefined,
     historySource: association.historySource,
     resolving:
       !association.ordinaryHistory &&
@@ -532,6 +552,7 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
     <ConversationAgents
       {...props}
       agents={agents}
+      sharedIdentity={host.identity}
       showParticipantNames={host.active || props.showParticipantNames}
       addressedReadingOnly={host.active}
       joiningOwner={host.joiningOwner}
@@ -772,7 +793,7 @@ function SharedConversationBodyContent({
           disabled: composerResponders.disabled,
         }
       : undefined,
-    sendDisabledReason: presentation.error ?? sending.disabledReason,
+    sendDisabledReason: presentation.error ?? sending.sendDisabledReason,
     sendDisabledAction: {
       label: sending.pending ? 'Check original request' : 'Refresh conversation',
       onClick: () => {
@@ -783,49 +804,69 @@ function SharedConversationBodyContent({
         }
       },
     },
-    onSend: (text, images, context, delivered, _assigned, _draft, replyTo) => {
-      if (context?.length || sending.disabledReason) return false;
-      const attachments = ChatImagesSchema.safeParse(
-        images?.map(({ data, mediaType }) => ({ data, mediaType })) ?? [],
-      );
-      if (!attachments.success) {
-        setSendFailure(
-          'These images could not be sent. Use supported image attachments within the size limit. Your draft is retained.',
-        );
-        delivered?.('failed');
-        return false;
-      }
-      setSendFailure(undefined);
-      const replySource = replyTo
-        ? [...(projection?.earlierMessages ?? []), ...(view?.messages ?? [])].find(
-            (m) =>
-              m.projectionId === replyTo.messageId ||
-              (m.source?.conversationId === sourceConversationId &&
-                m.source.messageId === replyTo.messageId),
-          )
-        : undefined;
-      if (replyTo && !replySource) {
-        setSendFailure(
-          'The original reply source is unavailable. Refresh the discussion or remove the reply quote.',
-        );
-        return false;
-      }
-      void sending
-        .send(text, attachments.data.length ? attachments.data : undefined, replySource?.messageId)
-        .then(
-          (ok) => delivered?.(ok ? 'accepted' : 'failed'),
-          (cause) => {
-            setSendFailure(
-              cause instanceof Error
-                ? cause.message
-                : 'Could not send this prompt. Your draft is retained.',
-            );
-            delivered?.('failed');
-          },
-        );
-      return true;
-    },
+    onSend: submitSharedPrompt,
+    // Both intents use the ordinary admission consumer, which queues behind an
+    // active turn. Queue must never invoke steering or the browser draft queue.
+    onQueue: submitSharedPrompt,
   };
+  function submitSharedPrompt(
+    ...[text, images, context, delivered, _assigned, _draft, replyTo]: Parameters<
+      ComponentProps<typeof ChatInput>['onSend']
+    >
+  ) {
+    if (context?.length) {
+      setSendFailure(
+        'Context blocks cannot be attached to a shared prompt. Use the shared context control. Your draft is retained.',
+      );
+      return false;
+    }
+    if (sending.sendDisabledReason) {
+      setSendFailure(sending.sendDisabledReason);
+      return false;
+    }
+    const attachments = ChatImagesSchema.safeParse(
+      images?.map(({ data, mediaType }) => ({ data, mediaType })) ?? [],
+    );
+    if (!attachments.success) {
+      setSendFailure(
+        'These images could not be sent. Use supported image attachments within the size limit. Your draft is retained.',
+      );
+      delivered?.('failed');
+      return false;
+    }
+    setSendFailure(undefined);
+    const replySource = replyTo
+      ? [...(projection?.earlierMessages ?? []), ...(view?.messages ?? [])].find(
+          (m) =>
+            m.projectionId === replyTo.messageId ||
+            (m.source?.conversationId === sourceConversationId &&
+              m.source.messageId === replyTo.messageId),
+        )
+      : undefined;
+    if (replyTo && !replySource) {
+      setSendFailure(
+        'The original reply source is unavailable. Refresh the discussion or remove the reply quote.',
+      );
+      return false;
+    }
+    void sending
+      .send(text, attachments.data.length ? attachments.data : undefined, replySource?.messageId)
+      .then(
+        (ok) => {
+          if (!ok && sending.lastRefusal()) setSendFailure(sending.lastRefusal());
+          delivered?.(ok ? 'accepted' : 'failed');
+        },
+        (cause) => {
+          setSendFailure(
+            cause instanceof Error
+              ? cause.message
+              : 'Could not send this prompt. Your draft is retained.',
+          );
+          delivered?.('failed');
+        },
+      );
+    return true;
+  }
   // Never move the ordinary input or change its draft/session key on joining.
   // Only this context's dispatch controls change; source.running cannot own them.
   const routing = { ...composer };
@@ -925,7 +966,7 @@ function SharedConversationBodyContent({
             <ChatInput {...composer} externalContextBlocks={EMPTY_CONTEXT} />
           </div>
         ))}
-      <ChatStatusMessage error={sending.error} />
+      <ChatStatusMessage error={sending.error} status={sending.notice} busy={sending.submitting} />
       {host.active && (
         <ChatStatusMessage
           error={progress.error}
