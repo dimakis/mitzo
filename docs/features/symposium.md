@@ -1,9 +1,43 @@
 # Symposium: current direction and source guide
 
-Updated 16 November 2026. Start here for Symposium product work.
+Updated 19 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
+
+## Account-scoped repository source reasons — 19 November 2026
+
+A Symposium catalog offered no repositories to the Claude subscription and
+anthropic-api accounts. The cause was operator configuration, not a code defect:
+a connection offers its repositories only to accounts named in the connection's
+account scope. Codex and every local Claude provider are treated identically; the
+provider type never decides eligibility.
+
+`repositoryWorkspaceSourceInventory` now returns a named `reason` whenever an
+account has no source, and the catalog forwards it into `unavailable` with the
+`accountId` that needs the assignment:
+
+| Reason                              | Meaning                                                                    |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| `repository_workspaces_disabled`    | Repository-backed chats are off for this runtime.                          |
+| `repository_connection_unavailable` | No active `github-readonly` connection with a repository list.             |
+| `repository_scope_not_assigned`     | The connection is active but its account scope omits this account.         |
+| `repository_connection_unverified`  | The assigned connection has no verified identity.                          |
+| `repository_scope_ambiguous`        | Two assigned connections claim the same repository, so neither is offered. |
+
+The eligibility predicate that produces the offered list also decides the reason,
+so the refusal cannot disagree with the fact. Existing `{harness, code}` entries
+keep their exact shape; only the new entries carry `accountId`, deduplicated per
+account. The `SymposiumConsult` authorize refusal repeats the same reason, and the
+reviewed diagnostics keep the operator next action unchanged.
+
+Operator fix, per unlisted account: open Connections, select the GitHub
+connection, open AI accounts with access, and tick the account. The assignment
+takes effect without editing repositories. Anthropic providers additionally
+need the ordinary local Vertex gate (`MITZO_ORDINARY_LOCAL_VERTEX_ENABLED=1`) and
+an inventory entry for the same account revision, which no Connections change can
+supply. Local `runOn: 'local'` inventory is unaffected except for the disabled
+reason.
 
 ## Shared composer repair — 16 November 2026
 

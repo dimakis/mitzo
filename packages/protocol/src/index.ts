@@ -2,6 +2,7 @@ export * from './markdown-paths.js';
 export * from './ordinary-turn.js';
 export { conversationActivities } from './conversation-activity.js';
 export type { OrdinarySkillContext } from './ordinary-skill-context.js';
+export * from './context-snapshot.js';
 export {
   ToolFailureSchema,
   toolFailure,
@@ -73,6 +74,7 @@ export type {
   SubagentUsage,
   SubagentStatus,
   SubagentDiagnostic,
+  BackgroundTaskObservation,
   AgentDefinitionSource,
   AgentDefinition,
   AgentIdentity,
@@ -279,6 +281,13 @@ export { isRegisteredConversation } from './conversation-identity.js';
 
 export { ModelTokenLimitsSchema, type ModelTokenLimits } from './token-limits.js';
 export {
+  ContextMeasurementSchema,
+  ContextObservationSchema,
+  ContextRequestUsageSchema,
+  type ContextMeasurement,
+  type ContextObservation,
+} from './context-measurement.js';
+export {
   TerminalOpenBody,
   TerminalInputBody,
   TerminalResizeBody,
@@ -430,6 +439,7 @@ export {
 } from './message-reply.js';
 export * from './session-prompts.js';
 export * from './native-subagents.js';
+export * from './background-task.js';
 export * from './session-access.js';
 export * from './session-learning.js';
 export * from './telos-work-team.js';

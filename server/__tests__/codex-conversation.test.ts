@@ -8,6 +8,13 @@ import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { EventStore } from '../event-store.js';
+import express from 'express';
+import request from 'supertest';
+import { SessionRegistry } from '../session-registry.js';
+import { createRuntimeContextSnapshots } from '../context-snapshot-runtime.js';
+import { createContextSnapshotRouter } from '../context-snapshot-router.js';
+import { createCodexContextSnapshotAdapter } from '../codex-context-snapshot.js';
+import { revokeAuthSession } from '../auth.js';
 import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
 import * as runtimeDiagnostics from '../codex-runtime-diagnostics.js';
@@ -16,7 +23,7 @@ import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-co
 import { mkdtempSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CodexConversation,
   codexTurnFailureDiagnostic,
@@ -60,6 +67,197 @@ const binding = {
   model: 'test-model',
   profileRevision: 'chatgpt:test@example.com:test',
 };
+
+it('delivers exact acknowledged native usage through the shared snapshot store and authenticated replay', async () => {
+  const f = await setup();
+  const events = new EventStore(':memory:');
+  const registry = new SessionRegistry();
+  cleanup.push(() => {
+    registry.dispose();
+    events.close();
+  });
+  events.upsertSession({ sessionId: 'app', cwd: '/offline' });
+  registry.register('snapshot-client', {
+    sessionId: 'app',
+    transport: { isOpen: () => true, send() {} },
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionAllowList: new Set(),
+  });
+  const session = registry.get('snapshot-client')!;
+  const lifecycle = createRuntimeContextSnapshots(events, registry);
+  f.conversationOptions.contextSnapshots = createCodexContextSnapshotAdapter({
+    session,
+    lifecycle,
+    current: () => f.c.getContextSnapshotScope(),
+    assertCurrent() {},
+  });
+  const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
+  const app = express();
+  app.use(express.json());
+  app.use((_req, res, next) => {
+    res.locals.authSession = auth;
+    next();
+  });
+  app.use('/sessions/:id/context-snapshot', createContextSnapshotRouter(events, lifecycle));
+  const notify = (total = 10, overrides = {}) =>
+    f.callbacks.onNotification('thread/tokenUsage/updated', {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      tokenUsage: {
+        total: {
+          inputTokens: total,
+          cachedInputTokens: 2,
+          outputTokens: 2,
+          reasoningOutputTokens: 1,
+          totalTokens: total + 2,
+        },
+        last: {
+          inputTokens: 5,
+          cachedInputTokens: 2,
+          outputTokens: 2,
+          reasoningOutputTokens: 1,
+          totalTokens: 7,
+        },
+        modelContextWindow: 100,
+      },
+      ...overrides,
+    });
+  notify();
+  expect(session.contextSnapshotOwner).toBeUndefined();
+  await f.c.send({ id: 'snapshot-turn', prompt: 'Offline fixture' });
+  expect(session.contextSnapshotOwner?.scope).toMatchObject({
+    identity: { sessionId: 'app', threadId: 'provider-thread', turnId: 'turn-1' },
+    binding: { accountRef: 'personal', model: 'test-model', placement: 'local' },
+  });
+  notify(10, { threadId: 'child-thread' });
+  notify(10, { turnId: 'old-turn' });
+  expect(events.contextSnapshots.read('app').snapshot).toBeUndefined();
+  notify();
+  const saved = events.contextSnapshots.read('app');
+  expect(saved.snapshot).toMatchObject({
+    measurement: { basis: 'latest-request' },
+    requestUsage: { totalTokens: 7 },
+  });
+  expect(saved.snapshot?.usedTokens).toBeUndefined();
+  expect(f.events).toContainEqual(
+    expect.objectContaining({ type: 'provider_usage', agentContext: 7, sessionTotal: 12 }),
+  );
+  const calls = f.rpc.request.mock.calls.length;
+  const response = await request(app).get('/sessions/app/context-snapshot');
+  expect(response.status).toBe(200);
+  expect(response.headers['cache-control']).toBe('no-store');
+  expect(response.body.snapshot.requestUsage.totalTokens).toBe(7);
+  expect((await request(app).get('/sessions/app/context-snapshot')).body).toEqual(response.body);
+  expect(
+    (
+      await request(app)
+        .post('/sessions/app/context-snapshot/refresh')
+        .set('X-Mitzo-Context-Intent', 'refresh-summary')
+        .send({ requestId: randomUUID() })
+    ).body.reason,
+  ).toBe('refresh_unsupported');
+  expect(f.rpc.request).toHaveBeenCalledTimes(calls);
+  notify();
+  notify(9);
+  expect(events.contextSnapshots.read('app')).toEqual(saved);
+  f.callbacks.onNotification('thread/compacted', {
+    threadId: f.getProviderThread(),
+    turnId: 'old-turn',
+  });
+  expect(events.contextSnapshots.read('app')).toEqual(saved);
+  f.callbacks.onNotification('thread/compacted', {
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+  });
+  expect(lifecycle.read('app').reason).toBe('compacted');
+  const compacted = events.contextSnapshots.read('app');
+  f.callbacks.onNotification('thread/compacted', {
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+  });
+  expect(events.contextSnapshots.read('app')).toEqual(compacted);
+  notify();
+  expect(lifecycle.read('app').reason).toBe('compacted');
+  notify(11);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(lifecycle.read('app').reason).toBe('turn_completed');
+  const completed = events.contextSnapshots.read('app');
+  notify(12);
+  expect(events.contextSnapshots.read('app')).toEqual(completed);
+  await f.c.send({ id: 'replacement', prompt: 'Next', model: 'other-model' });
+  expect(session.contextSnapshotOwner?.scope.binding.model).toBe('other-model');
+  expect(lifecycle.read('app').snapshot).toBeUndefined();
+  revokeAuthSession(auth);
+  expect((await request(app).get('/sessions/app/context-snapshot')).status).toBe(401);
+  f.c.close();
+  expect(f.c.getContextSnapshotScope()).toBeUndefined();
+});
+
+it('fences snapshot observations before native ACK and across actual transport generations', async () => {
+  const f = await setup();
+  const port = { turnStarted: vi.fn(), usage: vi.fn(), invalidate: vi.fn() };
+  f.conversationOptions.contextSnapshots = port;
+  const usage = {
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+    tokenUsage: {
+      total: {
+        inputTokens: 10,
+        cachedInputTokens: 2,
+        outputTokens: 2,
+        reasoningOutputTokens: 1,
+        totalTokens: 12,
+      },
+      last: {
+        inputTokens: 5,
+        cachedInputTokens: 2,
+        outputTokens: 2,
+        reasoningOutputTokens: 1,
+        totalTokens: 7,
+      },
+    },
+  };
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    const result = await request(method, params);
+    if (method === 'turn/start') {
+      f.callbacks.onNotification('thread/tokenUsage/updated', usage);
+      expect(f.c.getContextSnapshotScope()).toBeUndefined();
+    }
+    return result;
+  });
+  await f.c.send({ id: 'first-snapshot', prompt: 'First' });
+  expect(port.usage).not.toHaveBeenCalled();
+  expect(port.turnStarted).toHaveBeenCalledOnce();
+  const first = f.c.getContextSnapshotScope()!;
+  const requests = f.requests.length;
+  expect(f.c.getContextSnapshotScope()).toEqual(first);
+  expect(f.requests).toHaveLength(requests);
+  f.callbacks.onNotification('thread/tokenUsage/updated', usage);
+  expect(port.usage).toHaveBeenCalledExactlyOnceWith(usage);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  const old = f.getCallbacks();
+  f.callbacks.onClose(new Error('Offline transport replacement'));
+  await f.c.send({ id: 'second-snapshot', prompt: 'Second' });
+  const second = f.c.getContextSnapshotScope()!;
+  expect(second.identity.ownerGeneration).not.toBe(first.identity.ownerGeneration);
+  expect(second.identity.turnId).toBe('turn-2');
+  port.usage.mockClear();
+  old.onNotification('thread/tokenUsage/updated', { ...usage, turnId: 'turn-2' });
+  expect(port.usage).not.toHaveBeenCalled();
+  f.callbacks.onNotification('thread/tokenUsage/updated', { ...usage, turnId: 'turn-2' });
+  expect(port.usage).toHaveBeenCalledOnce();
+  f.callbacks.onClose(new Error('Offline active transport loss'));
+  expect(port.invalidate).toHaveBeenLastCalledWith('query_retired');
+  expect(f.c.getContextSnapshotScope()).toBeUndefined();
+});
 
 it('retires only an idle exact owner and awaits its transport drain', async () => {
   const f = await setup();
@@ -1442,6 +1640,122 @@ it('refreshes native cwd and workspace policy for the exact command on the same 
     approvalPolicy: 'on-request',
   });
   expect(f.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+});
+
+describe('host GitHub login for native commands', () => {
+  const policy = () =>
+    codexNativeExecutionPolicy({
+      bindingRevision: 'owner-v1',
+      mode: 'auto',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+  // Construct without the eager setup() initialize, so the first thread/start
+  // frame is the one built from these options.
+  const start = async (overrides: Partial<CodexConversationOptions>) => {
+    const frames: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const f = startupFixture(() => {}, undefined, {
+      ...overrides,
+      createClient: () => ({
+        initialize: async () => {},
+        close: () => {},
+        request: async (method: string, params: Record<string, unknown>) => {
+          frames.push({ method, params });
+          if (method === 'config/read') return { config: {} };
+          return { thread: { id: 'gh-thread' }, model: 'test-model', modelProvider: 'openai' };
+        },
+      }),
+    } as Partial<CodexConversationOptions>);
+    await f.c.initialize();
+    const thread = frames.find(({ method }) => method === 'thread/start')!.params;
+    return { c: f.c, frames, thread, config: thread.config as Record<string, unknown> };
+  };
+  const nativeOwner = () => ({
+    nativeExecution: policy(),
+    assertNativeExecutionCurrent: () => {},
+    requestNativeApproval: async () => ({ decision: 'decline' as const }),
+  });
+
+  it('sets the operator login only on the native command environment of the private thread frame', async () => {
+    const resolve = vi.fn(() => ({ token: 'gho_fixtureLogin', gh: '/fixture/gh' }));
+    const { frames, thread, config } = await start({
+      ...nativeOwner(),
+      hostGithubCredential: resolve,
+    } as Partial<CodexConversationOptions>);
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(config['shell_environment_policy.set']).toEqual({
+      GH_TOKEN: 'gho_fixtureLogin',
+      GH_PROMPT_DISABLED: '1',
+      GH_NO_UPDATE_NOTIFIER: '1',
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_CONFIG_COUNT: '4',
+      GIT_CONFIG_KEY_0: 'credential.https://github.com.helper',
+      GIT_CONFIG_VALUE_0: '',
+      GIT_CONFIG_KEY_1: 'credential.https://github.com.helper',
+      GIT_CONFIG_VALUE_1: '!/fixture/gh auth git-credential',
+      GIT_CONFIG_KEY_2: 'commit.gpgsign',
+      GIT_CONFIG_VALUE_2: 'false',
+      GIT_CONFIG_KEY_3: 'tag.gpgsign',
+      GIT_CONFIG_VALUE_3: 'false',
+    });
+    // The named filesystem/network profiles are unchanged by the transfer.
+    expect(config.default_permissions).toBe('mitzo-native-auto');
+    expect(String(thread.developerInstructions)).not.toContain('gho_fixtureLogin');
+    const elsewhere = frames.filter(({ method }) => method !== 'thread/start');
+    expect(JSON.stringify(elsewhere)).not.toContain('gho_fixtureLogin');
+  });
+
+  it('starts native threads without a GitHub variable when the host login is unavailable', async () => {
+    const { config } = await start({
+      ...nativeOwner(),
+      hostGithubCredential: () => undefined,
+    } as Partial<CodexConversationOptions>);
+    expect(Object.keys(config)).not.toContain('shell_environment_policy.set');
+    expect(config.default_permissions).toBe('mitzo-native-auto');
+  });
+
+  it('never resolves the host login for non-native threads', async () => {
+    const resolve = vi.fn(() => ({ token: 'gho_fixtureLogin', gh: '/fixture/gh' }));
+    const { frames } = await start({ hostGithubCredential: resolve });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(JSON.stringify(frames)).not.toContain('gho_fixtureLogin');
+  });
+
+  it.each(['chatgpt-subscription', 'openai-api'] as const)(
+    'uses the operator GitHub identity independently of the %s inference account',
+    async (route) => {
+      const resolve = vi.fn(() => ({ token: 'gho_operator', gh: '/fixture/gh' }));
+      const { config, thread } = await start({
+        ...nativeOwner(),
+        route,
+        hostGithubCredential: resolve,
+      });
+      expect(resolve).toHaveBeenCalledOnce();
+      expect(config['shell_environment_policy.set']).toMatchObject({ GH_TOKEN: 'gho_operator' });
+      expect(thread).toMatchObject({ model: 'test-model', modelProvider: 'openai' });
+    },
+  );
+
+  it('refreshes the login on resume and drops it when the resolver later returns unavailable', async () => {
+    const resolve = vi
+      .fn<NonNullable<CodexConversationOptions['hostGithubCredential']>>()
+      .mockReturnValueOnce({ token: 'gho_first', gh: '/fixture/gh' })
+      .mockReturnValueOnce({ token: 'gho_rotated', gh: '/fixture/gh' })
+      .mockReturnValueOnce(undefined);
+    const { c, frames } = await start({ ...nativeOwner(), hostGithubCredential: resolve });
+    await c.setWebSearchGrant(c.getWebSearchGrant().revision, 'denied');
+    await c.setWebSearchGrant(c.getWebSearchGrant().revision, 'denied');
+    const resumes = frames.filter(({ method }) => method === 'thread/resume');
+    expect(resumes).toHaveLength(2);
+    expect(resumes[0]!.params.config).toMatchObject({
+      'shell_environment_policy.set': { GH_TOKEN: 'gho_rotated' },
+    });
+    expect(resumes[1]!.params.config).not.toHaveProperty('shell_environment_policy.set');
+    expect(JSON.stringify(resumes)).not.toContain('gho_first');
+    expect(resolve).toHaveBeenCalledTimes(3);
+  });
 });
 
 it.each(['tool-surface', 'provider-recovery'] as const)(

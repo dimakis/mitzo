@@ -155,6 +155,7 @@ import {
   NativeExecutionPolicyChangedError,
   type CodexNativeExecutionPolicy,
 } from './codex-native-execution-policy.js';
+import type { HostGithubCredentialResolver } from './host-github-credential.js';
 import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
 import {
   assertQualifiedNativeMacExecutionArtifact,
@@ -300,6 +301,8 @@ import { createLogger } from './logger.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
 import { ProviderFailureError } from './provider-failure.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { createCodexContextSnapshotAdapter } from './codex-context-snapshot.js';
+import type { ContextSnapshotLifecycle } from './context-snapshot-lifecycle.js';
 import { CodexStartupError, duringCodexStartup } from './codex-startup-error.js';
 import type { EventStore } from './event-store.js';
 import { codexRolloverHistory, codexRolloverSources } from './codex-rollover-context.js';
@@ -341,6 +344,14 @@ export function ordinaryRuntimeServiceProviders(
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 const runtimeOwners = new WeakMap<ManagedSession, CodexConversation>();
+const contextSnapshotLifecycles = new WeakMap<SessionRegistry, ContextSnapshotLifecycle>();
+/** Composition injects the very same lifecycle as the authenticated session router. */
+export function setCodexContextSnapshots(
+  registry: SessionRegistry,
+  lifecycle: ContextSnapshotLifecycle,
+) {
+  contextSnapshotLifecycles.set(registry, lifecycle);
+}
 const finalizerDrains = new WeakMap<ManagedSession, () => Promise<void>>();
 /** Exact owner proof survives removal from the live runtime map. Absence is not
  * success; callers must independently qualify cold durable/runtime custody. */
@@ -753,6 +764,8 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
 interface Options {
   /** Trusted selected execution-target read ceiling, never caller JSON. */
   nativeExecutionReadRoots?: readonly string[];
+  /** Host operator's gh login for Local Mac native commands (not advisers). */
+  hostGithubCredential?: HostGithubCredentialResolver;
   /** Safe-point workspace authority; roots do not retarget already queued commands. */
   resolveNativeExecutionPolicy?: CodexConversationOptions['resolveNativeExecutionPolicy'];
   assertNativeExecutionCurrent?: CodexConversationOptions['assertNativeExecutionCurrent'];
@@ -2748,6 +2761,9 @@ async function openCodexChatBound(
     ...(nativeExecution
       ? {
           nativeExecution,
+          ...(options.hostGithubCredential && !options.adviserScope
+            ? { hostGithubCredential: options.hostGithubCredential }
+            : {}),
           resolveNativeExecutionPolicy:
             options.resolveNativeExecutionPolicy ??
             (async ({ commandId, signal }) => {
@@ -4765,7 +4781,29 @@ async function openCodexChatBound(
       runtimeOptions,
     ),
   );
+  // Install the adapter before construction: context-bearing (Telos role) owners
+  // copy their options in the constructor, so a later assignment would be lost.
+  // The adapter reads the runtime lazily once it exists.
+  const constructed: { runtime?: CodexConversation } = {};
+  const contextSnapshots = contextSnapshotLifecycles.get(options.registry);
+  if (options.ownedLocal && contextSnapshots) {
+    runtimeOptions.contextSnapshots = createCodexContextSnapshotAdapter({
+      session: options.session,
+      lifecycle: contextSnapshots,
+      current: () => constructed.runtime?.getContextSnapshotScope(),
+      assertCurrent: () => {
+        assertHostCurrentSync();
+        if (
+          !constructed.runtime ||
+          runtimes.get(options.session) !== constructed.runtime ||
+          options.registry.findBySessionId(options.conversationId)?.session !== options.session
+        )
+          throw Error('Original Codex context owner unavailable');
+      },
+    });
+  }
   const runtime: CodexConversation = new CodexConversation(runtimeOptions);
+  constructed.runtime = runtime;
   function close() {
     if (closed) return;
     try {

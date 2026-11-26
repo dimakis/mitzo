@@ -83,11 +83,14 @@ export const hasRecordedRuntimeFailure = (span: Span) => failedSpans.has(span);
 
 export function runtimeFailureAttributes(error: unknown): Record<string, string> {
   const failure = findSessionRuntimeError(error);
-  if (!failure) return {};
   const diagnostic = runtimeFailureDiagnostics(error);
   return {
-    'runtime.failure_code': failure.code,
-    'runtime.diagnostic_id': failure.diagnosticId,
+    ...(failure
+      ? {
+          'runtime.failure_code': failure.code,
+          'runtime.diagnostic_id': failure.diagnosticId,
+        }
+      : {}),
     'runtime.cause_type': diagnostic.causeType,
     ...(diagnostic.failedCheck
       ? {
