@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  AccountProviderSchema,
   createOrdinaryFreshPermission,
   sessionLaunchConfigurationReason,
   type SessionLaunchConfig,
@@ -11,6 +12,9 @@ import { SessionLaunchError, type RetainedSessionLaunch } from './session-launch
 import type { EventStore } from './event-store.js';
 import { assertSessionLaunchTools } from './session-launch-tools-selection.js';
 import { nativeStartupSessionId } from './ordinary-repository-startup.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('session-launch-runtime');
 
 function assertLaunchChildAdmissible(events: EventStore, id: string) {
   if (events.getSession(id)?.isHidden)
@@ -21,9 +25,11 @@ function assertLaunchChildAdmissible(events: EventStore, id: string) {
 }
 
 /** Account providers a reviewed launch may start, mapped to the same ordinary
- * Local Mac engine New chat uses for that provider. */
+ * Local Mac engine New chat uses for that provider. OpenAI-compatible API
+ * accounts (provider `openai`, e.g. enMaas) run on Local Codex in New chat. */
 const LAUNCH_HARNESS_BY_PROVIDER = {
   'openai-codex': 'codex',
+  openai: 'codex',
   'anthropic-vertex': 'claude-sdk',
   'anthropic-claude': 'claude-sdk',
   'anthropic-api': 'claude-sdk',
@@ -55,6 +61,97 @@ function unsupportedAccount(scope: SessionLaunchScope) {
 }
 function launchHarnessFor(config: SessionLaunchConfig): LaunchHarness {
   return launchHarness(config.runtime.accountReference?.provider, 'session') ?? 'codex';
+}
+/** TelosStartSlice admits only providers whose reviewed launch engine is Local
+ * Codex, using the same mapping as StartSession and TelosCreateSession. */
+export function isLocalCodexLaunchProvider(provider: string | undefined): boolean {
+  return launchHarness(provider, 'telos') === 'codex';
+}
+
+export const SESSION_LAUNCH_ACCOUNT_UNRESOLVED =
+  'The selected account or model is not configured on this Mac. Choose an account in review before Approve & start.';
+export const SESSION_LAUNCH_ROUTE_UNAVAILABLE =
+  "No Local Mac host for this account's engine is available in this permission mode. Choose an account and host in review before Approve & start.";
+export const SESSION_LAUNCH_TARGET_MISMATCH =
+  "The requested host does not run this account's engine. Choose the host in review before Approve & start, or omit it to use the host New chat uses for this account.";
+
+/** Proposal-time route for an agent-edited account or host. When the account
+ * changed without a saved reference, or the agent named a host, resolve the
+ * account's public reference and the Local Mac host New chat uses for its
+ * engine from the same ordinary inventory. Failure keeps the configuration
+ * editable with a named startupBlocker; approval still requalifies everything. */
+export async function resolveSessionLaunchProposalRoute(
+  config: SessionLaunchConfig,
+  options: { scope: SessionLaunchScope; targetSupplied: boolean },
+): Promise<{ configuration: SessionLaunchConfig; blocker: string | null }> {
+  const account = config.runtime.account;
+  const saved = config.runtime.accountReference ?? null;
+  const unchanged = { configuration: config, blocker: null };
+  if (sessionLaunchConfigurationReason(config) || !account || (saved && !options.targetSupplied))
+    return unchanged;
+  let reference: NonNullable<SessionLaunchConfig['runtime']['accountReference']>;
+  if (saved) reference = saved;
+  else {
+    try {
+      const { loadAccountProfiles } = await import('./account-profiles.js');
+      const binding = loadAccountProfiles().resolve(account.accountId, account.model);
+      reference = {
+        accountId: binding.accountId,
+        provider: AccountProviderSchema.parse(binding.provider),
+        profileRevision: binding.profileRevision,
+      };
+    } catch (err) {
+      // Expected for an unconfigured account; the proposal stays editable.
+      log.info('Session launch proposal account unresolved', {
+        code: 'session_launch_account_unresolved',
+        stage: 'proposal_route',
+        accountId: account.accountId,
+        errorName: err instanceof Error ? err.name : typeof err,
+      });
+      return { configuration: config, blocker: SESSION_LAUNCH_ACCOUNT_UNRESOLVED };
+    }
+  }
+  const resolved = { ...config, runtime: { ...config.runtime, accountReference: reference } };
+  const harness = launchHarness(reference.provider, options.scope);
+  if (!harness) return { configuration: resolved, blocker: unsupportedAccount(options.scope) };
+  let targets: string[];
+  try {
+    const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
+    const inventory = ordinaryRepositoryRuntimeInventory('local', harness);
+    targets = [
+      ...new Set(
+        inventory.result.routes
+          .filter(
+            (route) =>
+              route.harness === harness &&
+              isDeepStrictEqual(route.account, reference) &&
+              route.modes.some((mode) => mode === config.mode),
+          )
+          .map((route) => route.targetId),
+      ),
+    ];
+  } catch (err) {
+    log.warn('Session launch proposal route inventory unavailable', {
+      code: 'session_launch_route_inventory_failed',
+      stage: 'proposal_route',
+      harness,
+      err,
+    });
+    return { configuration: resolved, blocker: SESSION_LAUNCH_ROUTE_UNAVAILABLE };
+  }
+  const current = config.runtime.execution.targetId;
+  if (current && targets.includes(current)) return { configuration: resolved, blocker: null };
+  if (current && options.targetSupplied)
+    return { configuration: resolved, blocker: SESSION_LAUNCH_TARGET_MISMATCH };
+  if (targets.length !== 1)
+    return { configuration: resolved, blocker: SESSION_LAUNCH_ROUTE_UNAVAILABLE };
+  return {
+    configuration: {
+      ...resolved,
+      runtime: { ...resolved.runtime, execution: { location: 'local', targetId: targets[0] } },
+    },
+    blocker: null,
+  };
 }
 
 /** Proposal-time presentation of static startup limits, including the

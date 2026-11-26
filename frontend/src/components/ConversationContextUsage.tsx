@@ -6,6 +6,7 @@ import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { HomeDialog } from './HomeDialog';
 import { SeatLabel } from './SeatLabel';
 import { SessionContextUsage } from './SessionContextUsage';
+import { ContextSnapshotInspector } from './ContextSnapshotInspector';
 import './ConversationContextUsage.css';
 
 const responseSchema = z.object({
@@ -105,6 +106,7 @@ export function ConversationContextUsage({
               <h3>
                 <SeatLabel seatId={p.id} name={p.name} />
               </h3>
+              <ContextSnapshotInspector sessionId={p.id} disabled={!open || p.unavailable} />
               {!row ? (
                 <p role="status">Loading context…</p>
               ) : row.error ? (
