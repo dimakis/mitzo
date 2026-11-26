@@ -22,6 +22,11 @@ type Request = {
   probe?: boolean;
 };
 type Metadata = { limit: number; remaining: number; resetAt: number; retryAt?: number };
+/** Background pacing allows at least one whole bounded collection at the start of
+ * each reset epoch (still capped by the principal's background allocation), so a
+ * multi-workflow refresh is not withdrawn after every hourly reset. Observers cap
+ * a collection at this many requests. */
+export const GITHUB_READ_BACKGROUND_BURST = 32;
 /** REST resource budget shared by authenticated principal, never by rotating
  * connection/token. Outstanding reservations survive restart and are not refunded.
  * GraphQL requires a separately qualified points owner and is not admitted here. */
@@ -148,7 +153,7 @@ export class GitHubReadQuota {
         if (s.remaining - r.cost < Math.ceil(s.limit * 0.2)) throw Error('quota_delayed');
         const paced = Math.min(
           s.allocation,
-          10 +
+          GITHUB_READ_BACKGROUND_BURST +
             Math.floor(
               (s.allocation * Math.max(0, r.now - s.epochStart)) /
                 Math.max(1, s.resetAt - s.epochStart),

@@ -1,6 +1,7 @@
 import { OrdinaryCommandWithdrawals } from './ordinary-command-withdrawals.js';
 import { PrMonitorStore } from './pr-monitor-store.js';
 import { GitHubReadQuota } from './github-read-quota.js';
+export { GITHUB_READ_BACKGROUND_BURST } from './github-read-quota.js';
 import { OrdinaryEarlyStarts } from './ordinary-early-starts.js';
 export { DeploymentStore } from './deployment-store.js';
 export {

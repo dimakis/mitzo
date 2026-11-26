@@ -48,7 +48,11 @@ Accepted architecture evidence: slice `d55d0cc700b64680`, design commit
   metadata, filtering response headers.
 - `EventStore.githubReadQuota` retains REST reservations by authenticated principal:
   conservative remaining/reset observations, headroom, background allocation,
-  bounded probes, pacing, request/point/concurrency limits and no refunds.
+  bounded probes, pacing, request/point/concurrency limits and no refunds. Each
+  reset epoch's background pacing starts with a burst of one whole collection
+  (`GITHUB_READ_BACKGROUND_BURST`, which also caps a collection's requests), still
+  bounded by the background allocation, so multi-workflow heads are not withdrawn
+  after every hourly reset.
 - `createPrMonitorObservationRuntime` composes consent, quota, reader and observer.
   Its `reconcileDue`, `stopConversation` and `close` hooks belong to the existing
   scheduler/controller lifecycle. Construction performs no reads and starts no timer.

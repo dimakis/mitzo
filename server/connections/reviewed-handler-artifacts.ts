@@ -1612,7 +1612,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/deployment-store.ts':
     '06980f353fa11edc16a5e8f75fb8de4b4679853b979d71a1e3d819f76007e04a',
   '../../packages/protocol/src/event-store.ts':
-    '0703ab03e957d99ba14e235ad7ce1f42b3448ea16394da756232763a9b63a9fc',
+    'dc34c0c53e8ed13231cc5ff5be7618a2ac18291d3455c5b411e44e1d9cfa0dfd',
   '../../packages/protocol/src/execution-ledger.ts':
     '9306195c826ca603ee848d0532e2231a2a7299eb596b63df1c84928771391e94',
   '../../packages/protocol/src/index.ts':
@@ -5013,7 +5013,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/__tests__/pr-monitor-store.test.ts':
     '043da644ce69e23a6e414de48017c673d993b2d448d64a0bce3d836105038d7e',
   '../../packages/protocol/src/github-read-quota.ts':
-    'ee3936a9de9ac0d0deb239c0c306b1f2f58d0c35cbebe7592b613cb9221032b7',
+    'c2cb1a89a847d9c97d56419e67a9547b3c84b0ed12f0dca64d59f793dc02ffca',
   '../../packages/protocol/src/pr-monitor-store.ts':
     '3a3436244693437cbc18ed6161802df8338f006911ecc0faf3931c4956d09b76',
   '../../packages/protocol/src/pr-monitor.ts':
@@ -5025,10 +5025,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/pr-monitor-observer.test.ts':
     '63f24e0dc841ff6dd6c618f97fac150d72b4e880a93712a4354e6737679cf668',
   '../__tests__/pr-monitor-runtime.test.ts':
-    'f71573a6a3e014f8df8d36392f5572063a387360778c11886f6ed6cfdc3313b0',
+    '6adfaa3b3a6ededbd11f2a5c0613a913fb260da618ce53ee5d19b20844704dc8',
   '../github-read-response.ts': 'f4cd0cdf394a46b54e6589cfb035249529d02d7adc5fd36d72ab4448b00773d8',
   '../pr-monitor-consent.ts': '92b3f234c3fabd1de6793aac6a8ededa40f877a9b129f89d3586d75747e7f582',
   '../pr-monitor-github.ts': 'd8571226e1f068c897164bb76b7c8257d09f45dbaa3efa11c29780d5a044861c',
-  '../pr-monitor-observer.ts': 'f961625d437f828aa3bc2b8e9c3e2ba0724b2c2e4ffdadf46a417864928968a8',
+  '../pr-monitor-observer.ts': '36fbe3a4521035575a509986c15caf67f66463e08156fc4d8f9fd2539d0d684b',
   '../pr-monitor-runtime.ts': '52c135643740bf1fbac636cfe283981530fe74d77b960a433d95d2ab8f09c379',
 });
