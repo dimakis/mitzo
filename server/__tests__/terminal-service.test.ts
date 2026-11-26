@@ -162,7 +162,9 @@ describe('operator terminals', () => {
       await service.open('operator-a', {});
     }
     target.identity = 'host:too-many';
-    await expect(service.open('operator-a', {})).rejects.toThrow('Terminal limit reached');
+    await expect(service.open('operator-a', {})).rejects.toMatchObject({
+      code: 'terminal_limit_reached',
+    });
   });
   it('persists ownership and resumes only a recorded original terminal after server restart', async () => {
     const terminal = await service.open('operator-a', {});
@@ -192,6 +194,15 @@ describe('operator terminals', () => {
       await expect(service.open('operator-a', {})).rejects.toThrow('could not be opened');
     }
     expect((await service.open('operator-a', {})).state).toBe('running');
+  });
+  it('retains the original startup cause without exposing process arguments', async () => {
+    const cause = new Error('posix_spawnp failed. private transport arguments');
+    vi.mocked(backend.start).mockRejectedValueOnce(cause);
+    await expect(service.open('operator-a', {})).rejects.toMatchObject({
+      code: 'terminal_start_failed',
+      cause,
+      message: expect.not.stringContaining('private transport arguments'),
+    });
   });
   it('releases capacity when initial verification fails before a shell is started', async () => {
     let calls = 0;

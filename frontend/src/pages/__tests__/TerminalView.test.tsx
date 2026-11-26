@@ -74,6 +74,28 @@ function setup(path = '/terminal?sessionId=chat-a', state = 'running') {
     </MemoryRouter>,
   );
 }
+it('shows the opening failure and leaves neither destination nor output stuck connecting', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url) === '/api/terminals'
+      ? new Response(
+          JSON.stringify({
+            error: 'The terminal limit has been reached. End an unused terminal, then retry.',
+          }),
+          { status: 409 },
+        )
+      : new Response('{}'),
+  );
+  render(
+    <MemoryRouter initialEntries={['/terminal?sessionId=chat-a']}>
+      <TerminalView />
+    </MemoryRouter>,
+  );
+  await screen.findByText(
+    'The terminal limit has been reached. End an unused terminal, then retry.',
+  );
+  expect(screen.queryByText('Connecting…')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+});
 it('opens from chat into its own destination, keeps adviser collapsed and returns without ending', async () => {
   const view = setup();
   await screen.findByText('Shell output');

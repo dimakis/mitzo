@@ -64,7 +64,7 @@ describe('terminal destinations', () => {
       d.inspect.mockResolvedValue({ id: runtime.sandboxId, phase });
       await expect(
         createTerminalTargetResolver(d)({ sessionId: 'chat-a' }, 'operator'),
-      ).rejects.toThrow('Sandbox terminal unavailable');
+      ).rejects.toMatchObject({ code: 'terminal_sandbox_unavailable' });
     },
   );
   it('refuses a replacement resource under the same sandbox name', async () => {
@@ -72,21 +72,21 @@ describe('terminal destinations', () => {
     d.inspect.mockResolvedValue({ id: 'replacement', phase: 'Ready' });
     await expect(
       createTerminalTargetResolver(d)({ sessionId: 'chat-a' }, 'operator'),
-    ).rejects.toThrow('Sandbox terminal unavailable');
+    ).rejects.toMatchObject({ code: 'terminal_sandbox_unavailable' });
   });
   it('refuses a chat whose provider binding no longer matches its workspace receipt', async () => {
     const d = deps();
     d.currentRoute.mockReturnValue({ kind: 'api', provider: 'changed', model: 'luna' });
     await expect(
       createTerminalTargetResolver(d)({ sessionId: 'chat-a' }, 'operator'),
-    ).rejects.toThrow('Sandbox binding changed');
+    ).rejects.toMatchObject({ code: 'terminal_binding_changed' });
   });
   it('requires a configured local workspace for a host chat', async () => {
     const d = deps();
     d.remote.mockReturnValue(false);
     await expect(
       createTerminalTargetResolver(d)({ sessionId: 'chat-a' }, 'operator'),
-    ).rejects.toThrow('Chat workspace unavailable');
+    ).rejects.toMatchObject({ code: 'terminal_workspace_unavailable' });
   });
 });
 

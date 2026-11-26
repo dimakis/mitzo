@@ -74,6 +74,7 @@ export type {
   SubagentUsage,
   SubagentStatus,
   SubagentDiagnostic,
+  BackgroundTaskObservation,
   AgentDefinitionSource,
   AgentDefinition,
   AgentIdentity,
@@ -438,8 +439,10 @@ export {
 } from './message-reply.js';
 export * from './session-prompts.js';
 export * from './native-subagents.js';
+export * from './background-task.js';
 export * from './session-access.js';
 export * from './session-learning.js';
 export * from './telos-work-team.js';
 export * from './session-control-support.js';
 export * from './message-retraction.js';
+export * from './pr-monitor.js';
