@@ -1,4 +1,5 @@
 import { ConversationPins } from '../components/ConversationPins';
+import { SharedConversationMarker } from '../components/SharedConversationMarker';
 import { SessionTimersDialog } from '../components/SessionTimersDialog';
 import { SessionRemovalDialog } from '../components/SessionRemovalDialog';
 import { ResizableSessionLayout } from '../components/ResizableSessionLayout';
@@ -301,6 +302,7 @@ function SwipeableSession({
                 {session.summary || 'Untitled conversation'}
               </div>
               {snippet && <div className="conversation-result-snippet">{snippet}</div>}
+              <SharedConversationMarker session={session} />
               <div className="session-item-meta">
                 {session.model && (
                   <span className="conversation-model" aria-label={`Model: ${session.model}`}>
@@ -502,7 +504,7 @@ export function SessionList() {
   const previewSession = useCallback((session: Session) => setPreview(session), []);
   function openSession(id: string) {
     selectionChanged();
-    navigate(`/chat/${id}`);
+    navigate(`/chat/${encodeURIComponent(id)}`);
   }
   function dismiss(id: string) {
     setRemoving(id);

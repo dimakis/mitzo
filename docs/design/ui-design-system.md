@@ -28,6 +28,26 @@ on phone/desktop, both themes and alternate appearance; see
 
 # Mitzo UI design contract
 
+## Shared discussion identity
+
+The existing Agents header trigger displays **Symposium · N agents** for a
+canonical shared discussion, including one remaining member after others leave.
+It opens the same Agents dialog and preserves its accessible name, focus and
+open state. Counts describe membership, including unavailable agents, rather than
+running processes. Loading and failed refresh retain the last confirmed count
+with a visible qualification. Ordinary single-agent chats keep their bot entry.
+
+Chats rows, the desktop sidebar/tree and preview reuse one quiet metadata marker
+with the same count and an unavailable-member count when needed. Identity comes
+from the list's canonical membership summary; badges do not fetch transcripts.
+Opening the row retains its original discussion destination. Participant-history
+search keeps its exact matching history destination and existing return link.
+No extra panel, card, composer row, theme or navigation hierarchy is introduced.
+
+This implements Dimitri's explicit 21 November S9 handoff, using the shared
+spacing/type/color tokens and existing row/trigger patterns. See
+[source evidence and outstanding visual gates](../evidence/symposium-chat-identity-2026-11-21.md).
+
 ## Background task receipts
 
 Verified background-task receipts reuse the existing nested tool/activity

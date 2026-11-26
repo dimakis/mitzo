@@ -46,6 +46,7 @@ import {
   ConversationPromptContextButton,
 } from './ConversationPromptContext';
 import { ConversationAgents } from './ConversationAgents';
+import type { SharedConversationIdentity } from '../lib/shared-conversation-identity';
 import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
@@ -213,6 +214,7 @@ function useSharedConversation({
     group?: string;
     begun?: boolean;
     shared?: boolean;
+    agentCount?: number;
     historySource?: string;
     ordinaryHistory?: boolean;
     error?: string;
@@ -268,7 +270,12 @@ function useSharedConversation({
           begun: setup.state === 'selected',
           shared:
             setup.state === 'selected' &&
-            setup.collaboration.participantSessionIds.some((id) => id !== sourceConversationId),
+            (setup.collaboration.revision > 1 ||
+              setup.collaboration.participantSessionIds.some((id) => id !== sourceConversationId)),
+          agentCount:
+            setup.state === 'selected'
+              ? setup.collaboration.participantSessionIds.length
+              : undefined,
         });
         const id = 'shared:' + group;
         if (!getChatDraft(id)) {
@@ -511,6 +518,19 @@ function useSharedConversation({
     joiningOwner,
     names,
     active,
+    identity:
+      active && association.group
+        ? ({
+            collaborationId: association.group,
+            agentCount: view?.participantSessionIds.length ?? association.agentCount ?? 1,
+            state:
+              association.error || presentation.error || presentation.projection?.needsRefresh
+                ? 'stale'
+                : !view || presentation.loading
+                  ? 'loading'
+                  : 'current',
+          } satisfies SharedConversationIdentity)
+        : undefined,
     historySource: association.historySource,
     resolving:
       !association.ordinaryHistory &&
@@ -574,6 +594,7 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
       agents={agents}
       onRefresh={host.retry}
       rosterError={host.error ?? presentation.error ?? undefined}
+      sharedIdentity={host.identity}
       showParticipantNames={host.active || props.showParticipantNames}
       addressedReadingOnly={host.active}
       joiningOwner={host.joiningOwner}
