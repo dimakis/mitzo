@@ -10,6 +10,7 @@ export const ToolFailureSchema = z.strictObject({
     'approval_unavailable',
     'approval_expired',
     'permission_denied',
+    'scope_insufficient',
     'operator_authentication_required',
     'stale_owner',
     'invalid_input',
@@ -42,7 +43,7 @@ export function toolFailure(
         ? 'reconnect'
         : effectStatus === 'unknown'
           ? 'inspect_operation'
-          : code === 'approval_expired'
+          : code === 'approval_expired' || code === 'scope_insufficient'
             ? 'renew_approval'
             : code === 'invalid_input'
               ? 'correct_input'
@@ -72,6 +73,8 @@ export function toolFailureAction(failure: ToolFailure): string {
     );
   if (failure.effectStatus === 'unknown') return inspect;
   if (failure.code === 'approval_expired') return APPROVAL_TIMEOUT_MESSAGE;
+  if (failure.code === 'scope_insufficient')
+    return 'The current authorization does not cover this resource, so the operation did not run. Request an authorization that covers it with a fresh requestId, then retry under the new grant.';
   if (failure.code === 'invalid_input') return 'Correct the tool arguments before another call.';
   return 'The tool failed. Resolve the reported prerequisite before retrying the original operation.';
 }

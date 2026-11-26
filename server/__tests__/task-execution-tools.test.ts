@@ -159,8 +159,8 @@ function fixture(auth = { id: 'operator', expiresAt: Date.now() + 600_000 }) {
     network: 'loopback',
     durationMinutes: 5,
   };
-  async function authorize() {
-    const pending = tools('parent').execute(request, signal, call);
+  async function authorize(overrides: Record<string, unknown> = {}) {
+    const pending = tools('parent').execute({ ...request, ...overrides }, signal, call);
     await vi.waitFor(() => expect(sent.some((x) => x.type === 'permission_request')).toBe(true));
     const card = sent.find((x) => x.type === 'permission_request')!;
     resolvePending(card.permId as string, 'once', undefined, 'parent');
@@ -207,7 +207,89 @@ it('reuses one task grant for different CI job logs and literal filters', async 
     f.call,
   );
   expect(outside.isError).toBe(true);
+  const refusal = JSON.parse(outside.content);
+  expect(refusal).toMatchObject({
+    code: 'repository_out_of_scope',
+    effectStatus: 'not_started',
+    failure: {
+      code: 'scope_insufficient',
+      phase: 'admission',
+      effectStatus: 'not_started',
+      recovery: 'renew_approval',
+    },
+  });
+  expect(refusal.error).toContain('other/repo');
+  expect(refusal.error).toContain('covers: owner/repo');
+  expect(refusal.error).toContain("repositories: ['other/repo']");
+  expect(refusal.error).toMatch(/fresh requestId/);
+  expect(refusal.recovery).not.toMatch(/timed out|Do not retry/i);
   expect(execution.calls).toHaveLength(2);
+});
+
+it('names an empty repository scope and refuses an out-of-root command directory precisely', async () => {
+  const f = fixture();
+  const grant = await f.authorize({ repositories: [] });
+  const read = JSON.parse(
+    (
+      await f.tools('worker').execute(
+        {
+          operation: 'github_read',
+          grantId: grant.id,
+          requestId: randomUUID(),
+          endpoint: '/repos/owner/repo/pulls',
+        },
+        f.signal,
+        f.call,
+      )
+    ).content,
+  );
+  expect(read).toMatchObject({
+    code: 'repository_out_of_scope',
+    failure: { code: 'scope_insufficient', recovery: 'renew_approval' },
+  });
+  expect(read.error).toMatch(/covers no GitHub repositories/);
+  expect(read.error).toContain("repositories: ['owner/repo']");
+  const run = JSON.parse(
+    (
+      await f.tools('worker').execute(
+        {
+          operation: 'run',
+          grantId: grant.id,
+          requestId: randomUUID(),
+          command: 'ls',
+          cwd: '..',
+        },
+        f.signal,
+        f.call,
+      )
+    ).content,
+  );
+  expect(run).toMatchObject({
+    code: 'cwd_out_of_scope',
+    effectStatus: 'not_started',
+    failure: { code: 'invalid_input', phase: 'admission', recovery: 'correct_input' },
+  });
+  expect(run.error).toContain(join(f.root, 'worker'));
+  const missing = JSON.parse(
+    (
+      await f.tools('worker').execute(
+        {
+          operation: 'run',
+          grantId: grant.id,
+          requestId: randomUUID(),
+          command: 'ls',
+          cwd: 'missing',
+        },
+        f.signal,
+        f.call,
+      )
+    ).content,
+  );
+  expect(missing).toMatchObject({
+    code: 'cwd_unavailable',
+    failure: { code: 'invalid_input', recovery: 'correct_input' },
+  });
+  expect(execution.calls).toHaveLength(0);
 });
 
 it.each(['', 'mcp__mitzo-connections__'])(
@@ -645,6 +727,14 @@ it('binds repository reads to the approved repositories and never grants account
         f.call,
       );
     expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content)).toMatchObject(
+      endpoint === '/user'
+        ? {
+            code: 'invalid_github_endpoint',
+            failure: { code: 'invalid_input', recovery: 'correct_input' },
+          }
+        : { code: 'repository_out_of_scope', failure: { code: 'scope_insufficient' } },
+    );
   }
   expect(
     (
