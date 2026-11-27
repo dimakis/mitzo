@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { EventBus } from '../src/event-bus.js';
+import { EventBus, RECREATE_DEBOUNCE_MS } from '../src/event-bus.js';
 
 // ─── Mock EventSource ───────────────────────────────────────────────────────
 
@@ -224,7 +224,7 @@ describe('EventBus', () => {
     expect(lastSource).toBe(firstSource); // same instance
   });
 
-  it('ensureConnected no-ops when reconnecting (CONNECTING)', () => {
+  it('ensureConnected keeps a stream that was just created (CONNECTING)', () => {
     bus.connect('/api/events');
     // readyState is still CONNECTING (0) — EventSource is trying to connect
     const firstSource = lastSource;
@@ -250,6 +250,97 @@ describe('EventBus', () => {
 
     lastSource!.simulateError();
     expect(onChange).toHaveBeenCalledWith(false);
+  });
+
+  describe('foreground recovery without waiting for native retry', () => {
+    let clock = 0;
+    let sources: MockEventSource[] = [];
+    let fastBus: EventBus;
+
+    beforeEach(() => {
+      clock = 10_000;
+      sources = [];
+      fastBus = new EventBus({
+        factory: () => {
+          const source = new MockEventSource();
+          sources.push(source);
+          return source as unknown as EventSource;
+        },
+        now: () => clock,
+      });
+      fastBus.connect('/api/events');
+    });
+
+    afterEach(() => fastBus.disconnect());
+
+    it('recreates a stream stuck in CONNECTING once the debounce has passed', () => {
+      sources[0].simulateOpen();
+      sources[0].simulateError(); // native retry pending (CONNECTING)
+      clock += RECREATE_DEBOUNCE_MS;
+
+      fastBus.ensureConnected();
+
+      expect(sources).toHaveLength(2);
+      expect(sources[0].close).toHaveBeenCalledOnce();
+    });
+
+    it('keeps a healthy OPEN stream unless forced', () => {
+      sources[0].simulateOpen();
+      clock += 60_000;
+
+      fastBus.ensureConnected();
+      expect(sources).toHaveLength(1);
+
+      fastBus.ensureConnected({ force: true });
+      expect(sources).toHaveLength(2);
+    });
+
+    it('debounces overlapping resume and visibility signals', () => {
+      sources[0].simulateOpen();
+      clock += 60_000;
+
+      fastBus.ensureConnected({ force: true }); // Capacitor resume
+      clock += 200;
+      fastBus.ensureConnected({ force: true }); // visibilitychange right after
+      fastBus.ensureConnected();
+
+      expect(sources).toHaveLength(2);
+    });
+
+    it('ignores open/error callbacks from a replaced stream', () => {
+      const onChange = vi.fn();
+      fastBus.onConnectionChange(onChange);
+      const stale = sources[0];
+      clock += 60_000;
+
+      fastBus.ensureConnected({ force: true });
+      stale.onerror?.(new Event('error'));
+      stale.onopen?.(null);
+      expect(onChange).not.toHaveBeenCalled();
+
+      sources[1].simulateOpen();
+      expect(onChange).toHaveBeenCalledWith(true);
+      expect(fastBus.connected).toBe(true);
+    });
+
+    it('keeps delivering to other listeners when one throws', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const good = vi.fn();
+      fastBus.on('session_activity', () => {
+        throw new Error('boom');
+      });
+      fastBus.on('session_activity', good);
+      sources[0].simulateOpen();
+
+      sources[0].simulateEvent('session_activity', { sessions: [] });
+
+      expect(good).toHaveBeenCalledWith({ sessions: [] });
+      expect(warn).toHaveBeenCalledWith(
+        '[mitzo] EventBus listener failed',
+        expect.objectContaining({ event: 'session_activity' }),
+      );
+      warn.mockRestore();
+    });
   });
 
   it('preserves listeners across reconnect', () => {

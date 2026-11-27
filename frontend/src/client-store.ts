@@ -106,7 +106,7 @@ if (typeof window !== 'undefined') {
 registerCapacitorLifecycle(
   () => {
     clientStore.getState().forceReconnect();
-    ensureEventBusConnected();
+    ensureEventBusConnected({ force: true });
     void initPushNotifications();
   },
   () => clientStore.getState().sendSuspend(),

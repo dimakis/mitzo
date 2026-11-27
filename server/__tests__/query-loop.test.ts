@@ -2661,6 +2661,12 @@ describe('runQueryLoop', () => {
         images: ['data:image/png;base64,cHJldmlldw=='],
         contextBlocks: ['constitution'],
       });
+      // The writer of the first user_message records its durable identity.
+      expect(session!.initialMessageId).toBe(userMsgEvents[0].payload.messageId);
+      expect(store.getInitialCommand('sess-ip')).toEqual({
+        messageId: userMsgEvents[0].payload.messageId,
+        text: 'Hello, this is my first message',
+      });
     });
 
     it('calls onInitialPrompt callback when initial prompt is registered', async () => {

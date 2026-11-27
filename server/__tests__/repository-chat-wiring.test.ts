@@ -127,15 +127,29 @@ it('starts a native repository chat with its claimed cwd and exact repository co
       }),
     );
     // Workspace context reaches the provider once, through the system prompt.
-    // The command text and its stored first command stay the operator's text,
-    // so replay cannot render the context as an extra user message.
-    const started = open.mock.calls.at(-1)![0];
-    expect(started.systemPrompt).toContain(
+    // The provider command text stays the operator's text.
+    const providerStart = open.mock.calls.at(-1)![0];
+    expect(providerStart.systemPrompt).toContain(
       'Mitzo repository workspace repository: example/repo. Starting branch main',
     );
-    expect(started.prompt).not.toContain('Mitzo repository workspace');
-    expect(started.prompt).toContain('change the code');
-    expect(chat.eventStore.getSession(startupId)?.initialPrompt).toBe('change the code');
+    expect(providerStart.prompt).not.toContain('Mitzo repository workspace');
+    expect(providerStart.prompt).toContain('change the code');
+    // Public history records the typed command under its durable identity, so
+    // replay cannot render the context as an extra user message.
+    const started = chat.eventStore.getSession(startupId);
+    const firstCommand = chat.eventStore
+      .getSessionEvents(startupId)
+      .filter((event) => event.type === 'user_message');
+    expect(started?.initialPrompt).toBe('change the code');
+    expect(started?.initialMessageId).toEqual(expect.any(String));
+    expect(firstCommand.map((event) => event.payload)).toEqual([
+      expect.objectContaining({ messageId: started?.initialMessageId, text: 'change the code' }),
+    ]);
+    expect(JSON.stringify(firstCommand)).not.toContain('Mitzo repository workspace');
+    expect(chat.eventStore.getInitialCommand(startupId)).toEqual({
+      messageId: started?.initialMessageId,
+      text: 'change the code',
+    });
     // A completed/failed provider startup must use resume rather than another initial launch.
     await expect(
       chat.startChat({ send: vi.fn(), isOpen: () => true }, 'duplicate-startup', 'new prompt', {
