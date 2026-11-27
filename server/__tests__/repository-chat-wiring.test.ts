@@ -127,6 +127,22 @@ it('starts a native repository chat with its claimed cwd and exact repository co
         onDemandCreate: undefined,
       }),
     );
+    // Public history records the typed command under its durable identity. The
+    // workspace preamble reaches the provider, never the first user_message.
+    const started = chat.eventStore.getSession(startupId);
+    const firstCommand = chat.eventStore
+      .getSessionEvents(startupId)
+      .filter((event) => event.type === 'user_message');
+    expect(started?.initialPrompt).toBe('change the code');
+    expect(started?.initialMessageId).toEqual(expect.any(String));
+    expect(firstCommand.map((event) => event.payload)).toEqual([
+      expect.objectContaining({ messageId: started?.initialMessageId, text: 'change the code' }),
+    ]);
+    expect(JSON.stringify(firstCommand)).not.toContain('Mitzo repository workspace');
+    expect(chat.eventStore.getInitialCommand(startupId)).toEqual({
+      messageId: started?.initialMessageId,
+      text: 'change the code',
+    });
     // A completed/failed provider startup must use resume rather than another initial launch.
     await expect(
       chat.startChat({ send: vi.fn(), isOpen: () => true }, 'duplicate-startup', 'new prompt', {

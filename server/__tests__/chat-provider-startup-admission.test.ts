@@ -579,6 +579,68 @@ it('admits a native initial command before queue visibility and dispatches one p
   }
 });
 
+it('records the first command identity and keeps the public context envelope', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-native-initial-identity-'));
+  const contextPath = join(root, 'reference.md');
+  await writeFile(contextPath, 'reference context');
+  await writeFile(
+    join(root, '.mitzo.json'),
+    JSON.stringify({ contextBlocks: { reference: contextPath } }),
+  );
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+  stubBootContext();
+  const chat = await import('../chat.js');
+  const sessionId = '33333333-3333-4333-8333-333333333333';
+
+  try {
+    const running = chat.startChat(
+      { send: () => {}, isOpen: () => true },
+      'identity-client',
+      'first turn',
+      {
+        cwd: root,
+        isolation: false,
+        accountId: 'work-api',
+        model: 'gemini-2.5-pro',
+        reasoningEffort: 'high',
+        accountProfiles: profiles(),
+        initialSessionId: sessionId,
+        clientMsgId: 'initial-command',
+        contextBlocks: ['reference'],
+      },
+    );
+    await vi.waitFor(() => expect(native.prompts).toHaveLength(1));
+    chat.stopChat('identity-client');
+    await running;
+
+    const session = chat.eventStore.getSession(sessionId);
+    const [first] = chat.eventStore
+      .getSessionEvents(sessionId)
+      .filter((event) => event.type === 'user_message');
+    // The Context-injected disclosure splits this envelope back out of the text.
+    expect(first.payload).toMatchObject({
+      messageId: 'initial-command',
+      contextBlocks: ['reference'],
+      text: expect.stringMatching(/reference context[\s\S]*---CONTEXT_END---\nfirst turn$/),
+    });
+    expect(session).toMatchObject({
+      initialMessageId: 'initial-command',
+      initialPrompt: first.payload.text,
+    });
+    expect(chat.eventStore.getInitialCommand(sessionId)).toEqual({
+      messageId: 'initial-command',
+      text: first.payload.text,
+    });
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it('reuses initial and registry-missing resume admissions without redispatch', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-native-resume-admission-'));
