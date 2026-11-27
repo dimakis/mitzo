@@ -122,7 +122,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../specialist-context-envelope.ts':
     'e1d33196e9cea8a1813c47495c7e9d3c1028c25fb00951624eb0c6351b8c3a59',
   '../__tests__/specialist-context-review-application.test.ts':
-    '5ea9256263ba66be467160a865f469c91993970b50e05eff23aa4259f1b9067a',
+    '4ef52fa30d83ba52229dda0f65b6ee872dda6e1d95b043f3fc0206bd3447e6d7',
   '../__tests__/specialist-context-envelope.test.ts':
     'eddd947c088528ad639c924685496a34604ccdf1fea24752497b6a11c2155fe1',
   '../__tests__/fixtures/specialist-authorization.ts':
