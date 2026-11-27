@@ -25,6 +25,7 @@ const mockEventStore = {
   isSessionHidden: vi.fn().mockReturnValue(false),
   getSession: mockGetSession,
   getOrdinaryLocalVertexCustody: vi.fn().mockReturnValue(undefined),
+  getInitialCommand: vi.fn().mockReturnValue(null),
   getKnownSessionIds: mockGetKnownSessionIds,
   listSessions: vi.fn().mockReturnValue([]),
   getEventsAfter: vi.fn().mockReturnValue([]),

@@ -5,6 +5,7 @@ import {
   replayEventsToMessages,
   replayEventsToTranscript,
   type RawSdkMessage,
+  type ReplayInitialCommand,
 } from './conversation-transcript.js';
 import { restoreOwnedVertexInitialPrompt } from './ordinary-local-vertex-replay.js';
 import {
@@ -17,6 +18,7 @@ interface Dependencies {
   store: Pick<
     EventStore,
     | 'getSession'
+    | 'getInitialCommand'
     | 'getSessionEvents'
     | 'getSessionEventsThroughCursor'
     | 'getOrdinaryLocalVertexCustody'
@@ -73,29 +75,37 @@ export function createSessionTranscriptReader(read: Dependencies) {
       }
     }
   };
-  const projection = (sessionId: string, events: StoredEvent[]) => {
+  const projection = (
+    sessionId: string,
+    events: StoredEvent[],
+  ): { events: StoredEvent[]; initialPrompt?: ReplayInitialCommand } => {
     const session = store.getSession(sessionId);
+    // The canonical first command. A recorded or receipt-repaired identity is
+    // exact; otherwise replay keeps the legacy stored text.
+    const initial = store.getInitialCommand(sessionId);
+    const identified = initial?.messageId ? initial : undefined;
     if (
       !session?.accountBinding ||
       !['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(
         session.accountBinding.provider,
       )
     )
-      return { events, initialPrompt: session?.initialPrompt ?? undefined };
+      return { events, initialPrompt: identified ?? initial?.text ?? undefined };
     const custody = store.getOrdinaryLocalVertexCustody(sessionId);
     const command = custody ? store.getSendCommand(custody.initialCommandId) : undefined;
-    return restoreOwnedVertexInitialPrompt(
+    const restored = restoreOwnedVertexInitialPrompt(
       events,
       session?.initialPrompt ?? undefined,
       custody && command?.sessionId === sessionId && typeof command.payload.text === 'string'
         ? { sessionId, commandId: custody.initialCommandId, text: command.payload.text }
         : undefined,
     );
+    return { events: restored.events, initialPrompt: identified ?? restored.initialPrompt };
   };
   const project = <T>(
     sessionId: string,
     events: StoredEvent[],
-    work: (events: StoredEvent[], initialPrompt?: string) => T,
+    work: (events: StoredEvent[], initialPrompt?: ReplayInitialCommand) => T,
   ) =>
     observeTranscriptSync('projection', () => {
       const selected = projection(sessionId, events);

@@ -691,6 +691,7 @@ export class CollaborationContractError extends Error {
       | 'no_responders'
       | 'snapshot_changed'
       | 'source_history_overlap_invalid'
+      | 'source_initial_command_unverified'
       | 'capacity_refused'
       | 'invalid_transition'
       | 'allocation_conflict'

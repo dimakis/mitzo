@@ -79,6 +79,24 @@ policy state and allow explicit removal. Preserve Add agent, preview, Details an
 Chat settings. Approved by Dimitri on 16 November 2026 after interactive revision 3;
 see the appended Symposium approval in the ledger. Runtime adoption remains separate.
 
+On narrow widths the Symposium composer wraps onto **two rows of icons**. Every
+control stays a direct, 44px control: nothing moves into **More composer
+actions**. The first row holds the recipient trigger, More, Resources and Agents.
+The second row holds context usage, voice and the primary actions, which share
+one row. With an extra retained source Stop, context usage ends the first row so
+neither row overflows at 280px. Row membership is fixed per state, so typing,
+queueing and sending do not move controls. The ordinary (non-Symposium) composer
+keeps its approved single-row layout. Approved by Dimitri on 25 November 2026
+(ledger revision `two-row-narrow-composer-2026-11-25`).
+
+The inline @ selector remains separate. Expanded recipients use a bounded,
+scrollable row across the composer, with wrapping full names and their existing
+selection behavior. In Symposium chats, text entry has a viewport-relative height
+limit even when expanded, so long drafts do not displace the control rows.
+Existing status and Send/Queue owners remain unchanged; the revision-3 control
+identities are preserved and no alternate recipient dialog or palette is added.
+See [validation and remaining browser/phone gates](../evidence/symposium-responsive-composer-2026-11-21.md).
+
 ## Conversation tree navigation
 
 The existing Return to lead chat link resolves the current canonical reporting

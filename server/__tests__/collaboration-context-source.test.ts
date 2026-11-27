@@ -494,7 +494,10 @@ it('refuses delayed legacy initial prompts whose canonical displayed order diffe
         [settings],
         source(),
       ),
-    ).rejects.toMatchObject({ code: 'snapshot_changed' });
+    ).rejects.toMatchObject({
+      code: 'source_initial_command_unverified',
+      message: 'snapshot_changed',
+    });
 });
 
 it.each(unverifiedMarkers)(
