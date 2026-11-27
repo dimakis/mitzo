@@ -88,6 +88,9 @@ const PREPARATION_TERMINAL_STATES = new Set([
   'failed',
   'cancelled',
 ]);
+/** How long after a completed foreground reconnect its snapshot may still arrive. */
+export const FOREGROUND_SNAPSHOT_GRACE_MS = 2000;
+
 const STREAMING_OUTPUT_ACTIONS = new Set<MessagesAction['type']>([
   'MESSAGE_START',
   'MESSAGE_SNAPSHOT',
@@ -1038,6 +1041,42 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     );
   }
   let awaitingModeHydration: string | undefined;
+
+  // A foreground transition whose transport replay will offer a reconnect
+  // snapshot for the active chat defers its transcript read to that snapshot.
+  // If the reconnect completes without one (for example the server skipped the
+  // session), the fallback performs the original full recovery once.
+  let deferredForegroundRestore: string | undefined;
+  let deferredForegroundTimer: ReturnType<typeof setTimeout> | undefined;
+  function scheduleDeferredForegroundFallback() {
+    if (!deferredForegroundRestore || deferredForegroundTimer) return;
+    deferredForegroundTimer = setTimeout(() => {
+      deferredForegroundTimer = undefined;
+      const sessionId = deferredForegroundRestore;
+      deferredForegroundRestore = undefined;
+      const { sessions, historyLoading } = store.getState();
+      if (!sessionId || sessions.active !== sessionId || historyLoading) return;
+      console.warn('[mitzo] foreground reconnect offered no snapshot; restoring transcript', {
+        code: 'foreground_snapshot_missing',
+        sessionId,
+      });
+      fetchAndRestoreMessages(sessionId);
+    }, FOREGROUND_SNAPSHOT_GRACE_MS);
+  }
+
+  /** The installed view already reflects every event through this offer. */
+  function reconnectSnapshotAlreadyApplied(sessionId: string, cursor: number): boolean {
+    const state = store.getState();
+    return (
+      state.sessions.active === sessionId &&
+      !recoveryInFlight &&
+      openingHistory === undefined &&
+      !state.historyLoading &&
+      state.historyError === null &&
+      !state.messages.resyncRequired &&
+      connection.getLastSeq(sessionId) >= cursor
+    );
+  }
 
   function fetchAndRestoreMessages(
     sessionId: string,
@@ -2299,11 +2338,20 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     onReconnectSnapshot(sessionId: string, cursor: number, cursorValid: boolean, offerId?: string) {
-      if (parserState.currentSessionId === sessionId) {
-        fetchAndRestoreMessages(sessionId, cursor, !cursorValid, () =>
-          connection.acknowledgeReconnectSnapshot(sessionId, cursor, offerId),
-        );
+      if (parserState.currentSessionId !== sessionId) return;
+      if (deferredForegroundRestore === sessionId) deferredForegroundRestore = undefined;
+      if (offerId && cursorValid && reconnectSnapshotAlreadyApplied(sessionId, cursor)) {
+        // Every event through the offered cursor was already applied in order
+        // (the applied cursor only advances along the predecessor chain), so
+        // the REST prefix would rebuild exactly the installed transcript.
+        // Release the offer directly; any buffered suffix drains after its ACK.
+        connection.commitTranscriptCursor(sessionId, cursor);
+        connection.acknowledgeReconnectSnapshot(sessionId, cursor, offerId);
+        return;
       }
+      fetchAndRestoreMessages(sessionId, cursor, !cursorValid, () =>
+        connection.acknowledgeReconnectSnapshot(sessionId, cursor, offerId),
+      );
     },
 
     onTokensHydrated(tokens: Record<string, unknown>) {
@@ -2496,8 +2544,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       // second foreground restore would invalidate that request and can leave
       // its loading flag stuck while duplicating the full transcript work.
       if (sessions.active && !historyLoading) {
-        fetchAndRestoreMessages(sessions.active);
-        // syncRunningState removed — state events handle this
+        const replaySessions = Array.isArray(msg.replaySessions) ? msg.replaySessions : [];
+        if (replaySessions.includes(sessions.active)) {
+          // The transport's resume replay ends in a reconnect snapshot whose
+          // bounded restore covers this chat. A full read now would be
+          // discarded by that restore after costing a complete server rebuild.
+          deferredForegroundRestore = sessions.active;
+        } else {
+          deferredForegroundRestore = undefined;
+          fetchAndRestoreMessages(sessions.active);
+        }
       }
       return true;
     }
@@ -2506,6 +2562,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (store.getState().sessions.active)
         store.setState((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
       localOutbox?.wake();
+      scheduleDeferredForegroundFallback();
     }
 
     if (msg.type === 'session_resumed') {

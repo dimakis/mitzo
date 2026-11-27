@@ -1454,9 +1454,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/slices/messages.ts':
     '0887cdf532176a41a3b11d31ebfe16c88d32d2e25d44fa25e17cadb8894af88e',
   '../../packages/client/src/sse-connection.ts':
-    '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
+    '8fca48e9da2c914ad276337ac3915fc20dafcf27630dabd15cb75284bc0f24fc',
   '../../packages/client/src/store.ts':
-    '653904f430fa52aef78e379328e68634ed055aad5785163a9836736e2e6497a1',
+    '10128227b97bf1f8abb213cf0834a401ccf0305aacbbecb766f6165ef076d30c',
   '../../packages/client/src/telos-work-api.ts':
     '9ed6a275becdc3084307d01b6c5ee65084ec7989e4ccb9bca2fc18668f2bb1d8',
   '../../packages/harness/__tests__/approval-expiry.test.ts':
