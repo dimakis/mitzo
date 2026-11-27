@@ -3999,7 +3999,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-application-joining.ts':
     '1eaadb4f764fda27629db1d72650a540d5f37d6e127c9d7a49cf620ec9b1ac28',
   '../collaboration-application-messaging.ts':
-    '5b5b76e5e1740941a7d05858cbcc28fc0e9eb3d28fd5c87abbae5ed041c59b1c',
+    '0762705ebbbd4bbd108ad10bd73524e0d0747ebf46cb92b733f4f3bf601c6aed',
   '../collaboration-application-review.ts':
     'efd2fa5b50aae38ec825f9bbe19f18b2338d766a3182d92e643ef0930ab86bde',
   '../collaboration-context-compiler.ts':

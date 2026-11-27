@@ -36,7 +36,9 @@ type DiscussionMessage = Pick<
   CollaborationMessage,
   'sequence' | 'author' | 'text' | 'source' | 'inReplyTo'
 > &
-  Partial<Pick<CollaborationMessage, 'snapshot' | 'forward' | 'images' | 'origin'>>;
+  Partial<
+    Pick<CollaborationMessage, 'snapshot' | 'forward' | 'images' | 'origin' | 'replyToDeliveryId'>
+  >;
 type MessageContextReference =
   | {
       kind: 'snapshot';
@@ -87,7 +89,8 @@ function discussionMessage(message: DiscussionMessage, contexts: PreparedMessage
 }
 // The preparation inventory uses the same encoder before retaining/compiling
 // source witnesses. Raw material here grants no delivery or source capability.
-function discussionMaterial(
+/** Exported for focused encoding tests; delivery uses discussionMessage(). */
+export function discussionMaterial(
   message: DiscussionMessage,
   context?: Pick<PreparedMessageContext, 'sha256' | 'material'>,
 ) {
@@ -99,7 +102,10 @@ function discussionMaterial(
     author: message.author,
     ...(message.origin ? { origin: message.origin } : {}),
     text: message.text,
-    ...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
+    // An agent reply projection's quote is its own prompt, which history already
+    // carries. Repeating it in every later delivery only inflates agent context;
+    // the transcript derives that quote from replyToDeliveryId instead.
+    ...(message.inReplyTo && !message.replyToDeliveryId ? { inReplyTo: message.inReplyTo } : {}),
     ...(message.images?.length
       ? {
           attachments: message.images.map((image) => ({
