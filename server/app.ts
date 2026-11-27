@@ -22,7 +22,13 @@ import {
   ordinaryWorkspaceArtifactRoot,
   hasOrdinaryWorkspaceArtifactScope,
 } from './ordinary-workspace-artifact-root.js';
-import { hasPersistentRevocationAuthority, isAuthSessionCurrent } from './auth.js';
+import {
+  hasPersistentRevocationAuthority,
+  isAuthSessionCurrent,
+  isAuthenticatedOperatorSessionId,
+} from './auth.js';
+import { createApplicationPrMonitor } from './pr-monitor-application.js';
+import { executeTrustedGitHubReadResponse } from './trusted-native-operation.js';
 import { createOrdinaryWorkspacePreparationRouter } from './ordinary-workspace-router.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import {
@@ -3841,6 +3847,8 @@ const resourceRemovals = new SessionResourceRemovalService({
   store: eventStore.removals,
   cancelPrompts: (id) => getSessionPrompts().cancelSession(id),
   restorePrompts: (id) => getSessionPrompts().store.keepSession(id),
+  // Called only once release is underway; preparation merely paused them.
+  releasePassive: (id) => prMonitorController.stopConversation(id, 'deleted'),
 });
 const localRemoval = createLocalSessionRemoval({
   events: eventStore,
@@ -3908,7 +3916,28 @@ mountObservedRouter(
   }),
 );
 
-const sessionCapabilityGrants = new SessionCapabilityGrants(registry, repositoryCapabilityIdentity);
+const prMonitorReviewer = process.env.CENTAUR_REVIEWER_LOGIN?.trim();
+export const prMonitorController = createApplicationPrMonitor({
+  eventStore,
+  registry,
+  accounts: loadAccountProfiles,
+  connections: getConnectionsRuntime,
+  // Resolve authority and transport at call time, like the other app routes,
+  // so composing the monitor during module load never captures stale bindings.
+  auth: {
+    hasPersistentRevocationAuthority: () => hasPersistentRevocationAuthority(),
+    isLoginCurrent: (session) => isAuthSessionCurrent(session),
+    isInteractive: (sessionId) => isAuthenticatedOperatorSessionId(sessionId),
+  },
+  read: (endpoint, signal, assertCurrent) =>
+    executeTrustedGitHubReadResponse(endpoint, signal, assertCurrent),
+  eligibleAuthors: (subscription) => [prMonitorReviewer || subscription.github.owner],
+});
+const sessionCapabilityGrants = new SessionCapabilityGrants(
+  registry,
+  repositoryCapabilityIdentity,
+  prMonitorController.consent,
+);
 const contextSnapshots = createRuntimeContextSnapshots(eventStore, registry);
 setCodexContextSnapshots(registry, contextSnapshots);
 mountObservedRouter(
@@ -3929,6 +3958,7 @@ mountObservedRouter(
   operatorAuthMiddleware,
   createSessionCapabilityRouter({
     grants: sessionCapabilityGrants,
+    monitor: prMonitorController,
     hasSession: (id) => {
       const meta = eventStore.getSession(id);
       return Boolean(

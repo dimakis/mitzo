@@ -3576,7 +3576,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-prompt-router.test.ts':
     'd41780d41d76cab07a60b56300dbb1c977a2b4285fb7d0c37bd2645a47745549',
   '../__tests__/session-prompt-service.test.ts':
-    '9ae5b24c67494b0c82423af859f97e195c7b330a89a6dd56a03594b4201dcce4',
+    '1b35818a86856837702f40d9604727df8367cb267f4d4c3240a8db74889ceae5',
   '../__tests__/session-prompt-store.test.ts':
     '271a362457e81f1fb6f4060a0771b0436d0d7e31bf45267b037c165ab23904d7',
   '../__tests__/session-prompt-tools.test.ts':
@@ -3584,7 +3584,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-removal-runtime.test.ts':
     '36b31025a622cdcd7dc78efb1a29849208e4176a28c804baf7a273bbd9ccb5f6',
   '../__tests__/session-resource-removal.test.ts':
-    '6d158e1c3b8a82ed54ed8512cc849fd2916d48bcf6c84e72f7ec7000985611a1',
+    '9259f261c2ab389f0f184308a569f4e36efa93420f03438fe5ea4fc35ec8902e',
   '../__tests__/session-runtime-error.test.ts':
     'ab62eb3ee16eb487f94a8e8751d1618a7140a7f69dc344c298ba7ce822d04e66',
   '../__tests__/session-search-async.test.ts':
@@ -3850,7 +3850,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../api-tool-router.ts': '2b95fa7fa918be7ea1b59e04293d7fbbd80e55ef719d1b0a90e65ffb2e0b3eef',
   '../api-tool-runtime.ts': 'b81ed9f222e6b6aea47425b4fa33511c26235e02e5c548221522bd2cae43ed6c',
   '../api-tool-template.ts': '32908a45ddeacada75dfb4a1d0e8d2370b3fe441fabf8dad3d2fd3edb8eb8c51',
-  '../app.ts': '90c826465c42dbc76c36d3d6da32ca678557a22d64bb0da390e31508e8eb3e28',
+  '../app.ts': 'f9b4c1c08495d0bff9b659494b809fb0f6704fae3d3166d0691280be8188bce1',
   '../approved-url-fetch.ts': '523bbd692e74a9c16b7fd851b6b4b1cdc6be5581e083c04f9549662e11548ee3',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../auth-route-boundary.ts': '9b853baf795f6c65a7cf956311787d049c961291cf4817ad53ad9e22ec62dd4c',
@@ -4143,7 +4143,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../inbox-reconciliation.ts': '75d1f9af6ae2dc05b6eb49fb9e147325099cbf3936ae889863ed3dbbe575566f',
   '../inbox-scanner.ts': 'ee00e0aa6dce28803d51d14ee85c3807d365a6ff1db6239913f05060fe0af161',
   '../inbox.ts': '06abae2a6e493924b18cfe44a5afd6b6ad9c5a6180b5af429aef05aa5d127ad2',
-  '../index.ts': '46e136f17bb24f87ef1e252b6f755afef9090af09adf0202813b02d71d583ec0',
+  '../index.ts': '3a4d1bf567428fa7a1c047577e6a58ad877e830721d94d7d81bc045306e86210',
   '../installed-custom-tools.ts':
     '103aa54c9df80d683bb0a8f58fa296970e5be0bad0a37acb3a7b2b7e32079af3',
   '../integration-tool-discovery.ts':
@@ -4612,7 +4612,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-capability-grants.ts':
     'd2324c3da73f612ca356001df7cba86239110d554dbc96cc98a601600c09479e',
   '../session-capability-router.ts':
-    'ed3f86d0ee0a143cfca3d5c1b6a537258b255c37eb5b013aea762bae09e7a62d',
+    'd2fdc53f7719552e921cfe4a67e67752b6a386f63e59ee50f537c32659eb26e9',
   '../session-collaboration-router.ts':
     'b8a664532370c860c765e7a0779cbe922a28df88fe63b068959e6d979d226a9b',
   '../session-connection-tools.ts':
@@ -4682,9 +4682,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bcf92e698a8ac943d2797369b4240047e7916e15f478d5755e7cbfc6e12323d4',
   '../session-prompt-router.ts': '4d11907d907fb6fe0df41cbdd9ecd25336c2e647be761f55cba7e01539aebb7a',
   '../session-prompt-runtime.ts':
-    '4c62995e2bcd5a4fbddd96c8babadbb5b29057abed04539c1fafe7fc61d1c1cb',
+    'b8b30b9774e875b423e518bfbf9ce88733f5b2d2d53043f803e3a30e218079f8',
   '../session-prompt-service.ts':
-    '23618e6b8a6281b60b2a29815d841f2e13109b7dd70f271550be5b1dd666f2c1',
+    '541351889d8fa2f1a7f262b2f88f046700d468206d219b1547630e68dc864687',
   '../session-prompt-store.ts': '4129fc1f635a963638f2d5faa9786bf67e0e2b865a1409449639abbe8403bea4',
   '../session-prompt-tools.ts': 'fe14a13d9c93c43d5d4782ed18743038e1ca290ff631a5235b860318e7771928',
   '../session-registry.ts': 'd91b89354926d0ec7355e73fcae4f41066008d63097ca00077f37022fc554ccf',
@@ -4692,7 +4692,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '96cbbc6e18a94f4f41e44aa5c0955c1e7604d6e19edf726b701619aaf9d56ff8',
   '../session-removal.ts': '5f34deb4642dcfc65de992419db9b471cac05b6a1f5dc84c90f4303554db5d22',
   '../session-resource-removal.ts':
-    'f0ae3f23b02c89b2b6014b01389992ee77ac79f1c8ca38210289be4bfcc453c9',
+    'cd523a6f16a649d325df0473e781c6d25a10ae18e1be005532a82296b01d8536',
   '../session-runtime-error.ts': '35e1f05bfca7eb99562a84e63076961cfe3300503279db0673e2b612733e405c',
   '../session-specialist-tools.ts':
     '744f1413bae6c070e60b44094ff6c6ec9e6db1adc0b3b22a3ae4375c2e35e656',
@@ -5031,24 +5031,36 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/__tests__/github-read-quota.test.ts':
     '275b4d35b6dcf2f7fa1a5a7e1e7f9d1c1a87c10c9c7fd22647e2d95c063196fb',
   '../../packages/protocol/__tests__/pr-monitor-store.test.ts':
-    '043da644ce69e23a6e414de48017c673d993b2d448d64a0bce3d836105038d7e',
+    'd6cc9cbe3464adc957203ee330af120694e7b8e396e8fc4043a128887427d209',
   '../../packages/protocol/src/github-read-quota.ts':
     'c2cb1a89a847d9c97d56419e67a9547b3c84b0ed12f0dca64d59f793dc02ffca',
   '../../packages/protocol/src/pr-monitor-store.ts':
-    '3a3436244693437cbc18ed6161802df8338f006911ecc0faf3931c4956d09b76',
+    '1dc3bf2592bd4aaf2549b9c4c0252ae7990a6d8ea2bc09272b85bf6d6f71b84b',
   '../../packages/protocol/src/pr-monitor.ts':
-    '3f24e2b14840e5fe6e0b84ca3220b5e82d336276a4e88c2179df6c024ac680be',
+    '62a7d22a882772b4839cc94aa1ffa5e2fc73ffbe64fda2d28836297f2f4de0c6',
   '../__tests__/pr-monitor-consent.test.ts':
-    '0584ae3ef0cb3d613808adaaf3ab9da19dccbc3da5471583268a7690ce54994e',
+    'd284787e503cbb1175b0335582735ecb57a27ee4fd886a81e74ad3999848cd6f',
   '../__tests__/pr-monitor-github.test.ts':
-    'deacc165544036447577160838e2582bf054457481f7a0b2e3c8391235b3147b',
+    'b85c576c251a2719ffeb4c44871dadf1fdb87473cf60999bcf7636e7177c9c1b',
   '../__tests__/pr-monitor-observer.test.ts':
-    '63f24e0dc841ff6dd6c618f97fac150d72b4e880a93712a4354e6737679cf668',
+    '6aa62ac6f9610f2e9b53fe71bdf82c4fda2ef10c2cfaadb3d405c4401475b4a1',
   '../__tests__/pr-monitor-runtime.test.ts':
-    '6adfaa3b3a6ededbd11f2a5c0613a913fb260da618ce53ee5d19b20844704dc8',
+    '8edbf58e43cfa8dcdc82998fd504aaf56cbb8c7e9220c4ee520cee765dac4d81',
   '../github-read-response.ts': 'f4cd0cdf394a46b54e6589cfb035249529d02d7adc5fd36d72ab4448b00773d8',
-  '../pr-monitor-consent.ts': '92b3f234c3fabd1de6793aac6a8ededa40f877a9b129f89d3586d75747e7f582',
-  '../pr-monitor-github.ts': 'd8571226e1f068c897164bb76b7c8257d09f45dbaa3efa11c29780d5a044861c',
-  '../pr-monitor-observer.ts': '36fbe3a4521035575a509986c15caf67f66463e08156fc4d8f9fd2539d0d684b',
-  '../pr-monitor-runtime.ts': '52c135643740bf1fbac636cfe283981530fe74d77b960a433d95d2ab8f09c379',
+  '../pr-monitor-consent.ts': '29964af7bde14f20f206678ec3247bcd938234eddbfade9712481f4f88a5568e',
+  '../pr-monitor-github.ts': '707d184d95623d269de0cc0aaea42e59faecf5d803d45e1e1d92f35eb1e03fad',
+  '../pr-monitor-observer.ts': '14130340c685a436786c45339d53ed68710470eb721080405181a8b1103dcca6',
+  '../pr-monitor-runtime.ts': 'cb340e94d1c0cd10ff2556ea7f75a70ab7fc9888423c621ce6046910077c7bf3',
+  '../__tests__/pr-monitor-application.test.ts':
+    'fa9d322c1568c722a368cd5903d0d70bff8b79e95cabb4f2d443138d0ba25535',
+  '../__tests__/pr-monitor-centaur.test.ts':
+    'eac06590ecb659b4252235448d7a0e63899a6defec1437fd18b51617ee66e401',
+  '../__tests__/pr-monitor-controller.test.ts':
+    '8e9bc14340aa3ff0ed7c12b3641438c815744cbb3520497c32cda3ec83c72ccf',
+  '../pr-monitor-application.ts':
+    '1d6c7771a709a55bd49dbf8c2b9527d65443f6595913a9b7a03f26ca714cb8d8',
+  '../pr-monitor-author-policy.ts':
+    '933a790188920368ef2a48738c0dfa46a51fd6fc325223cc5815c694acdf3e7d',
+  '../pr-monitor-centaur.ts': '2ae376ef41f1ff6f7c6f4dcd7e7029a6b1445145985fa544f21a1f1bf27e5e47',
+  '../pr-monitor-controller.ts': '77d67deedce12416dadd68fd22ddb3b73bc0f5a929561e00725bafa67d68fb42',
 });

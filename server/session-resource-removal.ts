@@ -17,6 +17,8 @@ export class SessionResourceRemovalService {
       closeRuntime(id: string): Promise<void>;
       assertSettled(id: string): void;
       restorePrompts?(id: string): void;
+      /** Make passive observations terminal once release is committed to. */
+      releasePassive?(id: string): void | Promise<void>;
     },
   ) {}
   read(id: string) {
@@ -125,6 +127,8 @@ export class SessionResourceRemovalService {
       this.current(id, record, assertCurrent);
       await release();
       this.current(id, record, assertCurrent);
+      // Idempotent; a failure leaves the removal failed and retryable.
+      await this.deps.releasePassive?.(id);
       return this.deps.store.transition(id, operationId, 'releasing', 'completed');
     } catch (error) {
       this.deps.store.transition(

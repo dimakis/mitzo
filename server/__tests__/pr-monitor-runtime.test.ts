@@ -1,13 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../../packages/protocol/src/event-store.js';
 import { createPrMonitorObservationRuntime } from '../pr-monitor-runtime.js';
+import { PR_MONITOR_MAX_REQUESTS } from '../pr-monitor-observer.js';
 const id = '9c6bb0d4-081f-4f55-86f8-60c703452053',
   head = 'a'.repeat(40),
   base = 'b'.repeat(40);
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
-it.each([0, 8])(
-  'composes durable Watch, authenticated reads, real quota admission and event persistence without a model port (%i workflow runs)',
+it.each([0, 3, 5, 10, 11])(
+  'composes durable Watch and %i workflows through actual bounded quota admission without a model port',
   async (workflows) => {
     const store = new EventStore(':memory:');
     stores.push(store);
@@ -69,35 +70,21 @@ it.each([0, 8])(
       data:
         endpoint === '/user'
           ? { id: 42 }
-          : endpoint.includes('/reviews')
+          : endpoint.includes('/reviews') || endpoint.includes('/comments')
             ? []
             : endpoint.includes('/jobs')
-              ? {
-                  total_count: 1,
-                  jobs: [
-                    {
-                      id: Number(/runs\/(\d+)/.exec(endpoint)![1]) + 1000,
-                      name: 'test',
-                      status: 'completed',
-                      conclusion: 'success',
-                      head_sha: head,
-                      run_id: Number(/runs\/(\d+)/.exec(endpoint)![1]),
-                      run_attempt: 1,
-                      completed_at: new Date().toISOString(),
-                    },
-                  ],
-                }
+              ? { total_count: 0, jobs: [] }
               : endpoint.includes('/actions')
                 ? {
                     total_count: workflows,
-                    workflow_runs: Array.from({ length: workflows }, (_, n) => ({
-                      id: n + 1,
-                      workflow_id: n + 1,
+                    workflow_runs: Array.from({ length: workflows }, (_, i) => ({
+                      id: i + 1,
+                      workflow_id: i + 1,
                       run_number: 1,
                       run_attempt: 1,
                       head_sha: head,
-                      status: 'completed',
-                      conclusion: 'success',
+                      status: 'queued',
+                      conclusion: null,
                     })),
                   }
                 : {
@@ -138,18 +125,19 @@ it.each([0, 8])(
       },
     );
     await runtime.reconcileDue();
+    // Opening and closing PR reads attest the principal (2 each); the runs page,
+    // reviews and comments cost one each, plus one job page per workflow run.
     const view = store.prMonitor.read('ordinary:user', 'chat', id);
+    // A fresh quota epoch's background burst admits one whole collection, so
+    // multi-workflow heads complete right after each reset (#1427).
+    expect(7 + workflows).toBeLessThanOrEqual(PR_MONITOR_MAX_REQUESTS);
     expect(view.refreshState).toBe('current');
     expect(view.snapshot?.headSha).toBe(head);
     expect(view.counters.modelTurns).toBe(0);
-    // Opening and closing PR reads attest the principal (2 each); the CI runs page
-    // and reviews page cost one request each, and each run one jobs request. The
-    // real quota's first-epoch background burst admits the whole collection.
-    const calls = 6 + workflows;
-    expect(transport).toHaveBeenCalledTimes(calls);
-    expect(store.githubReadQuota.inspect('github:42').charged).toBe(calls);
+    expect(transport).toHaveBeenCalledTimes(7 + workflows);
+    expect(store.githubReadQuota.inspect('github:42').charged).toBe(7 + workflows);
     await runtime.close();
     await runtime.reconcileDue();
-    expect(transport).toHaveBeenCalledTimes(calls);
+    expect(transport).toHaveBeenCalledTimes(7 + workflows);
   },
 );

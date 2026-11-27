@@ -26,6 +26,9 @@ type Ports = {
 /** Durable extension of SessionCapabilityGrants, using its interactive Access
  * entrypoint and the existing logout owner. Stored consent is never a login. */
 export class PrMonitorConsent {
+  // The revocation fence is the durable pending revocation only. Begin and
+  // complete are synchronous transactions, so an in-memory set added nothing and
+  // leaked whenever a revoke failed (stale revision, conflict, no Watch).
   constructor(private readonly ports: Ports) {}
   private interactive(auth: AuthSession) {
     if (
@@ -42,6 +45,8 @@ export class PrMonitorConsent {
   }
   issue(auth: AuthSession, input: PrWatchRequest): PrMonitorAuthority {
     this.interactive(auth);
+    if (this.ports.store.pendingWatchRevocation(input.subscriptionId))
+      throw Error('revocation_pending');
     if (
       !Number.isInteger(input.durationMinutes) ||
       input.durationMinutes < 1 ||
@@ -96,19 +101,30 @@ export class PrMonitorConsent {
   }
   revoke(auth: AuthSession, input: Revoke) {
     this.interactive(auth);
-    return this.ports.store.mutateAuthority({
+    // Revoking retained operator consent must remain possible after an account,
+    // connection or execution context disappears. Renewal still checks all three.
+    this.ports.store.read('ordinary:user', input.conversationId, input.subscriptionId);
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify(['revoke', 'ordinary:user', input]))
+      .digest('hex');
+    this.ports.store.beginWatchRevocation({
+      ...input,
+      operatorId: 'ordinary:user',
+      fingerprint,
+      assertCurrent: () => this.interactive(auth),
+    });
+    const result = this.ports.store.mutateAuthority({
       ...input,
       operatorId: 'ordinary:user',
       kind: 'pr-watch',
-      fingerprint: createHash('sha256')
-        .update(JSON.stringify(['revoke', auth, input]))
-        .digest('hex'),
+      fingerprint,
       assertCurrent: () => this.interactive(auth),
       change: (previous) => {
         if (!previous) throw Error('authority_unavailable');
         return { ...previous, revision: previous.revision + 1, revokedAt: Date.now() };
       },
     });
+    return result;
   }
   capture(
     conversationId: string,
@@ -117,6 +133,8 @@ export class PrMonitorConsent {
     const saved = this.ports.store.authority(subscriptionId, 'pr-watch');
     if (!saved) throw Error('authority_unavailable');
     const check = () => {
+      if (this.ports.store.pendingWatchRevocation(subscriptionId))
+        throw Error('authority_unavailable');
       if (!this.ports.hasPersistentRevocationAuthority()) throw Error('authority_unavailable');
       const s = this.subscription(conversationId, subscriptionId);
       const current = this.ports.store.authority(subscriptionId, 'pr-watch');

@@ -20,6 +20,7 @@ export const PrMonitorSubscriptionSchema = z.strictObject({
   github: z.strictObject({
     connectionId: z.uuid(),
     identityRevision: reference,
+    principalId: reference.optional(),
     repositoryId: reference,
     owner: z
       .string()
@@ -92,7 +93,7 @@ export const PrMonitorAuthoritySchema = z
   });
 export type PrMonitorAuthority = z.infer<typeof PrMonitorAuthoritySchema>;
 export const PrMonitorReferenceSchema = z.strictObject({
-  kind: z.enum(['job', 'check', 'review']),
+  kind: z.enum(['job', 'check', 'review', 'comment']),
   id: reference,
   url: z
     .url()
@@ -100,7 +101,11 @@ export const PrMonitorReferenceSchema = z.strictObject({
     .refine((value) => {
       const u = new URL(value);
       return (
-        u.origin === 'https://github.com' && !u.username && !u.password && !u.search && !u.hash
+        u.origin === 'https://github.com' &&
+        !u.username &&
+        !u.password &&
+        !u.search &&
+        (!u.hash || /^#issuecomment-[1-9][0-9]*$/.test(u.hash))
       );
     }),
 });
@@ -140,14 +145,19 @@ export type PrMonitorDiagnostic = {
     | 'authority_unavailable'
     | 'connection_unavailable'
     | 'conversation_unavailable'
+    // Transient: a turn or connection change is in flight. Retry with backoff.
+    | 'conversation_busy'
+    | 'connection_busy'
     | 'head_changed'
     | 'incomplete'
+    | 'retention_limit'
     | 'quota_delayed';
   stage: 'read' | 'publish' | 'reconcile';
   nextRefreshAt: number | null;
 };
 /** Observation outbox only. Delivery owns command allocation and native receipts. */
 export type PrMonitorObservation = {
+  compactedEvents: number;
   baselinePending: boolean;
   failureCount: number;
   subscription: PrMonitorSubscription;
@@ -172,4 +182,9 @@ export type PrMonitorObservation = {
 export type PrMonitorProjection = PrMonitorObservation & {
   version: 1;
   hiddenEvents: number;
+  revocationPending: {
+    requestId: string;
+    expectedRevision: number;
+    expectedAuthorityRevision: number;
+  } | null;
 };

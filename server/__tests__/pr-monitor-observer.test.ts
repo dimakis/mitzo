@@ -336,6 +336,58 @@ it('bounds pagination and preserves explicit partial state', async () => {
   expect(f.read.mock.calls.length).toBeLessThanOrEqual(PR_MONITOR_MAX_REQUESTS);
   expect(f.view().diagnostic?.code).toBe('incomplete');
 });
+it('pauses retained collection explicitly when current-head retention is full', async () => {
+  const f = fixture();
+  await f.observe();
+  const previous = f.view().snapshot;
+  vi.spyOn(f.store.prMonitor, 'publish').mockImplementationOnce(() => {
+    throw Error('retention_limit');
+  });
+  await f.observe();
+  expect(f.view()).toMatchObject({
+    snapshot: previous,
+    refreshState: 'blocked',
+    outbox: null,
+    subscription: { lifecycle: 'paused', nextRefreshAt: null },
+    diagnostic: { code: 'retention_limit', nextRefreshAt: null },
+  });
+  expect(f.store.prMonitor.due(999999999)).toEqual([]);
+});
+it('retains the exact issue comment reference for the latest eligible Centaur report', async () => {
+  const f = fixture();
+  await f.observe();
+  f.read.mockImplementation(async (r) => ({
+    status: 200,
+    data:
+      r.resource === 'pr'
+        ? pr
+        : {
+            items:
+              r.resource === 'reviews'
+                ? [
+                    {
+                      id: '42',
+                      source: 'comment',
+                      headSha: head,
+                      author: 'TRUSTED',
+                      revision: '2026-11-21T13:00:00Z',
+                      state: 'changes_requested',
+                      findings: [
+                        { id: 'centaur-report', revision: '1', blocking: true, resolved: false },
+                      ],
+                    },
+                  ]
+                : [],
+            hasNext: false,
+          },
+  }));
+  await f.observe();
+  const v = f.view();
+  expect(v.outbox?.eventIds).toHaveLength(1);
+  expect(v.events[0].references).toEqual([
+    { kind: 'comment', id: '42', url: 'https://github.com/owner/repo/pull/1#issuecomment-42' },
+  ]);
+});
 it.each(['merged', 'closed'] as const)(
   'retains terminal %s and stops due polling',
   async (state) => {
@@ -386,7 +438,7 @@ it('completes a head with several workflow runs through the actual GitHub reader
           })()
         : endpoint.includes('/actions/runs')
           ? { total_count: runs.length, workflow_runs: runs }
-          : endpoint.includes('/reviews')
+          : endpoint.includes('/reviews') || endpoint.includes('/comments')
             ? []
             : {
                 node_id: 'pr',
@@ -420,7 +472,7 @@ it('completes a head with several workflow runs through the actual GitHub reader
   expect(f.view().snapshot).toMatchObject({ complete: true, ci: 'failed' });
   // Principal attestation brackets the collection: opening and closing PR reads only.
   expect(endpoints.filter((e) => e.endsWith('/user'))).toHaveLength(2);
-  expect(endpoints).toHaveLength(6 + runs.length);
+  expect(endpoints).toHaveLength(7 + runs.length);
   expect(endpoints.length).toBeLessThanOrEqual(PR_MONITOR_MAX_REQUESTS);
 });
 it('backs off a primary rate-limit 403 until its reset instead of stopping the Watch', async () => {

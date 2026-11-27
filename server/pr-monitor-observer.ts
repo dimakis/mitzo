@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { PrMonitorDiagnostic, PrMonitorFinding, PrMonitorSubscription } from '@mitzo/protocol';
 import { GITHUB_READ_BACKGROUND_BURST, type EventStore } from './event-store.js';
 import { createLogger } from './logger.js';
+import { prMonitorAuthors, type PrMonitorAuthorPolicy } from './pr-monitor-author-policy.js';
 const log = createLogger('pr-monitor');
 
 const ref = z.string().min(1).max(200);
@@ -30,6 +31,7 @@ const ciSchema = z.object({
   completedAt: z.iso.datetime().nullable(),
 });
 const reviewSchema = z.object({
+  source: z.enum(['review', 'comment']).default('review'),
   id: ref,
   headSha: sha,
   author: ref,
@@ -91,12 +93,12 @@ type Options = {
   capture(conversationId: string, id: string): Capture;
   read: PrMonitorReadPort;
   reserve(request: PrMonitorReadRequest): (() => void) | void;
-  eligibleAuthors: readonly string[];
+  eligibleAuthors: PrMonitorAuthorPolicy;
   now?: () => number;
 };
-/** Actual GitHub requests per collection. One head costs 6 + N requests for N
+/** Actual GitHub requests per collection. One head costs 7 + N requests for N
  * workflow runs (opening/closing PR reads with principal attestation, one runs
- * page, N job pages, one reviews page), so this admits typical multi-workflow
+ * page, N job pages, one reviews and one comments page), so this admits typical multi-workflow
  * heads. Principal quota admission still bounds the hourly rate. */
 // A whole collection must fit the quota's per-epoch background burst.
 export const PR_MONITOR_MAX_REQUESTS = GITHUB_READ_BACKGROUND_BURST;
@@ -116,11 +118,6 @@ export class PrMonitorObserver {
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly now: () => number;
   constructor(private readonly options: Options) {
-    if (
-      options.eligibleAuthors.length > 50 ||
-      options.eligibleAuthors.some((a) => !a || a.length > 100)
-    )
-      throw Error('invalid_author_policy');
     this.now = options.now ?? Date.now;
   }
   observe(operatorId: string, conversationId: string, id: string): Promise<void> {
@@ -228,7 +225,7 @@ export class PrMonitorObserver {
       const pages = async (resource: 'ci' | 'reviews') => {
         const items: unknown[] = [];
         for (let page = 1; ; page++) {
-          if (requests >= PR_MONITOR_MAX_REQUESTS - 1)
+          if (requests >= PR_MONITOR_MAX_REQUESTS - 2)
             throw new ObservationFailure('incomplete', 60000);
           const parsed = pageSchema.parse(await read(resource, page, opening.headSha));
           items.push(...parsed.items);
@@ -306,15 +303,14 @@ export class PrMonitorObserver {
           });
         }
       const currentReviews = new Map<string, z.infer<typeof reviewSchema>>();
+      const authors = prMonitorAuthors(this.options.eligibleAuthors, s);
       for (const review of reviews) {
         if (review.state === 'commented') continue;
-        if (
-          review.headSha !== opening.headSha ||
-          !this.options.eligibleAuthors.includes(review.author)
-        )
+        if (review.headSha !== opening.headSha || !authors.has(review.author.toLowerCase()))
           continue;
-        const prior = currentReviews.get(review.author);
-        if (!prior || review.revision > prior.revision) currentReviews.set(review.author, review);
+        const author = review.author.toLowerCase();
+        const prior = currentReviews.get(author);
+        if (!prior || review.revision > prior.revision) currentReviews.set(author, review);
         else if (prior.revision === review.revision && !isDeepStrictEqual(prior, review))
           throw new ObservationFailure('incomplete', 60000);
       }
@@ -325,14 +321,17 @@ export class PrMonitorObserver {
               findings.push({
                 kind: 'review_actionable',
                 sourceIds: [
-                  `${review.id}:${review.headSha}:${review.revision}:${finding.id}:${finding.revision}`,
+                  `${review.source}:${review.id}:${review.headSha}:${review.revision}:${finding.id}:${finding.revision}`,
                 ],
                 summary: 'Eligible current-head review has an unresolved blocking finding.',
                 references: [
                   {
-                    kind: 'review',
+                    kind: review.source,
                     id: review.id,
-                    url: `${url}/pull/${s.github.pr}/reviews/${encodeURIComponent(review.id)}`,
+                    url:
+                      review.source === 'comment'
+                        ? `${url}/pull/${s.github.pr}#issuecomment-${review.id}`
+                        : `${url}/pull/${s.github.pr}/reviews/${encodeURIComponent(review.id)}`,
                   },
                 ],
                 truncated: false,
@@ -373,7 +372,11 @@ export class PrMonitorObserver {
           'authority_unavailable',
           'conversation_unavailable',
           'connection_unavailable',
+          // In-flight turns and pending connection changes are transient.
+          'conversation_busy',
+          'connection_busy',
           'quota_delayed',
+          'retention_limit',
         ].includes(error.message)
           ? (error.message as PrMonitorDiagnostic['code'])
           : undefined;

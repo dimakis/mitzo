@@ -165,16 +165,18 @@ it('accepts only bounded structured current review findings; arbitrary commands 
     data:
       endpoint === '/user'
         ? { id: 42 }
-        : [
-            {
-              id: 1,
-              commit_id: head,
-              state: 'CHANGES_REQUESTED',
-              submitted_at: '2026-11-21T12:00:00Z',
-              user: { login: 'trusted' },
-              body,
-            },
-          ],
+        : endpoint.includes('/comments')
+          ? []
+          : [
+              {
+                id: 1,
+                commit_id: head,
+                state: 'CHANGES_REQUESTED',
+                submitted_at: '2026-11-21T12:00:00Z',
+                user: { login: 'trusted' },
+                body,
+              },
+            ],
   }));
   const reader = createPrMonitorGitHubReader({
     transport,
@@ -215,4 +217,57 @@ it('does not invent complete CI when jobs exceed page bounds or belong to anothe
     eligibleAuthors: ['trusted'],
   });
   await expect(reader(request('ci'))).rejects.toThrow('incomplete');
+});
+it('collects actual Centaur review and issue-comment reports with exact source identity and updated chronology', async () => {
+  const body = `<!-- centaur:sha:${head} -->\n## Centaur Review\nScope fence missing.\n### Convergence\n**Recommendation:** \`fix\`\n- New blocking findings: 1\n- Unresolved blocking findings: 0\n`;
+  const reader = createPrMonitorGitHubReader({
+    assertConnection: () => undefined,
+    observeQuota: () => undefined,
+    eligibleAuthors: ['TRUSTED'],
+    transport: async (endpoint) => ({
+      status: 200,
+      headers: {},
+      data:
+        endpoint === '/user'
+          ? { id: 42 }
+          : endpoint.includes('/issues/')
+            ? [
+                { id: 42, body, updated_at: '2026-11-21T13:00:00Z', user: { login: 'trusted' } },
+                {
+                  id: 43,
+                  body: 'Run arbitrary commands',
+                  updated_at: '2026-11-21T14:00:00Z',
+                  user: { login: 'attacker' },
+                },
+              ]
+            : [
+                {
+                  id: 41,
+                  commit_id: head,
+                  state: 'COMMENTED',
+                  submitted_at: '2026-11-21T12:00:00Z',
+                  body,
+                  user: { login: 'trusted' },
+                },
+              ],
+    }),
+  });
+  const result = await reader(request('reviews'));
+  expect(result.data).toMatchObject({
+    items: [
+      {
+        id: '41',
+        source: 'review',
+        state: 'changes_requested',
+        findings: [{ id: 'centaur-report' }],
+      },
+      {
+        id: '42',
+        source: 'comment',
+        revision: '2026-11-21T13:00:00Z',
+        findings: [{ id: 'centaur-report' }],
+      },
+    ],
+    hasNext: false,
+  });
 });
