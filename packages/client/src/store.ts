@@ -1064,6 +1064,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }, FOREGROUND_SNAPSHOT_GRACE_MS);
   }
 
+  function cancelDeferredForegroundRestore() {
+    if (deferredForegroundTimer) clearTimeout(deferredForegroundTimer);
+    deferredForegroundTimer = undefined;
+    deferredForegroundRestore = undefined;
+  }
+
   /** The installed view already reflects every event through this offer. */
   function reconnectSnapshotAlreadyApplied(sessionId: string, cursor: number): boolean {
     const state = store.getState();
@@ -2192,6 +2198,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     invalidateAuthentication() {
       for (const id of backgroundSnapshotReads.keys()) cancelBackgroundRead(id);
+      cancelDeferredForegroundRestore();
       pauseReviewedDelivery();
       connection.invalidateAuthentication();
     },
@@ -2385,6 +2392,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       return true;
     }
     if (msg.type === '_auth_lost') {
+      // A deliberate sign-out is not a missing snapshot: never surface a
+      // restore failure for a read the lost session can no longer authorize.
+      cancelDeferredForegroundRestore();
       pauseReviewedDelivery();
       store.setState((s) => ({
         connection: { ...s.connection, status: 'disconnected', clientId: null },

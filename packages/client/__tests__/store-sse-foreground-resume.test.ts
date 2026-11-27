@@ -8,7 +8,11 @@ import { createMitzoStore, FOREGROUND_SNAPSHOT_GRACE_MS } from '../src/store.js'
 
 type Snapshot = { cursor: number; offerId: string; state?: string };
 
-function harness(options: { snapshotOnReconnect?: (lastSeq: number) => Snapshot | null }) {
+function harness(options: {
+  snapshotOnReconnect?: (lastSeq: number) => Snapshot | null;
+  /** Deliver the stream snapshot this long after the reconnect POST resolves. */
+  snapshotDelayMs?: number;
+}) {
   let visibility = 'visible';
   const browserListeners = new Map<string, () => void>();
   vi.stubGlobal('document', {
@@ -29,11 +33,14 @@ function harness(options: { snapshotOnReconnect?: (lastSeq: number) => Snapshot 
     removeEventListener: vi.fn(),
     close: vi.fn(),
     onmessage: null as ((event: MessageEvent) => void) | null,
-    onerror: null,
+    onerror: null as (() => void) | null,
   };
   const emit = (message: Record<string, unknown>) =>
     source.onmessage?.(new MessageEvent('message', { data: JSON.stringify(message) }));
   const transcripts: Array<{ url: string; resolve: (response: Response) => void }> = [];
+  let offers = 0;
+  let holdReconnect = false;
+  const heldReconnects: Array<() => void> = [];
   const fetch = vi.fn((url: string, init?: RequestInit) => {
     if (url.includes('/messages'))
       return new Promise<Response>((resolve) => transcripts.push({ url, resolve }));
@@ -41,23 +48,38 @@ function harness(options: { snapshotOnReconnect?: (lastSeq: number) => Snapshot 
       emit({ type: '_probe', nonce: JSON.parse(String(init?.body)).nonce });
     if (url.endsWith('/reconnect')) {
       const body = JSON.parse(String(init?.body));
-      for (const entry of body.sessions as Array<{
-        sessionId: string;
-        lastSeq: number;
-        subscriptionId?: string;
-      }>) {
-        const snapshot = options.snapshotOnReconnect?.(entry.lastSeq);
-        if (snapshot)
-          emit({
+      // Like handleReconnect, write each snapshot to the stream before answering.
+      const deliver = () => {
+        for (const entry of body.sessions as Array<{
+          sessionId: string;
+          lastSeq: number;
+          subscriptionId?: string;
+        }>) {
+          const snapshot = options.snapshotOnReconnect?.(entry.lastSeq);
+          if (!snapshot) continue;
+          const message = {
             type: 'session_reconnect_snapshot',
             sessionId: entry.sessionId,
             subscriptionId: entry.subscriptionId,
             cursor: snapshot.cursor,
             cursorValid: true,
-            offerId: snapshot.offerId,
+            offerId: `${snapshot.offerId}-${++offers}`,
             state: snapshot.state ?? 'idle',
-          });
+          };
+          if (options.snapshotDelayMs === undefined) emit(message);
+          else setTimeout(() => emit(message), options.snapshotDelayMs);
+        }
+      };
+      if (holdReconnect) {
+        holdReconnect = false;
+        return new Promise<Response>((resolve) =>
+          heldReconnects.push(() => {
+            deliver();
+            resolve(Response.json({ applied: true }));
+          }),
+        );
       }
+      deliver();
     }
     return Promise.resolve(Response.json(url.includes('/api/chat/') ? { applied: true } : []));
   });
@@ -94,6 +116,12 @@ function harness(options: { snapshotOnReconnect?: (lastSeq: number) => Snapshot 
     background,
     foreground,
     text,
+    holdNextReconnect: () => {
+      holdReconnect = true;
+    },
+    heldReconnects,
+    snapshotAcks: () =>
+      fetch.mock.calls.filter(([url]) => String(url).endsWith('/reconnect-snapshot-applied')),
     welcome: (connectionId: string) =>
       welcome(new MessageEvent('welcome', { data: JSON.stringify({ connectionId }) })),
   };
@@ -268,4 +296,101 @@ it('falls back to one full read when the reconnect offers no snapshot', async ()
   } finally {
     h.store.getState().invalidateAuthentication();
   }
+});
+
+it('keeps the deferral when the stream snapshot arrives after the reconnect POST', async () => {
+  vi.useFakeTimers();
+  // The snapshot travels on the SSE stream and the POST response on another
+  // request, so `_open` can be observed first and start the fallback timer.
+  const h = harness({
+    snapshotOnReconnect: () => ({ cursor: 2, offerId: 'late-offer' }),
+    snapshotDelayMs: 500,
+  });
+  try {
+    await openChat(h);
+    h.background();
+    h.foreground();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.fetch.mock.calls.some(([url]) => String(url).endsWith('/reconnect'))).toBe(true);
+    expect(h.snapshotAcks()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.snapshotAcks()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(FOREGROUND_SNAPSHOT_GRACE_MS * 2);
+    expect(h.transcriptReads()).toHaveLength(0);
+    expect(h.store.getState().historyError).toBeNull();
+  } finally {
+    h.store.getState().invalidateAuthentication();
+  }
+});
+
+it('defers to the snapshot when the stream died while backgrounded', async () => {
+  const h = harness({ snapshotOnReconnect: () => ({ cursor: 2, offerId: 'dead-offer' }) });
+  try {
+    await openChat(h);
+    h.background();
+    // iOS tore down the stream while suspended. Foreground recreates it, and
+    // the replacement replays tracked chats once its welcome arrives.
+    h.source.onerror?.();
+    h.foreground();
+    expect(h.source.close).toHaveBeenCalled();
+    expect(h.transcriptReads()).toHaveLength(0);
+    h.welcome('replacement');
+    await vi.waitFor(() => expect(h.snapshotAcks()).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(h.transcriptReads()).toHaveLength(0);
+    expect(h.text()).toEqual(['first', 'second']);
+  } finally {
+    h.store.getState().invalidateAuthentication();
+  }
+});
+
+it('defers to a reconnect replay that is already in flight', async () => {
+  const h = harness({ snapshotOnReconnect: () => ({ cursor: 3, offerId: 'inflight-offer' }) });
+  try {
+    await openChat(h);
+    // The stream reconnected just before backgrounding; its replay POST is pending.
+    h.holdNextReconnect();
+    h.welcome('replacement');
+    await vi.waitFor(() => expect(h.heldReconnects).toHaveLength(1));
+    h.background();
+    h.foreground();
+    expect(h.transcriptReads()).toHaveLength(0);
+    h.heldReconnects[0]();
+    await vi.waitFor(() => expect(h.transcripts.length).toBeGreaterThan(0));
+    // The foreground marks the pending replay dirty, so it is re-posted once.
+    // Every read is the same bounded prefix (coalesced by the server) and none
+    // is a full `transcript=1` rebuild.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(h.transcriptReads().every(([url]) => String(url).includes('throughSeq=3'))).toBe(true);
+    for (const read of h.transcripts)
+      read.resolve(
+        Response.json({
+          messages: [
+            userRow('u1', 'first', 1),
+            userRow('u2', 'second', 2),
+            userRow('u3', 'third', 3),
+          ],
+          current: null,
+          currents: [],
+        }),
+      );
+    await vi.waitFor(() => expect(h.text()).toEqual(['first', 'second', 'third']));
+    await vi.waitFor(() => expect(h.store.getState().historyLoading).toBe(false));
+    expect(h.transcriptReads().some(([url]) => String(url).includes('transcript=1'))).toBe(false);
+  } finally {
+    h.store.getState().invalidateAuthentication();
+  }
+});
+
+it('cancels the deferred fallback when authentication is invalidated', async () => {
+  vi.useFakeTimers();
+  const h = harness({ snapshotOnReconnect: () => null });
+  await openChat(h);
+  h.background();
+  h.foreground();
+  await vi.advanceTimersByTimeAsync(0);
+  h.store.getState().invalidateAuthentication();
+  await vi.advanceTimersByTimeAsync(FOREGROUND_SNAPSHOT_GRACE_MS * 2);
+  expect(h.transcriptReads()).toHaveLength(0);
+  expect(h.store.getState().historyError).toBeNull();
 });
