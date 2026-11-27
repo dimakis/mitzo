@@ -81,6 +81,7 @@ function fixture(
   let releaseSend: (() => void) | undefined;
   let sendBarrier: Promise<void> | undefined;
   let delayedStatus: Promise<Response> | undefined;
+  let readinessBarrier: Promise<void> | undefined;
   let progress: CollaborationProgress = {
     collaborationId: view.collaborationId,
     membershipRevision: view.membershipRevision,
@@ -147,7 +148,8 @@ function fixture(
       return Response.json(view);
     }
     if (url.endsWith('/progress')) return Response.json(progress);
-    if (url.includes('/recipients/'))
+    if (url.includes('/recipients/')) {
+      await readinessBarrier;
       return Response.json({
         collaborationId: view.collaborationId,
         sessionId: decodeURIComponent(url.split('/').at(-1)!),
@@ -156,6 +158,7 @@ function fixture(
         ready: true,
         reason: null,
       });
+    }
     if (url.endsWith('/messages/observe')) return Response.json({ message: null, terminal: false });
     if (url.endsWith('/messages/stop')) {
       const input = JSON.parse(init!.body as string);
@@ -283,6 +286,13 @@ function fixture(
     ordinarySend,
     ordinaryStop,
     voice,
+    delayReadiness: () => {
+      let release!: () => void;
+      readinessBarrier = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return () => release();
+    },
     delaySend: (status: typeof deliveryStatus = 'delivered') => {
       acceptSends = true;
       deliveryStatus = status;
@@ -320,6 +330,40 @@ function fixture(
     },
   };
 }
+
+it.each(['Send message', 'Queue message'])(
+  'one %s press survives shared readiness without ordinary fallback',
+  async (action) => {
+    const draft = { ...createChatDraft(), text: 'Original shared draft' };
+    saveChatDraft(draft);
+    const f = fixture(false, draft, 'Architect');
+    const ready = f.delayReadiness();
+    const accepted = f.delaySend('queued');
+    render(f.tree({ ...chat, running: action === 'Queue message' }));
+    await screen.findByRole('button', { name: 'Choose who replies' });
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    fireEvent.change(input, { target: { value: 'One press before readiness settles' } });
+    const button = screen.getByRole('button', { name: action });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(f.sends).toHaveLength(0);
+    fireEvent.change(input, { target: { value: 'Keep the next draft' } });
+    await act(async () => ready());
+    await waitFor(() => expect(f.sends).toHaveLength(1));
+    expect(f.sends[0].text).toBe('One press before readiness settles');
+    expect(f.sends[0].responders).toEqual({ kind: 'selected', sessionIds: ['architect'] });
+    await act(async () => accepted());
+    await waitFor(() =>
+      expect(
+        getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend?.acknowledged,
+      ).toBe(true),
+    );
+    expect(input).toHaveProperty('value', 'Keep the next draft');
+    expect(f.ordinarySend).not.toHaveBeenCalled();
+    expect(f.steers).toHaveLength(0);
+  },
+);
 
 it.each(['delivered', 'queued', 'pending', 'uncertain'] as const)(
   'clears an accepted shared prompt with %s delivery and retains a newer draft',
