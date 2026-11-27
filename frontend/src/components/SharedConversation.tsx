@@ -800,7 +800,7 @@ function SharedConversationBodyContent({
           disabled: composerResponders.disabled,
         }
       : undefined,
-    sendDisabledReason: presentation.error ?? sending.disabledReason,
+    sendDisabledReason: presentation.error ?? sending.sendDisabledReason,
     sendDisabledAction: {
       label: sending.pending ? 'Check original request' : 'Refresh conversation',
       onClick: () => {
@@ -811,49 +811,69 @@ function SharedConversationBodyContent({
         }
       },
     },
-    onSend: (text, images, context, delivered, _assigned, _draft, replyTo) => {
-      if (context?.length || sending.disabledReason) return false;
-      const attachments = ChatImagesSchema.safeParse(
-        images?.map(({ data, mediaType }) => ({ data, mediaType })) ?? [],
-      );
-      if (!attachments.success) {
-        setSendFailure(
-          'These images could not be sent. Use supported image attachments within the size limit. Your draft is retained.',
-        );
-        delivered?.('failed');
-        return false;
-      }
-      setSendFailure(undefined);
-      const replySource = replyTo
-        ? [...(projection?.earlierMessages ?? []), ...(view?.messages ?? [])].find(
-            (m) =>
-              m.projectionId === replyTo.messageId ||
-              (m.source?.conversationId === sourceConversationId &&
-                m.source.messageId === replyTo.messageId),
-          )
-        : undefined;
-      if (replyTo && !replySource) {
-        setSendFailure(
-          'The original reply source is unavailable. Refresh the discussion or remove the reply quote.',
-        );
-        return false;
-      }
-      void sending
-        .send(text, attachments.data.length ? attachments.data : undefined, replySource?.messageId)
-        .then(
-          (ok) => delivered?.(ok ? 'accepted' : 'failed'),
-          (cause) => {
-            setSendFailure(
-              cause instanceof Error
-                ? cause.message
-                : 'Could not send this prompt. Your draft is retained.',
-            );
-            delivered?.('failed');
-          },
-        );
-      return true;
-    },
+    onSend: submitSharedPrompt,
+    // Both intents use the ordinary admission consumer, which queues behind an
+    // active turn. Queue must never invoke steering or the browser draft queue.
+    onQueue: submitSharedPrompt,
   };
+  function submitSharedPrompt(
+    ...[text, images, context, delivered, _assigned, _draft, replyTo]: Parameters<
+      ComponentProps<typeof ChatInput>['onSend']
+    >
+  ) {
+    if (context?.length) {
+      setSendFailure(
+        'Context blocks cannot be attached to a shared prompt. Use the shared context control. Your draft is retained.',
+      );
+      return false;
+    }
+    if (sending.sendDisabledReason) {
+      setSendFailure(sending.sendDisabledReason);
+      return false;
+    }
+    const attachments = ChatImagesSchema.safeParse(
+      images?.map(({ data, mediaType }) => ({ data, mediaType })) ?? [],
+    );
+    if (!attachments.success) {
+      setSendFailure(
+        'These images could not be sent. Use supported image attachments within the size limit. Your draft is retained.',
+      );
+      delivered?.('failed');
+      return false;
+    }
+    setSendFailure(undefined);
+    const replySource = replyTo
+      ? [...(projection?.earlierMessages ?? []), ...(view?.messages ?? [])].find(
+          (m) =>
+            m.projectionId === replyTo.messageId ||
+            (m.source?.conversationId === sourceConversationId &&
+              m.source.messageId === replyTo.messageId),
+        )
+      : undefined;
+    if (replyTo && !replySource) {
+      setSendFailure(
+        'The original reply source is unavailable. Refresh the discussion or remove the reply quote.',
+      );
+      return false;
+    }
+    void sending
+      .send(text, attachments.data.length ? attachments.data : undefined, replySource?.messageId)
+      .then(
+        (ok) => {
+          if (!ok && sending.lastRefusal()) setSendFailure(sending.lastRefusal());
+          delivered?.(ok ? 'accepted' : 'failed');
+        },
+        (cause) => {
+          setSendFailure(
+            cause instanceof Error
+              ? cause.message
+              : 'Could not send this prompt. Your draft is retained.',
+          );
+          delivered?.('failed');
+        },
+      );
+    return true;
+  }
   // Never move the ordinary input or change its draft/session key on joining.
   // Only this context's dispatch controls change; source.running cannot own them.
   const routing = { ...composer };
@@ -953,7 +973,7 @@ function SharedConversationBodyContent({
             <ChatInput {...composer} externalContextBlocks={EMPTY_CONTEXT} />
           </div>
         ))}
-      <ChatStatusMessage error={sending.error} />
+      <ChatStatusMessage error={sending.error} status={sending.notice} busy={sending.submitting} />
       {host.active && (
         <ChatStatusMessage
           error={progress.error}
