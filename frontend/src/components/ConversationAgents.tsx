@@ -32,6 +32,10 @@ import '../styles/header-actions.css';
 import { ConversationRepositoryPicker } from './ConversationRepositoryPicker';
 import { QuickSettingsContext, type SettingsDestination } from '../lib/quick-settings-context';
 import { QuickSettingsField } from './QuickChatSettings';
+import {
+  sharedConversationLabel,
+  type SharedConversationIdentity,
+} from '../lib/shared-conversation-identity';
 import { ConversationContextSelection } from './ConversationContextSelection';
 import { useConversationContextArtifacts } from '../hooks/useConversationContextArtifacts';
 import type { ConversationContextMessageMetadata } from '../lib/conversation-context-selection';
@@ -76,6 +80,8 @@ export function ConversationAgents(props: {
   compact?: boolean;
   /** Shared ordinary discussions keep names in their existing header action. */
   showParticipantNames?: boolean;
+  /** Canonical shared identity; this uses the existing panel trigger and owner. */
+  sharedIdentity?: SharedConversationIdentity;
   addressedReadingOnly?: boolean;
   leading?: ReactNode;
   actions?: ReactNode;
@@ -111,6 +117,7 @@ function ConversationAgentsBody({
   repository,
   compact,
   showParticipantNames,
+  sharedIdentity,
   addressedReadingOnly,
   leading,
   actions,
@@ -154,7 +161,7 @@ function ConversationAgentsBody({
     if (restoredSetup) setSetup(structuredClone(restoredSetup));
   }, [restoredSetup]);
   const names = agents.map((a) => a.name).join(', ');
-  const namesVisible = !compact || showParticipantNames;
+  const namesVisible = !compact || showParticipantNames || !!sharedIdentity;
   const headerAgents = agents.slice(0, 2);
   const nameValid =
     /^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(setup.name) &&
@@ -240,6 +247,10 @@ function ConversationAgentsBody({
             type="button"
             className={`conversation-participants-trigger${compact && !namesVisible ? ' header-action' : ''}`}
             aria-label={`Agents${names ? ', ' + names : ''}`}
+            aria-description={
+              sharedIdentity ? sharedConversationLabel(sharedIdentity.agentCount) : undefined
+            }
+            data-discussion-id={sharedIdentity?.collaborationId}
             aria-expanded={open}
             onClick={(event) => {
               event.currentTarget.focus();
@@ -248,35 +259,52 @@ function ConversationAgentsBody({
             }}
           >
             <UiIcon name={compact || agents.length <= 1 ? 'bot' : 'agents'} />
-            {namesVisible && (
-              <span>
-                <strong>
-                  <span className="conversation-participant-names">
-                    {headerAgents.map((a) => a.name).join(' · ')
-                      ? headerAgents.map((agent, index) => (
-                          <span
-                            key={agent.id}
-                            className={
-                              index === 1 ? 'conversation-participant-additional-name' : undefined
-                            }
-                          >
-                            {index === 1 ? ' · ' : ''}
-                            {agent.name}
-                          </span>
-                        ))
-                      : 'Agents'}
-                  </span>
-                  {agents.length > 2 && (
-                    <span className="conversation-participant-wide-count">
-                      +{agents.length - 2}
-                    </span>
-                  )}
-                  {agents.length > 1 && (
-                    <span className="conversation-participant-count">+{agents.length - 1}</span>
-                  )}
-                </strong>
-                <small>{agents.length > 1 ? 'Shared discussion' : 'Agent chat'}</small>
+            {sharedIdentity ? (
+              <span className="conversation-shared-identity">
+                <strong>{sharedConversationLabel(sharedIdentity.agentCount)}</strong>
+                {sharedIdentity.state !== 'current' && (
+                  <small
+                    aria-label={
+                      sharedIdentity.state === 'stale'
+                        ? 'Agent membership could not be refreshed'
+                        : 'Agent membership is refreshing'
+                    }
+                  >
+                    {sharedIdentity.state === 'stale' ? 'Membership not refreshed' : 'Refreshing…'}
+                  </small>
+                )}
               </span>
+            ) : (
+              namesVisible && (
+                <span>
+                  <strong>
+                    <span className="conversation-participant-names">
+                      {headerAgents.map((a) => a.name).join(' · ')
+                        ? headerAgents.map((agent, index) => (
+                            <span
+                              key={agent.id}
+                              className={
+                                index === 1 ? 'conversation-participant-additional-name' : undefined
+                              }
+                            >
+                              {index === 1 ? ' · ' : ''}
+                              {agent.name}
+                            </span>
+                          ))
+                        : 'Agents'}
+                    </span>
+                    {agents.length > 2 && (
+                      <span className="conversation-participant-wide-count">
+                        +{agents.length - 2}
+                      </span>
+                    )}
+                    {agents.length > 1 && (
+                      <span className="conversation-participant-count">+{agents.length - 1}</span>
+                    )}
+                  </strong>
+                  <small>{agents.length > 1 ? 'Shared discussion' : 'Agent chat'}</small>
+                </span>
+              )
             )}
             {namesVisible && <UiIcon name="down" />}
           </button>
