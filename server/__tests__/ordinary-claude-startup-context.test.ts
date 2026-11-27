@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import type { Options } from '@anthropic-ai/claude-agent-sdk';
 import type { OrdinaryLocalVertexOwnedDispatch } from '../ordinary-local-vertex-owned-runtime.js';
 import { AsyncQueue } from '../async-queue.js';
-import { sdkFixtureBoundary, sdkQueryPeer } from './fixtures/sdk-query-peer.js';
+import {
+  expectAskModeSdkPermissionGate,
+  sdkFixtureBoundary,
+  sdkQueryPeer,
+} from './fixtures/sdk-query-peer.js';
 import { hostKnowledgePublication } from './fixtures/host-knowledge-publication.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -354,6 +358,17 @@ it('protects the selected executable itself without denying its entire parent wo
   const selected = vi.mocked(boundary.credentialSdkBoundary).mock.calls[0][1];
   expect(selected).toContain(x.f.personalExecutable);
   expect(selected).not.toContain(x.f.root);
+}, 20000);
+
+it('gates bare-allowlisted helpers with the PreToolUse hook on the owned ordinary SDK query in Ask mode', async () => {
+  const x = await fixture(false);
+  await x.owner.admit(x.f.request);
+  const options = x.calls[0];
+  for (const name of ['mcp__mitzo-connections__SaveKnowledgeDraft', 'mcp__telos__TelosGetItem'])
+    expect(options.allowedTools).toContain(name);
+  // The user switches this live conversation to Ask after its query started.
+  x.chat.registry.get('startup-context')!.mode = 'ask';
+  await expectAskModeSdkPermissionGate(options);
 }, 20000);
 
 it('explains the enforced outer boundary when a Bash request asks to disable the SDK sandbox', async () => {

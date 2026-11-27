@@ -1,11 +1,82 @@
 import type {
   HookCallbackMatcher,
   HookEvent,
+  Options,
   SyncHookJSONOutput,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { buildPermissionHandler } from '@mitzo/harness';
+import { createLogger } from './logger.js';
 
 type Hooks = Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+
+const log = createLogger('session-permission-policy');
+/** Copied by the `{ ...matcher }` spreads of every SDK callback wrapper. */
+const PERMISSION_GATE = Symbol('mitzo.sessionPermissionGate');
+/** process.emitWarning code the Agent SDK uses when it will skip canUseTool. */
+export const CAN_USE_TOOL_SHADOWED_WARNING = 'CLAUDE_SDK_CAN_USE_TOOL_SHADOWED';
+let shadowingExplained = false;
+
+/** True when the matcher-less host gate from buildSessionPermissionHooks runs for every tool. */
+export function hasSessionPermissionGate(hooks: Hooks | undefined): boolean {
+  return (
+    hooks?.PreToolUse?.some(
+      (matcher) =>
+        matcher.matcher === undefined &&
+        (matcher as { [PERMISSION_GATE]?: boolean })[PERMISSION_GATE] === true,
+    ) ?? false
+  );
+}
+
+/** Mirrors the SDK's check: bare allowedTools entries or bypass skip canUseTool. */
+function shadowsCanUseTool(
+  options: Pick<Options, 'canUseTool' | 'allowedTools' | 'permissionMode'>,
+): boolean {
+  return (
+    !!options.canUseTool &&
+    (options.permissionMode === 'bypassPermissions' ||
+      (options.allowedTools ?? []).some((tool) => tool.length > 0 && !tool.includes('(')))
+  );
+}
+
+/** Refuse to start an SDK query whose auto-approved tools would bypass every host check. */
+export function assertSessionPermissionGate(
+  options: Pick<Options, 'canUseTool' | 'allowedTools' | 'permissionMode' | 'hooks'>,
+): void {
+  if (shadowsCanUseTool(options) && !hasSessionPermissionGate(options.hooks))
+    throw Error('SDK allowedTools bypass canUseTool without the PreToolUse permission gate');
+}
+
+/**
+ * query() emits CLAUDE_SDK_CAN_USE_TOOL_SHADOWED synchronously for every start
+ * because its check ignores hooks. While the host gate is installed it is a
+ * false positive, so drop only that code for the duration of the call.
+ */
+export function startGatedSdkQuery<T>(options: Options | undefined, start: () => T): T {
+  if (!options || !hasSessionPermissionGate(options.hooks)) return start();
+  const emitWarning = process.emitWarning;
+  process.emitWarning = function (this: NodeJS.Process, ...args: unknown[]) {
+    const [, detail, code] = args;
+    if (
+      (typeof detail === 'object' && detail !== null && 'code' in detail ? detail.code : code) ===
+      CAN_USE_TOOL_SHADOWED_WARNING
+    ) {
+      if (!shadowingExplained) {
+        shadowingExplained = true;
+        log.debug('SDK canUseTool shadowing warning is intentional', {
+          code: 'sdk_can_use_tool_shadowing_gated',
+          reason: 'bare allowedTools are gated by the mandatory PreToolUse permission hook',
+        });
+      }
+      return;
+    }
+    return Reflect.apply(emitWarning, this, args) as void;
+  } as typeof process.emitWarning;
+  try {
+    return start();
+  } finally {
+    process.emitWarning = emitWarning;
+  }
+}
 
 export const TOOL_FAILURE_INSTRUCTIONS = `
 Tool failures do not end the task. Explain the reported reason, what completed or remains uncertain,
@@ -45,6 +116,10 @@ Host tools enforce the live Mitzo permission policy and return concrete availabi
 If one tool is unavailable, continue independent work with the tools that are available.
 `;
 
+function permissionGate(matcher: HookCallbackMatcher): HookCallbackMatcher {
+  return Object.assign(matcher, { [PERMISSION_GATE]: true });
+}
+
 /** All project rewrites finish before the host approves the exact final input.
  * Separate SDK hook matchers run concurrently, so they cannot safely carry the gate. */
 export function buildSessionPermissionHooks(
@@ -54,7 +129,7 @@ export function buildSessionPermissionHooks(
   return {
     ...projectHooks,
     PreToolUse: [
-      {
+      permissionGate({
         timeout: 180,
         onFailure: 'block',
         hooks: [
@@ -171,7 +246,7 @@ export function buildSessionPermissionHooks(
             }
           },
         ],
-      },
+      }),
     ],
   };
 }

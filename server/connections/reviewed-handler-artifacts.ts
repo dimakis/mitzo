@@ -2560,7 +2560,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/centaur-merge-status.test.ts':
     'b4fd0707f8cbc48a63bd1041f7c626be2c375b024ba8bfb9dceea496cde5307d',
   '../__tests__/chat-account-startup.test.ts':
-    'cf29e2544af5d255a9e142b1094e4c6f306ab538ed325582409fe1ae14686901',
+    'a98b0223594e95e6741109344c9e6d71d01508fbdf50ef858a1fe41b43ee7561',
   '../__tests__/chat-agent-context-startup.test.ts':
     '6390742492c75db3b1d05ff00638504815eb66094168e9ec031fbf2727878164',
   '../__tests__/chat-command-json.test.ts':
@@ -2887,7 +2887,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/sdk-project-command.ts':
     '8a4d2bf65591bdc77b2c331fdb648ad88951b1a48a27552f02edd2f98cd76abc',
   '../__tests__/fixtures/sdk-query-peer.ts':
-    'bcb6f40c7ffd71209fbcecfc58f7459d67cb915472b0106e7fb5260168773ec5',
+    '8c37f6c7fea742f2e9e6a851d6808f327adada66957466dae181a529dc792fcd',
   '../__tests__/fixtures/session-capabilities.ts':
     '74c29b0c4a4058a081588c8b52ffe03070f747d8b37c55bbeb48108929a2f002',
   '../__tests__/fixtures/symposium-application-journey.ts':
@@ -3151,7 +3151,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-claude-information.test.ts':
     '26ea3370d4b0fca7b18b6010ce24418459cf1a9f4adb2189cfc52ad70b485284',
   '../__tests__/ordinary-claude-startup-context.test.ts':
-    'ac14d16dd8a4adb47e634a39cc03f584633fc5a411c6a3bcbf2ad5e5e92436c3',
+    '2f3cd31baf0da01cd27d2989ab659ba21b5bc49b74da6684c1684e45b57cc6a2',
   '../__tests__/ordinary-claude-task-execution.test.ts':
     'd89a69fb23e1dd9b0ec918df9aaa25170a09e775bcee99812b5a32b586c00316',
   '../__tests__/ordinary-codex-agent-profile.test.ts':
@@ -3570,7 +3570,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-overview.test.ts':
     'c43ad37da363e41db8ccd1fa498ed98a7b844afeaac3526252aa6189e37653eb',
   '../__tests__/session-permission-policy.test.ts':
-    '6f2ede9be136703b1c8b07aaa60c888f810e71c598c5d8909eb125a0fed538dd',
+    'eeb19ab1b4603ca537370304b842ec5fb23a7511c53150a6d3448419e03e94d6',
   '../__tests__/session-prompt-dispatch.test.ts':
     'd5f360d91f7f2ca31a5f7d7cb10f975a22afb84c5572c33e684a9c227787b84b',
   '../__tests__/session-prompt-router.test.ts':
@@ -3873,7 +3873,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': '378afa461d87a557a7edb3ce64657be8214ff270e4a6da25d253286c89ae5e5d',
+  '../chat.ts': '6b6a42b0f345678d64e3c3d9c01e806f33b532d018e6bdbe67dbafc165cad038',
   '../claude-turn-attribution.ts':
     'df91ef6cf912d7ba7e3405fce233ccf563bea53740041725b40783ee3b82b64d',
   '../__tests__/claude-turn-attribution.test.ts':
@@ -4407,7 +4407,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-sdk-process.ts':
     'fb9323a7fe3a55d6998dd70e0b6e16ff5f008ecb763bc8da9777b7f24514a30e',
   '../ordinary-local-vertex-sdk-query.ts':
-    'f9e86cbbeff2f36e10166b42815cfac85b7005da1fe4dc70298baa35fd29e975',
+    'df02b094db36edd39373a48bb4a111f3e4230749c80efe738659be871542a7ac',
   '../ordinary-local-workspace-owner.ts':
     'a3b3f0ffe8157de1a95f1bb490510baa5a7437750cf7f4a49713e514b827ec04',
   '../ordinary-openshell-codex-entry-owner.ts':
@@ -4672,7 +4672,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-output-routes.ts': '2e08e938b4914797006231d1044b2c6c28693aa7fe1813a37d6ba1c9697649b2',
   '../session-overview.ts': '3c2c7af2b7c3fe542049f973419a48dec54e896aa1645a4c3192f90f23e45f49',
   '../session-permission-policy.ts':
-    'd281ec1f9b6312b2bab387d332a5911e6af45ff35d76cb4ad392b531fc345383',
+    '4df0fcb0875974556f32fb8b9707daecbacab616a91919c79215b0505823d511',
   '../session-permission-revision.ts':
     'cf71bb38e2008352cbccfd22aae88f747625a3533c26aad22537d9509c11a26a',
   '../session-profile-tools.ts': '9c7b87a42b6bc2f7d5f99e1a6ffdb89a110873aa5b9588674ab12eff55df2b00',

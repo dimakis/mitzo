@@ -1,9 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildPermissionHandler, SessionRegistry, resolvePending } from '@mitzo/harness';
+import { query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { AsyncQueue } from '../async-queue.js';
+import { sdkFixtureBoundary } from './fixtures/sdk-query-peer.js';
 import {
+  assertSessionPermissionGate,
   buildSessionPermissionHooks,
+  CAN_USE_TOOL_SHADOWED_WARNING,
+  hasSessionPermissionGate,
   SESSION_PERMISSION_INSTRUCTIONS,
   HOST_TOOL_INSTRUCTIONS,
+  startGatedSdkQuery,
 } from '../session-permission-policy.js';
 
 describe('provider-independent permission authority', () => {
@@ -264,6 +271,83 @@ describe('provider-independent permission authority', () => {
     expect(HOST_TOOL_INSTRUCTIONS).toContain('Bash');
     expect(HOST_TOOL_INSTRUCTIONS).toContain('GitCommit');
     expect(HOST_TOOL_INSTRUCTIONS).toContain('Bash cannot');
+  });
+});
+
+describe('SDK canUseTool shadowing warning', () => {
+  const bare = (hooks?: ReturnType<typeof buildSessionPermissionHooks>) => ({
+    canUseTool: vi.fn(),
+    allowedTools: ['mcp__mitzo-connections__SaveKnowledgeDraft', 'Bash(git status:*)'],
+    hooks,
+  });
+  it('recognizes the gate through callback wrappers but not an arbitrary matcher-less hook', () => {
+    const gated = buildSessionPermissionHooks(vi.fn());
+    const wrapped = {
+      PreToolUse: [
+        ...gated.PreToolUse!.map((matcher) => ({ ...matcher, hooks: [...matcher.hooks] })),
+        { hooks: [vi.fn()] },
+      ],
+    };
+    expect(hasSessionPermissionGate(wrapped)).toBe(true);
+    expect(hasSessionPermissionGate({ PreToolUse: [{ hooks: [vi.fn()] }] })).toBe(false);
+    expect(
+      hasSessionPermissionGate({ PreToolUse: [{ ...gated.PreToolUse![0], matcher: 'Bash' }] }),
+    ).toBe(false);
+  });
+  it('refuses SDK options whose bare allowlist would leave tools ungated', () => {
+    expect(() => assertSessionPermissionGate(bare())).toThrow(/PreToolUse permission gate/);
+    expect(() =>
+      assertSessionPermissionGate({
+        ...bare(),
+        allowedTools: [],
+        permissionMode: 'bypassPermissions',
+      }),
+    ).toThrow(/PreToolUse permission gate/);
+    expect(() =>
+      assertSessionPermissionGate(bare(buildSessionPermissionHooks(vi.fn()))),
+    ).not.toThrow();
+    expect(() =>
+      assertSessionPermissionGate({ ...bare(), allowedTools: ['Bash(ls:*)'] }),
+    ).not.toThrow();
+    expect(() => assertSessionPermissionGate({ ...bare(), canUseTool: undefined })).not.toThrow();
+  });
+  it.each([true, false])(
+    'drops only the real SDK shadowing warning while the gate is installed (gated=%s)',
+    async (gated) => {
+      const emitted = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+      const abortController = new AbortController();
+      const options = {
+        ...bare(gated ? buildSessionPermissionHooks(vi.fn()) : undefined),
+        abortController,
+        spawnClaudeCodeProcess: sdkFixtureBoundary().spawnClaudeCodeProcess,
+      } as Options;
+      let started: ReturnType<typeof query> | undefined;
+      try {
+        started = startGatedSdkQuery(options, () => {
+          process.emitWarning('unrelated', { code: 'UNRELATED_WARNING' });
+          return query({ prompt: new AsyncQueue<SDKUserMessage>(), options });
+        });
+        const codes = emitted.mock.calls.map(
+          ([, detail]) => (detail as { code?: string } | undefined)?.code,
+        );
+        expect(codes).toContain('UNRELATED_WARNING');
+        expect(codes.includes(CAN_USE_TOOL_SHADOWED_WARNING)).toBe(!gated);
+        expect(process.emitWarning).toBe(emitted);
+      } finally {
+        abortController.abort();
+        started?.close();
+        emitted.mockRestore();
+      }
+    },
+  );
+  it('restores warning delivery when query startup throws', () => {
+    const original = process.emitWarning;
+    expect(() =>
+      startGatedSdkQuery(bare(buildSessionPermissionHooks(vi.fn())) as Options, () => {
+        throw Error('startup failed');
+      }),
+    ).toThrow('startup failed');
+    expect(process.emitWarning).toBe(original);
   });
 });
 
