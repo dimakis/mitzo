@@ -7,6 +7,7 @@ import { sessionProfileTools, profileToolDefinitions } from '../session-profile-
 import { agentToolCatalog } from '../agent-tool-catalog.js';
 import { revokeAuthSession } from '../auth.js';
 import { callbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
+import { SpecialistContextLimitError } from '../specialist-context-envelope.js';
 import { EventStore } from '../event-store.js';
 
 const fixture = vi.hoisted(() => ({
@@ -82,6 +83,55 @@ function tools() {
 }
 const call = { turnId: 'turn', callId: 'call' };
 const signal = () => new AbortController().signal;
+it('delivers exact context-limit components as a settled no-start tool result', async () => {
+  const { tool } = tools();
+  const report = {
+    version: 1 as const,
+    encoding: 'utf8' as const,
+    scope: 'specialist_selected_context' as const,
+    limitBytes: 32000,
+    totalBytes: 36001,
+    excessBytes: 4001,
+    components: {
+      assignment: 36000,
+      reviewContribution: 0,
+      sourceMetadata: 0,
+      purpose: 0,
+      joiningBrief: 0,
+      messages: 0,
+      artifacts: 0,
+      framing: 1,
+    },
+    messages: [],
+    artifacts: [],
+  };
+  fixture.consult.mockRejectedValueOnce(new SpecialistContextLimitError(report, true));
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  const result = await callbacks.track(() =>
+    tool.execute(
+      'SymposiumConsult',
+      {
+        operation: 'consult',
+        requestId: randomUUID(),
+        policyId: randomUUID(),
+        role: 'planner',
+        assignment: 'Plan',
+      },
+      signal(),
+      call,
+    ),
+  );
+  expect(result?.isError).toBe(true);
+  expect(JSON.parse(result!.content)).toMatchObject({
+    error: 'context_limit',
+    outcome: 'not_started',
+    stage: 'context_preflight',
+    context: report,
+  });
+  expect(JSON.parse(result!.content).message).toContain('Narrow');
+  expect(callbackOutcome(result)).toBe('settled');
+  await expect(callbacks.settle(signal())).resolves.toBeUndefined();
+});
 it('returns the durable overlap diagnostic when consultation fails before reservation', async () => {
   const events = new EventStore(':memory:');
   cleanup.push(() => events.close());
@@ -118,6 +168,47 @@ it('exposes consultation on ordinary native, API and Claude lead routes', () => 
   expect(agentToolCatalog().find((t) => t.name === 'SymposiumConsult')?.routes).toEqual(
     expect.arrayContaining(['local-api', 'codex-owned-local', 'claude-sdk']),
   );
+});
+
+it('never marks a legacy request with existing effects as settled no-start', async () => {
+  const { tool } = tools();
+  const {
+    buildSpecialistContextEnvelope,
+    measureSpecialistContextEnvelope,
+    specialistContextSelection,
+  } = await import('../specialist-context-envelope.js');
+  const input = {
+    requestId: randomUUID(),
+    role: 'planner',
+    assignment: 'Plan',
+    messageIds: [],
+    artifacts: [],
+  };
+  const selection = specialistContextSelection(input, 'lead', { sequence: 0, messageId: null }, 1);
+  const envelope = buildSpecialistContextEnvelope(
+    {
+      ...selection,
+      messages: [],
+      artifacts: [],
+      summary: null,
+      capacity: { status: 'unverified', reason: 'unverified' },
+    },
+    input,
+  );
+  fixture.consult.mockRejectedValueOnce(
+    new SpecialistContextLimitError(measureSpecialistContextEnvelope(envelope, 1), false),
+  );
+  const result = await tool.execute(
+    'SymposiumConsult',
+    { ...input, operation: 'consult', policyId: randomUUID() },
+    signal(),
+    call,
+  );
+  expect(JSON.parse(result!.content)).toMatchObject({
+    error: 'context_limit',
+    outcome: 'existing_request',
+  });
+  expect(callbackOutcome(result)).not.toBe('settled');
 });
 it('requires exact policy approval, then invokes consultation under the verified lead authority', async () => {
   const { tool } = tools();

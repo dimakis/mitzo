@@ -1,5 +1,24 @@
 import { Router } from 'express';
-import { recentAuthorizationSession } from './connections-router.js';
+import {
+  recentAuthorizationSession,
+  requireRecentConnectionAuthorization,
+  requireSameOriginJson,
+} from './connections-router.js';
+import { z } from 'zod';
+import { PrMonitorAuthoritySchema } from '@mitzo/protocol';
+const watchChange = z.strictObject({
+  requestId: z.string().min(1).max(200),
+  expectedRevision: z.number().int().positive(),
+  expectedAuthorityRevision: z.number().int().nonnegative(),
+  durationMinutes: z.number().int().min(1).max(480),
+  reviewedScope: PrMonitorAuthoritySchema.shape.scope,
+  csrf: z.string().optional(),
+});
+const watchRevoke = watchChange.pick({
+  requestId: true,
+  expectedRevision: true,
+  expectedAuthorityRevision: true,
+});
 import {
   CreateSessionCapabilityGrant,
   type SessionCapabilityGrants,
@@ -51,6 +70,65 @@ export function createSessionCapabilityRouter(options: {
           'Automatic approval review needs a verified reviewer model, account and billing route. Human review handles remaining requests.',
       },
     } satisfies SessionCapabilityInventory);
+  });
+  router.post<{ id: string; subscriptionId: string }>('/pr-watch/:subscriptionId', (req, res) => {
+    if (!options.grants.prWatchAvailable)
+      return res.status(503).json({
+        code: 'pr_watch_unavailable',
+        error: 'Durable Watch consent and authenticated connection adapters are not installed.',
+      });
+    return requireSameOriginJson(req, res, () => {
+      const auth = recentAuthorizationSession(res);
+      if (!auth) return;
+      const parsed = watchChange.safeParse(req.body);
+      if (!parsed.success || !z.uuid().safeParse(req.params.subscriptionId).success)
+        return res.status(400).json({ code: 'invalid_watch_request' });
+      if (!requireRecentConnectionAuthorization(res, parsed.data.csrf ?? '')) return;
+      const input = watchChange.omit({ csrf: true }).parse({
+        requestId: parsed.data.requestId,
+        expectedRevision: parsed.data.expectedRevision,
+        expectedAuthorityRevision: parsed.data.expectedAuthorityRevision,
+        durationMinutes: parsed.data.durationMinutes,
+        reviewedScope: parsed.data.reviewedScope,
+      });
+      try {
+        return res.status(201).json(
+          options.grants.issuePrWatch(auth, {
+            ...input,
+            conversationId: req.params.id as string,
+            subscriptionId: req.params.subscriptionId as string,
+          }),
+        );
+      } catch {
+        return res.status(409).json({
+          code: 'watch_scope_changed',
+          error: 'Refresh the selected PR and review Watch access again.',
+        });
+      }
+    });
+  });
+  router.post('/pr-watch/:subscriptionId/revoke', requireSameOriginJson, (req, res) => {
+    const auth = recentAuthorizationSession(res);
+    if (!auth) return;
+    if (!options.grants.prWatchAvailable)
+      return res.status(503).json({ code: 'pr_watch_unavailable' });
+    const parsed = watchRevoke.safeParse(req.body);
+    if (!parsed.success || !z.uuid().safeParse(req.params.subscriptionId).success)
+      return res.status(400).json({ code: 'invalid_watch_request' });
+    try {
+      return res.json(
+        options.grants.revokePrWatch(auth, {
+          ...parsed.data,
+          conversationId: req.params.id as string,
+          subscriptionId: req.params.subscriptionId as string,
+        }),
+      );
+    } catch {
+      return res.status(409).json({
+        code: 'watch_revoke_unconfirmed',
+        error: 'Watch revocation was not confirmed. Refresh and retry the same request.',
+      });
+    }
   });
   router.post<{ id: string }>('/', (req, res) => {
     const auth = recentAuthorizationSession(res);

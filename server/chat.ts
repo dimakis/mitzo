@@ -1269,6 +1269,19 @@ export function assemblePrompt(
   contextBlocks?: string[],
   sourceSnapshots?: SourceSnapshot[],
 ): string {
+  return appendImageReferences(
+    assembleCommandEnvelope(prompt, contextBlocks, sourceSnapshots),
+    images?.length ? stageImages(cwd, images) : undefined,
+  );
+}
+
+/** Source snapshots and context blocks around a command. Reads context files;
+ * writes nothing. Images are staged separately so callers stage them once. */
+function assembleCommandEnvelope(
+  prompt: string,
+  contextBlocks?: string[],
+  sourceSnapshots?: SourceSnapshot[],
+): string {
   let result = prompt;
   result = assembleSourceSnapshots(result, sourceSnapshots);
 
@@ -1307,15 +1320,14 @@ export function assemblePrompt(
       result = `${preamble}\n\n${blocks.join('\n\n')}\n\n---CONTEXT_END---\n${result}`;
     }
   }
-
-  // Append image references
-  if (images?.length) {
-    const paths = stageImages(cwd, images);
-    const imageRefs = paths.map((p) => `- ${p}`).join('\n');
-    result = `${result}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
-  }
-
   return result;
+}
+
+/** Reference already-staged images so the model reads them with the Read tool. */
+function appendImageReferences(result: string, paths?: string[]): string {
+  if (!paths?.length) return result;
+  const imageRefs = paths.map((p) => `- ${p}`).join('\n');
+  return `${result}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
 }
 
 function stageImages(cwd: string, images: Array<{ data: string; mediaType: string }>): string[] {
@@ -2047,6 +2059,11 @@ async function _startChatInner(
       reasoningEffort: options.reasoningEffort ?? null,
     });
   }
+  // The user's command as typed. `prompt` below becomes the provider envelope
+  // (reply/source context, workspace preamble). Public records derive from this
+  // text (see publicCommandText) and never carry the workspace preamble. Readers
+  // identify the first command by its messageId, not by text.
+  const publicPrompt = prompt;
   if (options.ordinarySdkAuthority) {
     prompt = assembleCommandPrompt(
       eventStore,
@@ -2281,15 +2298,37 @@ async function _startChatInner(
           ),
         )
       : prompt;
+  // Stage attached images once; the provider prompt and the public record
+  // reference the same files.
+  const referencedImages = codexProfile || nativeProviderSelected ? undefined : options.images;
+  const stagedImages =
+    !options.adviserScope && referencedImages?.length
+      ? stageImages(cwd, referencedImages)
+      : undefined;
   const fullPrompt = options.adviserScope
     ? repliedPrompt
-    : assemblePrompt(
-        repliedPrompt,
-        cwd,
-        codexProfile || nativeProviderSelected ? undefined : options.images,
-        options.contextBlocks,
-        options.ordinarySdkAuthority ? undefined : options.sourceSnapshots,
+    : appendImageReferences(
+        assembleCommandEnvelope(
+          repliedPrompt,
+          options.contextBlocks,
+          options.ordinarySdkAuthority ? undefined : options.sourceSnapshots,
+        ),
+        stagedImages,
       );
+  // Public record of this command: what was stored before, minus the workspace
+  // preamble. Context-block and source envelopes stay (the Context-injected
+  // disclosure splits them back out); the preamble reaches every provider
+  // through the system prompt and never becomes public history.
+  const publicCommandText =
+    options.ordinarySdkAuthority ||
+    options.adviserScope ||
+    options.sourceSnapshots?.length ||
+    options.replyToMessageId
+      ? publicPrompt
+      : appendImageReferences(
+          assembleCommandEnvelope(publicPrompt, options.contextBlocks, options.sourceSnapshots),
+          stagedImages,
+        );
   const userIntent = options.userIntent ?? prompt;
   if (options.reattachOnly && (!options.resume || !codexProfile))
     throw new Error('Provider-only reattachment requires a resumable Codex conversation');
@@ -2318,10 +2357,8 @@ async function _startChatInner(
       ...(agentProfile ? { agentProfile } : {}),
       cwd,
       mode,
-      initialPrompt:
-        options.ordinarySdkAuthority || options.sourceSnapshots?.length || options.replyToMessageId
-          ? prompt
-          : fullPrompt,
+      initialPrompt: publicCommandText,
+      initialMessageId,
       ...(accountBinding ? { accountBinding } : {}),
       selectedModel: options.model ?? accountBinding?.model ?? null,
       reasoningEffort: options.reasoningEffort ?? null,
@@ -2866,7 +2903,7 @@ async function _startChatInner(
         storeAndEchoIfNew(
           conversationId,
           messageId,
-          options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
+          publicCommandText,
           clientId,
           transport,
           session.observers,
@@ -2989,7 +3026,7 @@ async function _startChatInner(
       storeAndEchoIfNew(
         conversationId,
         initialMessageId,
-        options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
+        publicCommandText,
         clientId,
         transport,
         session.observers,
@@ -3789,7 +3826,7 @@ async function _startChatInner(
       storeAndEchoIfNew(
         options.resume,
         messageId,
-        options.sourceSnapshots?.length || options.replyToMessageId ? prompt : fullPrompt,
+        publicCommandText,
         clientId,
         transport,
         session.observers,
@@ -3870,9 +3907,7 @@ async function _startChatInner(
       eventStore,
       options.resume || codexProfile || apiKey || gemini || options.ordinarySdkAuthority
         ? undefined
-        : options.sourceSnapshots?.length
-          ? prompt
-          : fullPrompt,
+        : publicCommandText,
       {
         connRegistry: _connRegistry ?? undefined,
         onFirstEventOutcome: options.onFirstEventOutcome,

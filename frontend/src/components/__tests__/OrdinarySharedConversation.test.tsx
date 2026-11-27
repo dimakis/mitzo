@@ -81,6 +81,7 @@ function fixture(
   let releaseSend: (() => void) | undefined;
   let sendBarrier: Promise<void> | undefined;
   let delayedStatus: Promise<Response> | undefined;
+  let readinessBarrier: Promise<void> | undefined;
   let progress: CollaborationProgress = {
     collaborationId: view.collaborationId,
     membershipRevision: view.membershipRevision,
@@ -147,7 +148,8 @@ function fixture(
       return Response.json(view);
     }
     if (url.endsWith('/progress')) return Response.json(progress);
-    if (url.includes('/recipients/'))
+    if (url.includes('/recipients/')) {
+      await readinessBarrier;
       return Response.json({
         collaborationId: view.collaborationId,
         sessionId: decodeURIComponent(url.split('/').at(-1)!),
@@ -156,6 +158,7 @@ function fixture(
         ready: true,
         reason: null,
       });
+    }
     if (url.endsWith('/messages/observe')) return Response.json({ message: null, terminal: false });
     if (url.endsWith('/messages/stop')) {
       const input = JSON.parse(init!.body as string);
@@ -283,6 +286,13 @@ function fixture(
     ordinarySend,
     ordinaryStop,
     voice,
+    delayReadiness: () => {
+      let release!: () => void;
+      readinessBarrier = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return () => release();
+    },
     delaySend: (status: typeof deliveryStatus = 'delivered') => {
       acceptSends = true;
       deliveryStatus = status;
@@ -320,6 +330,40 @@ function fixture(
     },
   };
 }
+
+it.each(['Send message', 'Queue message'])(
+  'one %s press survives shared readiness without ordinary fallback',
+  async (action) => {
+    const draft = { ...createChatDraft(), text: 'Original shared draft' };
+    saveChatDraft(draft);
+    const f = fixture(false, draft, 'Architect');
+    const ready = f.delayReadiness();
+    const accepted = f.delaySend('queued');
+    render(f.tree({ ...chat, running: action === 'Queue message' }));
+    await screen.findByRole('button', { name: 'Choose who replies' });
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    fireEvent.change(input, { target: { value: 'One press before readiness settles' } });
+    const button = screen.getByRole('button', { name: action });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(f.sends).toHaveLength(0);
+    fireEvent.change(input, { target: { value: 'Keep the next draft' } });
+    await act(async () => ready());
+    await waitFor(() => expect(f.sends).toHaveLength(1));
+    expect(f.sends[0].text).toBe('One press before readiness settles');
+    expect(f.sends[0].responders).toEqual({ kind: 'selected', sessionIds: ['architect'] });
+    await act(async () => accepted());
+    await waitFor(() =>
+      expect(
+        getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend?.acknowledged,
+      ).toBe(true),
+    );
+    expect(input).toHaveProperty('value', 'Keep the next draft');
+    expect(f.ordinarySend).not.toHaveBeenCalled();
+    expect(f.steers).toHaveLength(0);
+  },
+);
 
 it.each(['delivered', 'queued', 'pending', 'uncertain'] as const)(
   'clears an accepted shared prompt with %s delivery and retains a newer draft',
@@ -510,7 +554,7 @@ it('retains the original context wheel, microphone and resource controls through
   expect(f.ordinarySend).not.toHaveBeenCalled();
 });
 
-it('shows participant names in the ordinary compact header when a reviewer joins', async () => {
+it('keeps canonical Symposium identity on the same Agents trigger through joining and roster loss', async () => {
   const f = fixture(true, undefined, 'Original architect');
   render(f.tree());
   const original = await screen.findByRole('button', { name: 'Agents, Original architect' });
@@ -521,12 +565,59 @@ it('shows participant names in the ordinary compact header when a reviewer joins
     name: 'Agents, Original architect, Reviewer',
   });
   expect(shared).toBe(original);
-  expect(shared.querySelector('.conversation-participant-names')?.textContent).toBe(
-    'Original architect · Reviewer',
-  );
+  expect(within(shared).getByText('Symposium · 2 agents')).toBeTruthy();
+  fireEvent.click(shared);
+  expect(screen.getAllByRole('dialog', { name: 'Agents' })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Close Agents' }));
+  f.view.participantSessionIds = ['architect'];
+  f.view.membershipRevision++;
+  f.view.joinedParticipants = [];
+  await poll();
+  await screen.findByText('Symposium · 1 agent');
   expect(shared.closest('.conversation-agents-entry--named')).not.toBeNull();
   expect(shared.closest('.conversation-participants-container')).toBeNull();
   expect(screen.getAllByRole('textbox', { name: 'Message Mitzo' })).toHaveLength(1);
+  expect(f.sends).toHaveLength(0);
+});
+
+it('retains the last canonical header count with an explicit stale state after a failed refresh', async () => {
+  const f = fixture(false, undefined, 'Original architect');
+  render(f.tree());
+  await screen.findByText('Symposium · 3 agents');
+  f.fail();
+  await poll();
+  expect(screen.getByText('Symposium · 3 agents')).toBeTruthy();
+  expect(screen.getByLabelText('Agent membership could not be refreshed')).toBeTruthy();
+});
+
+it('uses the canonical roster while history loads and restores the same shared identity after reopening', async () => {
+  const f = fixture(true, undefined, 'Original architect');
+  f.view.membershipRevision = 3; // A prior shared discussion, now one remaining member.
+  const originalTransport = f.transport.getMockImplementation()!;
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.transport.mockImplementation(async (url, init) => {
+    if (url.endsWith('/conversation')) await barrier;
+    return originalTransport(url, init);
+  });
+  const mounted = render(f.tree());
+  await screen.findByText('Symposium · 1 agent');
+  expect(screen.getByLabelText('Agent membership is refreshing')).toBeTruthy();
+  const trigger = screen.getByRole('button', { name: 'Agents, Original architect' });
+  expect(trigger.getAttribute('data-discussion-id')).toBe(f.view.collaborationId);
+  await act(async () => release());
+  await waitFor(() => expect(screen.queryByLabelText('Agent membership is refreshing')).toBeNull());
+  mounted.unmount();
+  render(f.tree());
+  await screen.findByText('Symposium · 1 agent');
+  expect(
+    screen
+      .getByRole('button', { name: 'Agents, Original architect' })
+      .getAttribute('data-discussion-id'),
+  ).toBe(f.view.collaborationId);
+  expect(f.transport.mock.calls.some(([url]) => url.endsWith('/begin'))).toBe(false);
   expect(f.sends).toHaveLength(0);
 });
 

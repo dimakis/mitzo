@@ -58,6 +58,7 @@ vi.mock('../chat.js', () => {
             ? { sessionId: id, conversationSource: 'mitzo' }
             : null),
       ),
+      getInitialCommand: vi.fn((id: string) => sourceEvents.get(id)?.getInitialCommand(id) ?? null),
     },
     setTaskStore: vi.fn(),
   };

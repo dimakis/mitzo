@@ -27,6 +27,25 @@ import {
   type AcceptedReplaySessions,
 } from './public-replay-error.js';
 
+/** The session's first public command. A recorded messageId identifies its
+ * user_message exactly; a bare string (or null messageId) is a legacy row
+ * whose stored text must match. See EventStore.getInitialCommand. */
+export type ReplayInitialCommand = string | { messageId: string | null; text: string | null };
+
+function initialCommandMatcher(input: ReplayInitialCommand | null | undefined) {
+  const value = typeof input === 'string' ? { messageId: null, text: input } : input;
+  if (!value || (!value.messageId && !value.text)) return undefined;
+  return {
+    text: value.text || undefined,
+    identified: !!value.messageId,
+    matches: (event: StoredEvent) =>
+      event.type === 'user_message' &&
+      (value.messageId
+        ? event.payload.messageId === value.messageId
+        : event.payload.text === value.text),
+  };
+}
+
 // Pure projection of a caller-owned immutable event prefix. Source authorization,
 // cursor capture and database reads remain with the calling operation.
 export interface RestoredMessage {
@@ -415,12 +434,13 @@ function groupRetainedReplayErrors(messages: RestoredMessage[], events: StoredEv
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */
 function replaySingleEventsToTranscript(
   events: StoredEvent[],
-  initialPrompt?: string,
+  initialPrompt?: ReplayInitialCommand,
 ): {
   messages: RestoredMessage[];
   current: RestoredCurrentMessage | null;
   retractions?: MessageRetraction[];
 } {
+  const initial = initialCommandMatcher(initialPrompt);
   const attachSubagent = replaySubagents(events);
   const messages: RestoredMessage[] = [];
   const interruptCompleted = terminalProjection(messages);
@@ -539,15 +559,13 @@ function replaySingleEventsToTranscript(
   let legacyInitial: (typeof events)[number] | undefined;
   for (const event of events) {
     if (event.type === 'user_message') {
-      if (!initialPrompt && seenStart && !seenEnd && !seenUser) legacyInitial = event;
+      if (!initial && seenStart && !seenEnd && !seenUser) legacyInitial = event;
       seenUser = true;
     }
     if (event.type === 'message_start') seenStart = true;
     if (event.type === 'message_end' || event.type === 'session_end') seenEnd = true;
   }
-  const promptEvent = initialPrompt
-    ? events.find((event) => event.type === 'user_message' && event.payload.text === initialPrompt)
-    : legacyInitial;
+  const promptEvent = initial ? events.find(initial.matches) : legacyInitial;
   const userMessage = (event: (typeof events)[number]): RestoredMessage => {
     const payload = event.payload;
     const messageId = payload.messageId as string;
@@ -567,7 +585,7 @@ function replaySingleEventsToTranscript(
       ],
     };
   };
-  if (initialPrompt) {
+  if (initial && (promptEvent || initial.text)) {
     const firstStart = events.findIndex((event) => event.type === 'message_start');
     const hoistedPrompt =
       promptEvent && firstStart >= 0 && firstStart < events.indexOf(promptEvent);
@@ -576,7 +594,7 @@ function replaySingleEventsToTranscript(
       : {
           messageId: 'umsg-initial',
           role: 'user',
-          blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],
+          blocks: [{ blockId: 'user-initial', blockType: 'text', content: initial.text! }],
         };
     messages.push({
       ...prompt,
@@ -733,7 +751,7 @@ function replaySingleEventsToTranscript(
 /** Restore each immutable seat stream independently so reused block IDs cannot cross seats. */
 export function replayEventsToTranscript(
   events: StoredEvent[],
-  initialPrompt?: string,
+  initialPrompt?: ReplayInitialCommand,
 ): {
   messages: RestoredMessage[];
   current: RestoredCurrentMessage | null;
@@ -907,8 +925,9 @@ export function replayEventsToTranscript(
 /** Exported for testing. */
 export function replayEventsToMessages(
   events: StoredEvent[],
-  initialPrompt?: string,
+  initialPrompt?: ReplayInitialCommand,
 ): RestoredMessage[] {
+  const initial = initialCommandMatcher(initialPrompt);
   // Historical REST reads must use the same immutable seat partitioning as
   // bounded reconnect. The legacy single-stream builder below cannot keep
   // simultaneous turns or reused block IDs separate, and would omit their
@@ -986,18 +1005,22 @@ export function replayEventsToMessages(
     // A user_message that appears after message_start but before any message_end
     // is an out-of-order initial prompt from the legacy storage path.
     // After the first message_end, user_messages are normal follow-ups.
-    if (evt.type === 'user_message' && seenMessageStart && !seenMessageEnd) {
+    // A recorded first-command identity needs no positional guess.
+    if (
+      !initial?.identified &&
+      evt.type === 'user_message' &&
+      seenMessageStart &&
+      !seenMessageEnd
+    ) {
       if (!legacyInitialPromptEvent) legacyInitialPromptEvent = evt;
     }
   }
 
   // Inject the initial prompt as the first message.
   // Priority: initialPrompt param (from session metadata) > legacy out-of-order event
-  if (initialPrompt) {
+  const matchingEvt = initial ? events.find(initial.matches) : undefined;
+  if (initial && (matchingEvt || initial.text)) {
     // Reuse the stored messageId so REST recovery and WS replay agree on IDs
-    const matchingEvt = events.find(
-      (e) => e.type === 'user_message' && e.payload.text === initialPrompt,
-    );
     const messageId = matchingEvt ? (matchingEvt.payload.messageId as string) : 'umsg-initial';
     const firstTs = events[0]?.createdAt;
     messages.push({
@@ -1011,7 +1034,13 @@ export function replayEventsToMessages(
       contextBlocks: Array.isArray(matchingEvt?.payload.contextBlocks)
         ? (matchingEvt.payload.contextBlocks as string[])
         : undefined,
-      blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],
+      blocks: [
+        {
+          blockId: 'user-initial',
+          blockType: 'text',
+          content: matchingEvt ? (matchingEvt.payload.text as string) : initial.text!,
+        },
+      ],
     });
   } else if (legacyInitialPromptEvent) {
     const p = legacyInitialPromptEvent.payload;
@@ -1036,10 +1065,10 @@ export function replayEventsToMessages(
     recordAcceptedReplaySession(evt, acceptedSessions);
     // Skip legacy out-of-order initial prompt — already injected above
     if (evt === legacyInitialPromptEvent) continue;
-    // Skip any user_message event whose text matches the injected initialPrompt
-    // (prevents duplicates from legacy events still in the store)
-    if (initialPrompt && evt.type === 'user_message' && evt.payload.text === initialPrompt)
-      continue;
+    // A recorded identity skips exactly the injected first command, so later
+    // identical text stays visible. Legacy text-only rows skip every matching
+    // row (duplicates from legacy events still in the store).
+    if (initial?.identified ? evt === matchingEvt : initial?.matches(evt)) continue;
     const p = evt.payload;
     switch (evt.type) {
       case 'user_message':

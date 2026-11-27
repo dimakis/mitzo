@@ -373,6 +373,15 @@ export interface SessionContextUsage {
   limits: ModelTokenLimits | null;
 }
 
+/** Read-only identity from canonical membership, independent of transcript/runtime state. */
+export interface SharedConversationSummary {
+  collaborationId: string;
+  sourceConversationId: string;
+  membershipRevision: number;
+  participantSessionIds: string[];
+  unavailableParticipantSessionIds: string[];
+}
+
 export interface Session {
   id: string;
   summary: string;
@@ -380,6 +389,7 @@ export interface Session {
   matchedSessionId?: string;
   /** Presentation membership only. Each participant retains its execution owner. */
   participantSessionIds?: string[];
+  sharedConversation?: SharedConversationSummary;
   /** Navigation metadata only; never task, runtime or transcript authority. */
   parentConversationId?: string;
   parentConversationTitle?: string;
@@ -534,7 +544,12 @@ export interface SessionMeta {
   isHidden: boolean;
   promptCount: number;
   manuallyRenamed: boolean;
+  /** Public text of the first user command, exactly as its user_message stores it.
+   * Provider envelopes (workspace preambles, reply/source context) never belong here. */
   initialPrompt: string | null;
+  /** Durable identity of that first public user_message. Recorded at startup by the
+   * writer of the message; absent on legacy rows, which fall back to exact text. */
+  initialMessageId?: string | null;
   /** SDK history was checked and contains conversation messages. */
   sdkTranscriptVerified?: boolean;
   wtId: string | null;
