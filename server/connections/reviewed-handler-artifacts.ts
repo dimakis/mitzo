@@ -106,6 +106,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'eddd947c088528ad639c924685496a34604ccdf1fea24752497b6a11c2155fe1',
   '../__tests__/fixtures/specialist-authorization.ts':
     '046ec0cca80054201b44396a7e6f019899c1f3c65ef8e7c8fe4a6326e3ec09b0',
+  '../../frontend/src/components/SymposiumComposer.css':
+    '0201fb868f440b7a1c09c52b545d5c2bd52ef50ba4fcfc9fe9c72fe9525516dd',
+  '../../tests/fixtures/composer-responsive.tsx':
+    'f11043b10b6685e3b4b1c34a4f8ab3721668e9f6ec6cd29badddacea5190c11e',
+  '../../tests/offline/composer-responsive.spec.ts':
+    '8f2ad5edefa5173b3bde0000e5508eda9aa06f8042680fc6f3bedcf6a7b89ec8',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -159,7 +165,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/telos-workspaces/s6-codex-peer-communication.md':
     'be26559bbb82e40dde63cc0669f88a174cf59d0c929e399d826e6489ed43e822',
   '../../docs/design/ui-design-system.md':
-    'ed73f162cee8d946d254248fd2aba4e7f1ec396eca7a290c231278f281bef84d',
+    'a33649cfec83708e6577eba06c62a021c7008f3f78b48657a4dae4e2a8479e60',
   '../../docs/evidence/symposium-forwarding-ui-2026-11-11.md':
     '160b7f429e0a507f6dd29acb5600541b098b1705d0aed781372c939f56977945',
   '../../docs/evidence/symposium-integration-acceptance.md':
@@ -401,7 +407,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '6efb121831e74a40fe2181409b8dde78524a06d7fb222d007fe212530bca30e4',
   '../../frontend/src/components/ChatInput.tsx':
-    '93a3f20e40772a27172d3a57b69bf48be73d629d8007b4fb5d6899e168c030f0',
+    'dfe99d0ea1e5c20bddceafec2c2a220ad89d35a61fe67b7716d946d548595821',
   '../../frontend/src/components/ChatInputHost.css':
     '6ac695e0ec3850781d32e6257738c2900657499c2545303321f200488e3ccc20',
   '../../frontend/src/components/ChatInputHost.tsx':

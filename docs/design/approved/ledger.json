@@ -972,7 +972,7 @@
     },
     {
       "id": "symposium-shared-composer",
-      "activeRevision": "shared-message-actions-context-approved-2026-11-16",
+      "activeRevision": "two-row-narrow-composer-2026-11-25",
       "revisions": [
         {
           "id": "shared-composer-default-repository-2026-11-16",
@@ -1213,6 +1213,101 @@
           ],
           "validation": "docs/evidence/symposium-shared-composer-2026-11-16.md",
           "reason": "Interactive revision 3 explicitly approved by the operator; source implementation and offline verification do not constitute deployment or merge approval."
+        },
+        {
+          "id": "two-row-narrow-composer-2026-11-25",
+          "approvedBy": "Dimitri (explicit design decision for PR #1440, relayed by the PR-train orchestrator)",
+          "approvedOn": "2026-11-25",
+          "approval": {
+            "thread": "380edb39-91bb-8c59-b086-615706b58108",
+            "quote": "In Symposium mode (after @ is used / the Symposium composer is active) on narrow widths, the composer actions wrap onto two rows of icons. Nothing moves into \"More\": the context/token wheel, the mic and every other action stay visible as direct controls. The ordinary (non-Symposium) composer keeps the current approved single-row layout.",
+            "scope": "Narrow-width Symposium shared composer layout only (PR #1440). Supersedes the \"prefer one toolbar line\" preference for narrow Symposium composers; all other revision-3 invariants and the ordinary composer approval are unchanged."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/symposium/fresh-agent-review.html",
+              "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc"
+            },
+            {
+              "path": "docs/design/approved/symposium/approved-context-review.png",
+              "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a"
+            },
+            {
+              "path": "mockups/multi-agent-controls/v003.html",
+              "sha256": "ca5e94651837c180a6eb207c2076af741cb88ad64bac02933d1e54cf85296aae"
+            }
+          ],
+          "invariants": [
+            "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
+            "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
+            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
+            "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
+            "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
+            "Shared tokens, components, native actions, focus restoration and motion preferences remain effective; body scrolls independently while footer stays reachable.",
+            "Fresh agent setup resolves the configured ordinary primary repository without another mandatory choice; an alternate repository remains optional and admission authority is preserved.",
+            "Ordinary shared chats expand and collapse inline recipients through @, retaining stable selected-agent colors and full accessible target names while agents run or disjoint requests are uncertain.",
+            "One Stop action targets the selected command owners. Steer retains exact command/request identity and per-agent outcomes. Restoration never automatically replays an uncertain effect.",
+            "Screenshot attachments retain ordinary preview and native delivery. Reply bubbles include agent name, stable seat accent and recorded source time. Status notices remain in the existing composer rail.",
+            "Reuse icon-only lightning, Queue and the Send/Stop slot. Prefer one toolbar line when it fits; on narrow widths the Symposium composer wraps onto two rows of icons and nothing moves into More. Empty drafts must not remove shared control icons and shift the toolbar.",
+            "Composer draft changes do not force transcript scrolling. Real message growth preserves retained follow intent, historical reading position and exact-source navigation.",
+            "Status and selected recipients share the existing information line above the composer. No extra status strip is added below it.",
+            "The multi-agent context wheel uses shared seat colors and opens individual recorded usage. Unknown or failed measurements remain explicit; no averaged context percentage is invented.",
+            "Agents read when addressed. Existing automatic-reader policies remain honest and can be explicitly disabled without enabling another agent or model.",
+            "Keep recorded dates/times, Copy, Read aloud, Reply and reviewed Forward on user and agent messages. Canonical source selection is checked by the server and retains ordinary actor, membership, custody and delivery fences.",
+            "Forwarding alone starts no model turn. Ask for a reply is a separate unchecked choice and uses its own durable ordinary send request; recovering a forward never replays it.",
+            "A verified accepted shared message clears only its submitted composer revision, including pending/uncertain delivery. Newer drafts and recovery identity remain intact.",
+            "Narrow Symposium composer (280/320/390px): recipients, More, Resources and Agents, then context usage, voice and the primary actions, as direct 44px icons on two rows with no overlap; primary actions share one row; expanded recipient names use their own bounded scrollable row; typing, queueing and sending do not move controls. The ordinary composer keeps its approved single row."
+          ],
+          "sources": [
+            "frontend/src/components/ConversationAgents.tsx",
+            "frontend/src/components/ConversationAgents.css",
+            "frontend/src/components/ConversationJoiningReview.tsx",
+            "frontend/src/components/SymposiumConversation.tsx",
+            "frontend/src/components/ComposerResponders.tsx",
+            "frontend/src/hooks/useConversationJoiningReview.ts",
+            "frontend/src/lib/conversation-joining-review.ts",
+            "frontend/src/lib/conversation-joining-recovery.ts",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx",
+            "frontend/src/components/SharedConversation.tsx",
+            "frontend/src/components/MessageBubble.tsx",
+            "frontend/src/hooks/useConversationSteering.ts",
+            "frontend/src/hooks/useConversationStopping.ts",
+            "frontend/src/components/ChatInput.tsx",
+            "frontend/src/components/CollaborationTranscript.tsx",
+            "frontend/src/components/SymposiumComposer.css"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+            "frontend/src/components/__tests__/ConversationAgents.test.tsx",
+            "frontend/src/components/__tests__/ConversationJoiningReview.test.tsx",
+            "tests/offline/symposium-approved-design.spec.ts",
+            "tests/offline/symposium-joining-review.spec.ts",
+            "frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx",
+            "frontend/src/components/__tests__/ComposerResponders.inline.test.tsx",
+            "frontend/src/components/__tests__/CollaborationTranscript.test.tsx",
+            "tests/offline/symposium-ordinary-surface.spec.ts",
+            "frontend/src/components/__tests__/CollaborationTranscript.scroll.test.tsx",
+            "tests/offline/composer-responsive.spec.ts"
+          ],
+          "implementationEvidence": [],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+              "sha256": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb"
+            },
+            {
+              "path": "tests/offline/symposium-approved-design.spec.ts",
+              "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b"
+            },
+            {
+              "path": "tests/offline/composer-responsive.spec.ts",
+              "sha256": "8f2ad5edefa5173b3bde0000e5508eda9aa06f8042680fc6f3bedcf6a7b89ec8"
+            }
+          ],
+          "validation": "docs/evidence/symposium-responsive-composer-2026-11-21.md",
+          "reason": "Operator design decision for narrow Symposium composers. Source implementation and offline verification do not constitute deployment or merge approval."
         }
       ]
     }
