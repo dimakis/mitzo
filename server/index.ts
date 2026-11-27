@@ -82,10 +82,6 @@ import {
   getLocalRepositoryWorkspaces,
   getRepositoryWorkspaces,
 } from './repository-workspace-runtime.js';
-import {
-  inventoryWorkspaceLifecycle,
-  type WorkspaceLifecycleClaim,
-} from './workspace-lifecycle.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
 import { storedEventToClientMessage } from '@mitzo/protocol';
@@ -171,7 +167,12 @@ import {
   resolveWorktreeCleanupPolicy,
   startupRepositoryMaintenanceEnabled,
 } from './development-isolation.js';
-import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
+import {
+  collectSessionWorkspaceClaims,
+  dedupeRepoEntriesByPath,
+  reportWorkspaceLifecycleInventory,
+  runWorktreeCleanupForRepos,
+} from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { mountApplicationChatTransport } from './chat-rest-handler.js';
 import { initializeSessionPrompts, closeSessionPrompts } from './session-prompt-runtime.js';
@@ -1529,55 +1530,36 @@ checkPort(PORT).then(async (inUse) => {
       return ids;
     }
 
+    // A repository configured under two labels (e.g. primary and its named entry)
+    // must be scanned once by cleanup, inventory roots and worktree counting.
+    const scanEntries = dedupeRepoEntriesByPath(repoEntries);
+
     const cleanupPolicy = resolveWorktreeCleanupPolicy();
     log.info('worktree cleanup policy', { policy: cleanupPolicy });
     const runWorktreeCleanup = runWorktreeCleanupForRepos({
-      repoEntries,
+      repoEntries: scanEntries,
       inboxDir,
       cleanupPolicy,
       collectActiveWtIds,
       cleanup: cleanupStaleWorktrees,
       inventory: async () => {
         const repositoryState = join(codexPrivateDirectory(), 'repository-sources');
-        const claims: WorkspaceLifecycleClaim[] = existsSync(join(repositoryState, 'workspaces.db'))
-          ? getRepositoryWorkspaces(true).lifecycleClaims()
-          : [];
-        const byPath = new Map(claims.map((claim) => [claim.directory, claim]));
+        const correlationStarted = performance.now();
         const sessions = eventStore.listSessions(2001);
-        for (const session of sessions.slice(0, 2000)) {
-          const paths = new Set(
-            [
-              session.cwd,
-              ...repoEntries.map(([label]) =>
-                eventStore.getLatestWorktreePath(session.sessionId, label),
-              ),
-            ].filter((path): path is string => !!path),
-          );
-          for (const directory of paths) {
-            const known = byPath.get(directory);
-            if (known) {
-              known.resumeReferences = [...new Set([...known.resumeReferences, session.sessionId])];
-              known.activeCommands = Math.max(known.activeCommands, session.isActive ? 1 : 0);
-            } else {
-              const claim: WorkspaceLifecycleClaim = {
-                id: session.sessionId,
-                directory,
-                ownership:
-                  session.conversationSource === 'external_import' ? 'external' : 'unknown',
-                state: session.isActive ? 'active' : 'resumable',
-                activeCommands: session.isActive ? 1 : 0,
-                queuedCommands: 0,
-                resumeReferences: [session.sessionId],
-                leaseState: 'unknown',
-              };
-              claims.push(claim);
-              byPath.set(directory, claim);
-            }
-          }
-        }
-        const result = await inventoryWorkspaceLifecycle({
+        // Worktree records are keyed by label, so every configured label is looked up
+        // even when two labels name the same physical repository.
+        const claims = await collectSessionWorkspaceClaims({
+          claims: existsSync(join(repositoryState, 'workspaces.db'))
+            ? getRepositoryWorkspaces(true).lifecycleClaims()
+            : [],
+          sessions: sessions.slice(0, 2000),
+          repoLabels: repoEntries.map(([label]) => label),
+          latestWorktreePath: (sessionId, label) =>
+            eventStore.getLatestWorktreePath(sessionId, label),
+        });
+        await reportWorkspaceLifecycleInventory({
           roots: [
-            ...repoEntries.flatMap(([, path]) =>
+            ...scanEntries.flatMap(([, path]) =>
               ['.claude/worktrees', '.cursor/worktrees', '.claude/repository-tasks'].map((layout) =>
                 join(path, layout),
               ),
@@ -1587,9 +1569,10 @@ checkPort(PORT).then(async (inUse) => {
             join(repositoryState, 'archives'),
           ],
           claims,
+          sessionsTruncated: sessions.length > 2000,
+          correlationMs: performance.now() - correlationStarted,
+          log: (message, fields) => log.info(message, fields),
         });
-        if (sessions.length > 2000) result.truncated = true;
-        log.info('workspace lifecycle inventory', { ...result });
       },
       onError: (label, phase, err) => {
         log.warn(`${phase} worktree cleanup failed for ${label}`, {
@@ -1610,7 +1593,7 @@ checkPort(PORT).then(async (inUse) => {
     // --- Worktree observability ---
 
     // Log worktree inventory at startup
-    for (const [label, repoPath] of repoEntries) {
+    for (const [label, repoPath] of scanEntries) {
       const count = countWorktrees(repoPath);
       if (count > 0) {
         log.info('worktree inventory', { repo: label, count });

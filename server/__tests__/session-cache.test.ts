@@ -6,6 +6,18 @@ const mockUpsertSession = vi.fn();
 const mockGetSession = vi.fn();
 const mockListSessionsMeta = vi.fn().mockReturnValue([]);
 const mockGetKnownSessionIds = vi.fn().mockReturnValue(new Set());
+const chatLogInfo = vi.hoisted(() => vi.fn());
+
+vi.mock('../logger.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../logger.js')>();
+  return {
+    ...actual,
+    createLogger: (module: string) => {
+      const logger = actual.createLogger(module);
+      return module === 'chat' ? { ...logger, info: chatLogInfo } : logger;
+    },
+  };
+});
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
@@ -690,6 +702,58 @@ describe('syncSessionTimestamps', () => {
     await syncSessionTimestamps();
 
     expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
+
+  it('serves other event-loop work and records bounded timing when nothing drifted', async () => {
+    const now = Date.now();
+    const records = Array.from({ length: 120 }, (_, index) => ({
+      sessionId: `unverified-${index}`,
+      summary: 'Private summary text',
+      lastModified: now,
+      cwd: '/private/project/path',
+    }));
+    let parsed = 0;
+    let parsedBeforeImmediate: number | undefined;
+    let listed = false;
+    mockListSessions.mockImplementation(async () => {
+      if (listed) return [];
+      listed = true;
+      setImmediate(() => {
+        parsedBeforeImmediate = parsed;
+      });
+      return records;
+    });
+    mockGetSessionMessages.mockImplementation(async () => {
+      parsed++;
+      return [{ type: 'user' }];
+    });
+    mockGetSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      conversationSource: 'mitzo',
+      updatedAt: now,
+      sdkTranscriptVerified: false,
+    }));
+
+    const { syncSessionTimestamps } = await import('../chat.js');
+    await syncSessionTimestamps();
+
+    expect(parsed).toBe(120);
+    expect(parsedBeforeImmediate).toBe(50);
+    const [message, fields] = chatLogInfo.mock.calls.find(
+      ([msg]) => msg === 'reconciled session timestamps',
+    )!;
+    expect(message).toBe('reconciled session timestamps');
+    expect(fields).toMatchObject({
+      synced: 0,
+      total: 120,
+      sessionsListed: 120,
+      transcriptsParsed: 120,
+      durationMs: expect.any(Number),
+      maxTranscriptParseMs: expect.any(Number),
+      listSessionsMs: expect.any(Number),
+    });
+    expect(fields.dirs).toBeGreaterThan(0);
+    expect(JSON.stringify(fields)).not.toMatch(/private|unverified-/i);
   });
 });
 
