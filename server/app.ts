@@ -1,4 +1,5 @@
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
+import { EVENT_STREAM_RETRY_MS } from './constants.js';
 import { agentMessageRuntime } from './agent-message-runtime.js';
 import {
   continueOwnedLocalVertexQueue,
@@ -2023,6 +2024,9 @@ app.get('/api/events', (req, res) => {
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no', // nginx: don't buffer SSE
   });
+  // Shorten the browser's native reconnect delay (WebKit defaults to 3 s per
+  // attempt, which left the chat list showing "Reconnecting" for 3-10 s).
+  res.write(`retry: ${EVENT_STREAM_RETRY_MS}\n\n`);
 
   const clientId = randomUUID();
   sseRegistry.add(clientId, res);
