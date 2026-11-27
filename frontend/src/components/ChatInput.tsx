@@ -61,6 +61,7 @@ import {
   getChatDraft,
   saveChatDraft,
 } from '../lib/chat-drafts';
+import './SymposiumComposer.css';
 
 function attachmentPrompt(text: string, images: ImageAttachment[]): string {
   const pages = images.flatMap((image, index) =>
@@ -1754,7 +1755,11 @@ function ChatInputContent({
           rows={1}
         />
         {settings}
-        <div className="composer-toolbar">
+        <div
+          className="composer-toolbar"
+          data-symposium={responders ? '' : undefined}
+          data-source-stop={sourceStop ? '' : undefined}
+        >
           <div
             className="chat-input-command-strip"
             onPointerDown={(e) => {
@@ -1764,7 +1769,7 @@ function ChatInputContent({
             }}
           >
             {responders && (
-              <div ref={responderTrigger}>
+              <div ref={responderTrigger} className="composer-recipient-slot">
                 <ComposerResponders
                   selection={responders}
                   text={displayedText}
