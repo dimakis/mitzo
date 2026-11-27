@@ -5,7 +5,10 @@ import { join } from 'node:path';
 import type { EventStore } from '../../event-store.js';
 
 /** Only external native execution and its synthetic qualification are replaced. */
-export async function recordApplicationMessagingRuntime(events: EventStore) {
+export async function recordApplicationMessagingRuntime(
+  events: EventStore,
+  options: { answerText?: string } = {},
+) {
   const { CodexAppServerClient } = await import('../../codex-app-server-client.js');
   // Runtime declaration/qualification is synthetic, just like the external
   // process below. Accept only this fixture's inert bytes, never a host artifact.
@@ -181,7 +184,7 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
                   item: {
                     id: `native-answer-${turnNumber}`,
                     type: 'agentMessage',
-                    text: 'Reviewed the selected design.',
+                    text: options.answerText ?? 'Reviewed the selected design.',
                   },
                 });
               lifecycle!.onNotification('turn/completed', {

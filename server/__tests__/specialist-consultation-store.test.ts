@@ -93,6 +93,23 @@ it('releases proven pre-dispatch refusals but retains uncertain dispatched allow
   expect(() => store.claimAllowance('lead', 'login', first.requestId)).toThrow(/budget/);
 });
 
+it('retains the preflight envelope in the initial reservation and never substitutes retry evidence', () => {
+  const { store, policy } = fixture();
+  const input = intent();
+  const boundary = { sequence: 10, messageId: null };
+  const envelope = { version: 1, text: 'Exact frozen attributed evidence' };
+  const first = store.reserve('lead', 'login', policy.policyId, input, boundary, policy.routes[0], {
+    contextEnvelope: envelope,
+  });
+  expect(first).toMatchObject({ revision: 0, contextEnvelope: envelope });
+  expect(store.read('lead', first.requestId).contextEnvelope).toEqual(envelope);
+  expect(
+    store.reserve('lead', 'login', policy.policyId, input, boundary, policy.routes[0], {
+      contextEnvelope: { version: 1, text: 'Changed evidence' },
+    }),
+  ).toEqual(first);
+});
+
 it('atomically retains original operation identities, bounds recruitment and rejects changed retries', () => {
   const { store, policy } = fixture();
   const input = intent();

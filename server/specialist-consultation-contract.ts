@@ -102,6 +102,7 @@ export const ConsultationRecordSchema = z.strictObject({
   review: z.unknown().optional(),
   messageInput: z.unknown().optional(),
   routingAudit: z.unknown().optional(),
+  contextEnvelope: z.unknown().optional(),
   diagnostic: z.strictObject({ code: id, stage: id, message: z.string().max(1000) }).nullable(),
 });
 export type ConsultationRecord = z.infer<typeof ConsultationRecordSchema>;

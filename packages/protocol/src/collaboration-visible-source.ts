@@ -97,13 +97,32 @@ function currentReplyRetracted(
     .get({ session, messageId, start });
 }
 
+/** The session's first public command. A messageId qualifies by durable identity;
+ * a null messageId is a legacy row whose stored public text must match exactly. */
+export interface CollaborationInitialCommand {
+  messageId: string | null;
+  text: string | null;
+}
+/** A bare string is the legacy text-only identity. */
+export type CollaborationInitialCommandInput =
+  CollaborationInitialCommand | string | null | undefined;
+
+function normalizeInitialCommand(
+  input: CollaborationInitialCommandInput,
+): (CollaborationInitialCommand & ({ messageId: string } | { text: string })) | null {
+  const value = typeof input === 'string' ? { messageId: null, text: input } : input;
+  if (!value) return null;
+  if (value.messageId) return { messageId: value.messageId, text: value.text };
+  return value.text ? { messageId: null, text: value.text } : null;
+}
+
 /** Capture from retained events only. The highwater and completed anchor belong
  * to the same SQLite read transaction as every bounded visible-text projection.
  * No lifecycle recovery, SDK discovery, provider payload or event replay is used. */
 export function captureCollaborationDurableTranscript(
   db: Database.Database,
   session: string,
-  initialPrompt?: string | null,
+  initialCommand?: CollaborationInitialCommandInput,
 ) {
   CollaborationDurableTranscriptSchema.shape.sourceConversationId.parse(session);
   return db.transaction(() => {
@@ -211,7 +230,7 @@ export function captureCollaborationDurableTranscript(
       .get(args) as { messageId: unknown } | undefined;
     if (!last || typeof last.messageId !== 'string') fail();
     const boundary = { sequence: through, messageId: last.messageId };
-    const source = openCollaborationVisibleSource(db, session, boundary, initialPrompt);
+    const source = openCollaborationVisibleSource(db, session, boundary, initialCommand);
     // Enforce full-prefix count and aggregate byte bounds before paging, so
     // neither an empty result nor truncation can qualify an incomplete source.
     source.readPrefixWitness();
@@ -236,9 +255,9 @@ export function openCollaborationVisibleSource(
   db: Database.Database,
   session: string,
   boundary: Boundary,
-  initialPrompt?: string | null,
+  initialCommand?: CollaborationInitialCommandInput,
 ) {
-  return createVisibleSource(db, session, boundary, initialPrompt);
+  return createVisibleSource(db, session, boundary, initialCommand);
 }
 
 /** Exact finalized ordinary reply, independently of whole-context eligibility.
@@ -328,10 +347,11 @@ function createVisibleSource(
   db: Database.Database,
   session: string,
   boundary: Boundary,
-  initialPrompt?: string | null,
+  initialCommand?: CollaborationInitialCommandInput,
   exactReply?: string,
   streaming = false,
 ) {
+  const initial = normalizeInitialCommand(initialCommand);
   const through = boundary.sequence;
   if (!Number.isSafeInteger(through) || through < 0) fail();
   const args = { session, through };
@@ -397,18 +417,26 @@ function createVisibleSource(
       .get(args);
     if (interleaved)
       throw new CollaborationContractError('source_history_overlap_invalid', 'snapshot_changed');
-    if (initialPrompt) {
+    if (initial) {
+      // The first command must be the first visible anchor, as stored. Legacy
+      // replay hoists delayed initial prompts; that ordering is not qualified here.
       const prompt = db
         .prepare(
-          `SELECT seq FROM events WHERE session_id=? AND seq<=? AND ${ordinary()}
-        AND type='user_message' AND json_extract(payload,'$.text')=? ORDER BY seq LIMIT 1`,
+          initial.messageId === null
+            ? `SELECT seq FROM events WHERE session_id=? AND seq<=? AND ${ordinary()}
+        AND type='user_message' AND json_extract(payload,'$.text')=? ORDER BY seq LIMIT 1`
+            : `SELECT seq FROM events WHERE session_id=? AND seq<=? AND ${ordinary()}
+        AND type='user_message' AND json_extract(payload,'$.messageId')=? ORDER BY seq LIMIT 1`,
         )
-        .get(session, through, initialPrompt) as { seq: number } | undefined;
+        .get(session, through, initial.messageId ?? initial.text) as { seq: number } | undefined;
       const first = db
         .prepare(`SELECT seq FROM events WHERE ${anchors} ORDER BY seq LIMIT 1`)
         .get(args) as { seq: number } | undefined;
-      // Legacy replay hoists delayed initial prompts. That ordering is not qualified by this reader.
-      if (!prompt || prompt.seq !== first?.seq) fail();
+      if (!prompt || prompt.seq !== first?.seq)
+        throw new CollaborationContractError(
+          'source_initial_command_unverified',
+          'snapshot_changed',
+        );
     }
     const last = db
       .prepare(

@@ -26,12 +26,23 @@ import {
   type SpecialistRoute,
   type SpecialistPolicy,
   type ConsultationRecord,
+  type ConsultationInput,
 } from './specialist-consultation-contract.js';
 import { createLogger } from './logger.js';
 import { isDeepStrictEqual } from 'node:util';
 import { specialistRoleExecution } from './specialist-role-execution.js';
 import { specialistDiagnostic } from './specialist-consultation-diagnostics.js';
 import { specialistReviewDiversity, specialistReviewerRank } from './specialist-review-routing.js';
+import { createCollaborationContextSource } from './collaboration-context-source.js';
+import { compileCollaborationSourceContext } from './collaboration-context-compiler.js';
+import { snapshotMaterial } from './collaboration-context-input.js';
+import {
+  SpecialistContextEnvelopeSchema,
+  buildSpecialistContextEnvelope,
+  specialistContextSelection,
+  assertSpecialistContextLimit,
+  measureSpecialistContextEnvelope,
+} from './specialist-context-envelope.js';
 
 const log = createLogger('specialist-consultation');
 export type SpecialistApproval = (
@@ -458,7 +469,76 @@ export class SpecialistConsultations {
       contributions,
       deliveries,
       independence: this.independence(a, receipt),
+      context: receipt.contextEnvelope
+        ? measureSpecialistContextEnvelope(
+            SpecialistContextEnvelopeSchema.parse(receipt.contextEnvelope),
+            policy.maxContextBytes,
+          )
+        : null,
     };
+  }
+  private async preflight(
+    a: SpecialistAuthority,
+    policy: SpecialistPolicy,
+    input: ConsultationInput,
+    boundary: ConsultationRecord['boundary'],
+    original?: ConsultationRecord,
+  ) {
+    const assertCurrent = () => {
+      this.current(a);
+      this.receipts.assertPolicy(a.leadSessionId, a.auth.id, policy.policyId);
+      this.assertAudience(policy, original?.sessionId ?? null);
+    };
+    assertCurrent();
+    if (original?.contextEnvelope) {
+      const envelope = SpecialistContextEnvelopeSchema.parse(original.contextEnvelope);
+      assertSpecialistContextLimit(envelope, policy.maxContextBytes, false);
+      return envelope;
+    }
+    const previous = input.reviewOf ? this.read(a, input.reviewOf) : undefined;
+    if (previous && previous.status !== 'completed')
+      throw Error('Independent review requires a completed attributed contribution');
+    const source = createCollaborationContextSource({
+      store: this.owners.events,
+      authorizeConversation: async () => assertCurrent(),
+      assertConversationCurrent: assertCurrent,
+    });
+    // Legacy reviews are immutable. Renew their original selection instead of
+    // retroactively removing assignment copies from an approved snapshot.
+    const reviewed = original?.review
+      ? CollaborationApplicationReviewResultSchema.parse(original.review)
+      : undefined;
+    const selection = specialistContextSelection(
+      input,
+      a.leadSessionId,
+      boundary,
+      this.assertAudience(policy, original?.sessionId ?? null).membershipRevision,
+    );
+    if (reviewed) {
+      selection.purpose = reviewed.snapshot.purpose;
+      selection.joiningBrief = reviewed.snapshot.joiningBrief;
+    }
+    const draft = await compileCollaborationSourceContext(selection, source);
+    source.assertCurrentAtSave();
+    assertCurrent();
+    if (
+      reviewed &&
+      !isDeepStrictEqual(snapshotMaterial(draft), snapshotMaterial(reviewed.snapshot))
+    )
+      throw Error('Specialist context changed');
+    const envelope = buildSpecialistContextEnvelope(draft, input, previous?.contributions);
+    if (original?.messageInput) {
+      const retainedText = CollaborationMessageInputSchema.parse(original.messageInput).text;
+      if (!retainedText.startsWith(input.assignment)) throw Error('Specialist context changed');
+      envelope.text = retainedText;
+      envelope.reviewContribution = retainedText.slice(input.assignment.length);
+    }
+    assertSpecialistContextLimit(
+      envelope,
+      policy.maxContextBytes,
+      !original && !this.receipts.find(a.leadSessionId, input.requestId),
+    );
+    return envelope;
   }
   async consult(
     a: SpecialistAuthority,
@@ -510,15 +590,21 @@ export class SpecialistConsultations {
     }
     if (!candidates.length)
       throw Error('No eligible independent specialist route is authorized for this role');
+    const boundary = this.owners.events.getDurableSessionTranscript(a.leadSessionId).boundary;
+    // Freeze and size the context first: no receipt, workspace preview,
+    // allocation, dispatch or operator prompt exists on a context refusal.
+    const envelope = await this.preflight(a, policy, input, boundary);
+    this.current(a);
     const selected = await this.approveModel(a, policy, candidates, approve);
+    this.current(a);
     const record = this.receipts.reserve(
       a.leadSessionId,
       a.auth.id,
       policyId,
       input,
-      this.owners.events.getDurableSessionTranscript(a.leadSessionId).boundary,
+      boundary,
       selected.route,
-      { modelPolicyRevision: selected.revision },
+      { modelPolicyRevision: selected.revision, contextEnvelope: envelope },
     );
     if (record.state !== 'reserved' && !this.pending.has(a.leadSessionId))
       return this.read(a, record.requestId);
@@ -659,9 +745,18 @@ export class SpecialistConsultations {
       return pending.result;
     }
     const cancel = new AbortController();
-    const result = this.execute(a, policy, record, cancel.signal).finally(() =>
-      this.pending.delete(a.leadSessionId),
-    );
+    const result = (async () => {
+      // Legacy/recovered intents receive the same preflight before any new
+      // workspace work. Their existing effects are never labelled not_started.
+      if (!record.contextEnvelope) {
+        const envelope = await this.preflight(a, policy, record.input, record.boundary, record);
+        cancel.signal.throwIfAborted();
+        record = this.receipts.update(a.leadSessionId, record.requestId, record.revision, {
+          contextEnvelope: envelope,
+        });
+      }
+      return this.execute(a, policy, record, cancel.signal);
+    })().finally(() => this.pending.delete(a.leadSessionId));
     this.pending.set(a.leadSessionId, { requestId: record.requestId, cancel, result });
     return result;
   }
@@ -673,6 +768,7 @@ export class SpecialistConsultations {
   ) {
     const signal = AbortSignal.any([a.signal, stopSignal]);
     let record = original;
+    const envelope = SpecialistContextEnvelopeSchema.parse(record.contextEnvelope);
     let stage = 'preparation';
     let chargedHere = false;
     const assertCurrent = () => {
@@ -751,8 +847,8 @@ export class SpecialistConsultations {
               mode: 'selected',
               messageIds: record.input.messageIds,
               artifacts: record.input.artifacts,
-              purpose: record.input.assignment.slice(0, 4000),
-              joiningBrief: record.input.assignment,
+              purpose: envelope.draft.purpose,
+              joiningBrief: envelope.draft.joiningBrief,
             },
             target: {
               runOn: record.route.runOn,
@@ -769,20 +865,32 @@ export class SpecialistConsultations {
         assertCurrent();
         update({ state: 'reviewed', review: reviewed });
       }
-      let text = record.input.assignment;
+      if (
+        !reviewed ||
+        !isDeepStrictEqual(snapshotMaterial(reviewed.snapshot), snapshotMaterial(envelope.draft))
+      )
+        throw Error('Specialist context changed');
+      const text = envelope.text;
       if (record.input.reviewOf) {
         const previous = this.read(a, record.input.reviewOf);
         if (previous.status !== 'completed')
-          throw Error('The original contribution is no longer available');
-        text +=
+          throw Error('Independent review requires a completed attributed contribution');
+        const renewed = buildSpecialistContextEnvelope(
+          envelope.draft,
+          record.input,
+          previous.contributions,
+        );
+        // Historical messages used the contribution array without the explicit
+        // request label. Preserve that exact retained dispatch representation.
+        const legacy =
           '\n\nIndependent review of attributed contribution:\n' +
           JSON.stringify(previous.contributions);
+        if (
+          envelope.reviewContribution !== renewed.reviewContribution &&
+          envelope.reviewContribution !== legacy
+        )
+          throw Error('Specialist context changed');
       }
-      if (
-        Buffer.byteLength(JSON.stringify(reviewed?.snapshot ?? null) + text, 'utf8') >
-        policy.maxContextBytes
-      )
-        throw Error('Selected context exceeds the approved byte limit; narrow it explicitly');
       if (!messageInput) {
         if (!reviewed) throw Error('Original consultation review is unavailable');
         stage = 'joining';

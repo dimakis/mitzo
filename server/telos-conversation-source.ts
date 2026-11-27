@@ -75,7 +75,9 @@ export function createTelosConversationSource(options: {
       if (selection.mode === 'conversation_so_far' && wanted.size) refuse();
       const read = () => {
         options.assertCurrent?.();
-        const initialPrompt = authorize(sessionId).initialPrompt || null;
+        authorize(sessionId);
+        const initialCommand = options.events.getInitialCommand(sessionId);
+        const initialPrompt = initialCommand?.text || null;
         const boundary = selection.boundary.sequence;
         const completed: Message[] = [];
         const attributions: Record<
@@ -183,12 +185,15 @@ export function createTelosConversationSource(options: {
                   if (typeof event.payload.messageId !== 'string') refuse();
                   ordinaryActive = event.payload.messageId;
                 } else if (
-                  initialPrompt &&
-                  event.payload.text === initialPrompt &&
+                  initialCommand &&
+                  (initialCommand.messageId !== null
+                    ? event.payload.messageId === initialCommand.messageId
+                    : event.payload.text === initialCommand.text) &&
                   initialPromptSequence === undefined
                 ) {
-                  // Normal replay singles out the first matching user row;
-                  // later identical text retains its own durable identity.
+                  // The recorded identity names the first command exactly. Legacy
+                  // text-only rows single out the first matching user row; later
+                  // identical text retains its own durable identity.
                   if (event.seq !== firstOrdinaryMessage) refuse();
                   initialPromptSequence = event.seq;
                 }
@@ -445,7 +450,7 @@ export function createTelosConversationSource(options: {
         if (
           !found ||
           ordinaryActive !== undefined ||
-          (initialPrompt !== null && initialPromptSequence === undefined) ||
+          (initialCommand !== null && initialPromptSequence === undefined) ||
           (!inspection &&
             boundary > 0 &&
             !completed.some(

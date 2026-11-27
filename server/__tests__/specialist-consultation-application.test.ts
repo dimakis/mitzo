@@ -1,3 +1,7 @@
+import {
+  specialistAuthorizationFixture,
+  specialistArtifact,
+} from './fixtures/specialist-authorization.js';
 import { afterAll, expect, it, vi } from 'vitest';
 import { createApplicationJourney } from './fixtures/symposium-application-journey.js';
 import { readFileSync } from 'node:fs';
@@ -44,74 +48,7 @@ it('serves operator settings, persists overrides and rejects stale edits through
   });
 }, 30000);
 
-async function authorizationFixture() {
-  const h = await journey.getApplicationUiJourney();
-  const { getSpecialistConsultations } = await import('../specialist-consultation-runtime.js');
-  const { captureAgentLibraryAuthorization } = await import('../agent-library-transport.js');
-  const { getAgentLibrary } = await import('../agent-library-runtime.js');
-  const captured = captureAgentLibraryAuthorization(h.clientId);
-  (await import('../auth.js')).setAuthRevocationStore(h.events);
-  const authority = {
-    leadSessionId: 'existing-chat',
-    operatorConnectionId: h.clientId,
-    auth: captured.auth,
-    signal: new AbortController().signal,
-    assertCurrent: () => captured.assertCurrent(),
-  };
-  const library = getAgentLibrary();
-  const role = 'authorization-reviewer';
-  if (!library.version('user', role, 1)) {
-    library.saveDraft('user', {
-      profileId: role,
-      expectedVersion: 0,
-      expectedRevision: 0,
-      idempotencyKey: `draft-${role}`,
-      definition: {
-        name: role,
-        role,
-        modelPolicyRole: role,
-        instructions: 'Review the bounded assignment.',
-        expectedOutput: 'Evidence',
-        acceptanceCriteria: ['Cite evidence'],
-      },
-    });
-    library.publish('user', {
-      profileId: role,
-      expectedVersion: 1,
-      idempotencyKey: `publish-${role}`,
-    });
-  }
-  const view = await h.api.view(h.group);
-  for (const policy of view.policies.filter((p) => p.readsFutureDiscussion))
-    await h.api.setPolicy(h.group, {
-      requestId: crypto.randomUUID(),
-      expectedMembershipRevision: view.membershipRevision,
-      expectedRevision: policy.revision,
-      sessionId: policy.sessionId,
-      readsFutureDiscussion: false,
-      repliesByDefault: false,
-    });
-  const service = getSpecialistConsultations();
-  const catalog = await service.catalog(authority);
-  const input = {
-    requestId: crypto.randomUUID(),
-    connectionId: catalog.repositories[0].connectionId,
-    repository: 'example/acceptance',
-    durationMinutes: 10,
-    routes: [
-      {
-        role,
-        accountId: 'offline-personal',
-        model: 'fixture-model',
-        reasoningEffort: 'low',
-        runOn: 'local',
-        targetId: 'offline-observation',
-      },
-    ],
-  };
-  const approve = vi.fn(async (_display: Record<string, unknown>) => true);
-  return { h, service, authority, input, approve };
-}
+const authorizationFixture = (role?: string) => specialistAuthorizationFixture(journey, role);
 
 it('replays an exact authorization outside the recent-policy catalog without another approval', async () => {
   const { service, authority, input, approve } = await authorizationFixture();
@@ -277,6 +214,90 @@ it('edits a retained policy allowance through its operator route and replays the
   expect(approve).toHaveBeenCalledOnce();
 }, 30000);
 
+it('refuses an oversized UTF-8 envelope before reserving a consultation or workspace', async () => {
+  const { service, authority, input, approve, h } = await authorizationFixture();
+  const policy = await service.authorize(authority, { ...input, maxContextBytes: 32000 }, approve);
+  const requestId = crypto.randomUUID();
+  const reserve = vi.spyOn(service.receipts, 'reserve');
+  const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
+  const workspace = getRepositoryWorkspaces(true);
+  const preview = vi.spyOn(workspace, 'preview');
+  const prepare = vi.spyOn(workspace, 'prepare');
+  const before = h.events.collaborationConversation.view(policy.collaborationId);
+  try {
+    await expect(
+      service.consult(authority, policy.policyId, {
+        requestId,
+        role: input.routes[0].role,
+        assignment: '界'.repeat(12000),
+      }),
+    ).rejects.toMatchObject({
+      code: 'context_limit',
+      outcome: 'not_started',
+      report: { limitBytes: 32000, components: { assignment: 36000 } },
+    });
+    expect(reserve).not.toHaveBeenCalled();
+    expect(service.receipts.find(authority.leadSessionId, requestId)).toBeUndefined();
+    expect(h.events.collaborationConversation.view(policy.collaborationId)).toEqual(before);
+    // Real tool consumer and service together: no mocked service response.
+    const { SessionRegistry } = await import('@mitzo/harness');
+    const { sessionProfileTools } = await import('../session-profile-tools.js');
+    const { callbackOutcome, TurnCallbacks } = await import('../turn-callbacks.js');
+    const registry = new SessionRegistry();
+    try {
+      registry.register(h.clientId, {
+        sessionId: authority.leadSessionId,
+        mode: 'agent',
+        ownerConnectionId: h.clientId,
+        ownedLocalAuthSessionId: authority.auth.id,
+        transport: { send() {}, isOpen: () => true },
+        abortController: new AbortController(),
+        sessionAllowList: new Set(),
+      });
+      const tool = sessionProfileTools(
+        authority.leadSessionId,
+        registry.get(h.clientId)!,
+        registry,
+        '',
+        async () => {},
+        () => {},
+      );
+      const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+      const result = await callbacks.track(() =>
+        tool.execute(
+          'SymposiumConsult',
+          {
+            operation: 'consult',
+            policyId: policy.policyId,
+            requestId,
+            role: input.routes[0].role,
+            assignment: '界'.repeat(12000),
+          },
+          authority.signal,
+          { turnId: 'offline-tool-turn', callId: 'preflight' },
+        ),
+      );
+      expect(JSON.parse(result!.content)).toMatchObject({
+        error: 'context_limit',
+        outcome: 'not_started',
+        stage: 'context_preflight',
+        context: { limitBytes: 32000, components: { assignment: 36000 } },
+      });
+      expect(callbackOutcome(result)).toBe('settled');
+      await expect(callbacks.settle(authority.signal)).resolves.toBeUndefined();
+      expect(preview).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+      expect(reserve).not.toHaveBeenCalled();
+    } finally {
+      registry.dispose();
+    }
+  } finally {
+    reserve.mockRestore();
+    preview.mockRestore();
+    prepare.mockRestore();
+  }
+}, 30000);
+
 it('lets an ordinary lead recruit a saved planner, read its attributed result and request independent review without replay', async () => {
   const h = await journey.getApplicationUiJourney();
   const { getSpecialistConsultations } = await import('../specialist-consultation-runtime.js');
@@ -380,12 +401,14 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
     await import('./fixtures/symposium-recording-runtime.js');
   let native = await recordApplicationMessagingRuntime(h.events);
   try {
+    const artifactText = 'Pinned evidence 界🙂\r\n';
+    const artifact = specialistArtifact(h.events, artifactText);
     const input = {
       requestId: crypto.randomUUID(),
       role: 'planner',
-      assignment: 'Plan the change.',
+      assignment: 'Plan the change. ' + '界'.repeat(6000),
       messageIds: ['selected-source'],
-      artifacts: [],
+      artifacts: [artifact],
     };
     const savedModels = service.receipts.modelPolicies.read(authority.leadSessionId);
     service.receipts.modelPolicies.save(authority.leadSessionId, {
@@ -415,6 +438,18 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
     expect(
       h.events.getOrdinaryConversationSettings(first.receipt.sessionId!)?.selection.permission.mode,
     ).toBe('auto');
+    expect(first.context).toMatchObject({ limitBytes: 32000, components: { assignment: 18017 } });
+    expect(first.context!.totalBytes).toBeLessThan(32000);
+    expect(first.context!.artifacts[0]).toMatchObject({
+      artifactId: artifact.artifactId,
+      revision: artifact.revision,
+      contentBytes: Buffer.byteLength(artifactText),
+    });
+    expect(first.receipt.review).toMatchObject({
+      snapshot: {
+        artifacts: [{ ...artifact, contentBase64: Buffer.from(artifactText).toString('base64') }],
+      },
+    });
     expect(first.receipt.routingAudit).toMatchObject({
       role: 'planner',
       policyId: policy.policyId,
@@ -444,6 +479,10 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       text: 'Reviewed the selected design.',
     });
     expect(JSON.stringify(planned)).not.toContain('DO_NOT_LEAK');
+    const sent = JSON.stringify(native.requests.filter((r) => r.method === 'turn/start')[0].params);
+    expect(sent).toContain(artifact.artifactId);
+    expect(sent).toContain('Pinned evidence 界🙂');
+    expect(sent).toContain('Synthetic design requirement');
     const discussion = h.events.collaborationConversation.view(policy.collaborationId);
     for (let index = 0; index < 51; index++)
       h.events.collaborationConversation.acceptMessage(policy.collaborationId, {
@@ -470,6 +509,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       assignment: 'Review the plan independently.',
       reviewOf: input.requestId,
       messageIds: [],
+      artifacts: [],
     };
     const second = await service.consult(authority, policy.policyId, reviewed, approveAdmission);
     expect(second.receipt.sessionId).not.toBe(first.receipt.sessionId);
@@ -760,7 +800,19 @@ it('recovers a lost join response using the original shared owner without alloca
         approveAdmission,
       );
       const { getCodexConversationStore } = await import('../codex-chat-session.js');
-      await vi.waitFor(() => expect(providerFenceReached).toBe(true), { timeout: 5000 });
+      await vi.waitFor(
+        () =>
+          expect(
+            providerFenceReached,
+            JSON.stringify(finalFence.receipt.diagnostic) +
+              readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
+                .split('\n')
+                .filter((line) => line.includes('"level":40') || line.includes('"level":50'))
+                .slice(-5)
+                .join('\n'),
+          ).toBe(true),
+        { timeout: 5000 },
+      );
       await vi.waitFor(
         () => {
           const sessionId = finalFence.receipt.sessionId!;

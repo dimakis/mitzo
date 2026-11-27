@@ -59,6 +59,11 @@ the ordinary execution permissions for that mode. Roles do not hard-code models.
 
 ## Context, receipts and controls
 
+Selected context is preflighted before call reservation or workspace preparation.
+The tool returns exact UTF-8 component sizes and a settled `context_limit` /
+`not_started` refusal for an oversized new request. It never silently truncates
+evidence or raises the approved ceiling. See [the envelope contract and evidence](../design/specialist-context-preflight.md).
+
 Only the lead's explicitly selected completed public messages and exact artifact
 versions enter the shared context compiler. A call made during the lead's own
 turn freezes the completed prefix and rejects unfinished-message references.
