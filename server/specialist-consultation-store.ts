@@ -136,6 +136,7 @@ export class SpecialistConsultationStore {
     raw: unknown,
     boundary: ConsultationRecord['boundary'],
     selectedRoute?: ConsultationRecord['route'],
+    admission: { contextEnvelope?: unknown } = {},
   ) {
     const input = ConsultationInputSchema.parse(raw);
     return this.db
@@ -171,6 +172,9 @@ export class SpecialistConsultationStore {
           sessionId: null,
           joinId: null,
           diagnostic: null,
+          ...(admission.contextEnvelope === undefined
+            ? {}
+            : { contextEnvelope: admission.contextEnvelope }),
         });
         this.db
           .prepare('INSERT INTO specialist_consultations VALUES(?,?,?,?)')
@@ -186,7 +190,14 @@ export class SpecialistConsultationStore {
     patch: Partial<
       Pick<
         ConsultationRecord,
-        'state' | 'sessionId' | 'joinId' | 'review' | 'messageInput' | 'diagnostic' | 'routingAudit'
+        | 'state'
+        | 'sessionId'
+        | 'joinId'
+        | 'review'
+        | 'messageInput'
+        | 'diagnostic'
+        | 'routingAudit'
+        | 'contextEnvelope'
       >
     >,
   ) {

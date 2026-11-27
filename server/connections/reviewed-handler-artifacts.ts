@@ -98,6 +98,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'acda5ee46dab0ed4587680c6bc2bc2aa1039fbb9e0a001f263c29f039532c44d',
   '../__tests__/collaboration-shared-queue.test.ts':
     '61de0bc823f76c48af35751474178d9151e30c811a79f54f5b8d832051e1742c',
+  '../specialist-context-envelope.ts':
+    'e1d33196e9cea8a1813c47495c7e9d3c1028c25fb00951624eb0c6351b8c3a59',
+  '../__tests__/specialist-context-review-application.test.ts':
+    '5ea9256263ba66be467160a865f469c91993970b50e05eff23aa4259f1b9067a',
+  '../__tests__/specialist-context-envelope.test.ts':
+    'eddd947c088528ad639c924685496a34604ccdf1fea24752497b6a11c2155fe1',
+  '../__tests__/fixtures/specialist-authorization.ts':
+    '046ec0cca80054201b44396a7e6f019899c1f3c65ef8e7c8fe4a6326e3ec09b0',
   '../__tests__/logger.test.ts': '85d7949fc6644fe3bb65071e258fad21251623bd6e2c791eaa647f14d8703252',
   '../__tests__/observability-config.test.ts':
     'fa39ed82f927a0900ee382a24612c2c24a911c844d95163fc4dfa43a821a3e2c',
@@ -2897,7 +2905,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/symposium-claude-application.ts':
     '450725d3ff4f39a68982ea1a7b322871acd9da90a611c254886f42fc871e571b',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
-    '1c3d82c9ae25c0c3d6947dfe53dcd8bbce0e19d80596cb335412cbe12e9bb280',
+    '05f7b916ca41df850081edf2186f0a441849262abe4df4460a1783d4fa1735ef',
   '../__tests__/fixtures/symposium-source-output.ts':
     'e792fe98f7d2ffc8a0edbca77a49cfb28795926253856c22c853018d3e7c790f',
   '../__tests__/fixtures/synchronous-stage-profiler.ts':
@@ -3590,7 +3598,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-search-async.test.ts':
     'e4f69a8ce6389e7fa7f6c1b6e59c13ccb5f369fab0d89696bda3890759a3acc0',
   '../__tests__/session-specialist-tools.test.ts':
-    'fa4ca720c4648d03ff738560774ade26fe86bfad6c16ded4842ebaef77747f25',
+    '5cb10f8c35fb8072ec356bf13db9d97ee742c4bf6b6d382abd9047b6f00bbbac',
   '../__tests__/session-transcript-reader.test.ts':
     '4cc1ee455022e07c278b4ac83e6dba16d3175e0a20d967ea7f829a2376056781',
   '../__tests__/shared-authority-proof.test.ts':
@@ -3604,9 +3612,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/specialist-authorization-replay.test.ts':
     'd310192427b4a1f121c290d3376bf9ea88d9f891ad6abd78c84cd3195ee56794',
   '../__tests__/specialist-consultation-application.test.ts':
-    '47102c628f6361bfdc3463d9731e0e90741dca6e527c287b44dae86c436f39ae',
+    '7385ed5838b464cb2f0fb957abba494d5e28c39c64f3587ef073777e33732339',
   '../__tests__/specialist-consultation-store.test.ts':
-    '1ff060424f64bc16d012db977d51dce62739707d4b816a15b4066da7acea3a5c',
+    '6be4c7aa90ab569fe6df3c892abb588a9cf5ff8e3a7b2ca52c4bbaf26a341ee9',
   '../__tests__/specialist-review-routing.test.ts':
     'e45c277d88915ef60c905a92aaa98b415b17f77c514a3907a9a090b3ac45c700',
   '../__tests__/sqlite-file-owner.test.ts':
@@ -4695,7 +4703,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'f0ae3f23b02c89b2b6014b01389992ee77ac79f1c8ca38210289be4bfcc453c9',
   '../session-runtime-error.ts': '35e1f05bfca7eb99562a84e63076961cfe3300503279db0673e2b612733e405c',
   '../session-specialist-tools.ts':
-    '744f1413bae6c070e60b44094ff6c6ec9e6db1adc0b3b22a3ae4375c2e35e656',
+    '1f2b6b06c946252b6a4227c970310c0aa81e2e535c73223ee81803ee223f5c7f',
   '../session-transcript-reader.ts':
     'ac869858521b2e51827c16cf0fac2d8a77095146adba8dd77eb128ce9576a98e',
   '../shared-authority-proof.ts':
@@ -4710,15 +4718,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../source-snapshot-context.ts':
     '32ed964e4a9e7d51c2a467d048e9a78ea91154cecd488c69b7f90539612613e7',
   '../specialist-consultation-contract.ts':
-    'd68e627b4869a2a1cfe4261b406647b7a58f9239cf1018764b7268f2d0b6558b',
+    '42782898621b079458ba217387cc831275d4800c890b8872683662e61550af28',
   '../specialist-consultation-diagnostics.ts':
     '4893b2411dcd7db5caacd5e83a96587bf7ff0b8972754c38eb421f64015b3ea3',
   '../specialist-consultation-runtime.ts':
     'a3548f7815907ecbe6eaafea1d795673bf0abc1be14dd06e96dd5d209d5278a1',
   '../specialist-consultation-store.ts':
-    '8f07001f2f6f0cf59d8c1b58cc0d61aa7fa5681e99cb369d9743dd3b4e248f69',
+    '1b32ed7664a0e3ceb63881ee2d0dc75793be449d4d63f8e16ab83d87673e1c26',
   '../specialist-consultations.ts':
-    'e2502514d17b644e3bf28130715c1893d72e3242d5768cb1c6ea2fb911f37c06',
+    'f9ddfa2d71767a0a1cdacc3e697ac8ac01fc491c20f6d1c245755af1ffc4d458',
   '../specialist-review-routing.ts':
     '9bf82a3d6f65a9dff33105d1ff2e00985990ccf79994bd16bdcc450d9433523a',
   '../specialist-role-execution.ts':
