@@ -50,6 +50,7 @@ export interface SessionRow {
   prompt_count: number;
   manually_renamed: number;
   initial_prompt: string | null;
+  initial_message_id?: string | null;
   sdk_transcript_verified: number;
   wt_id: string | null;
   input_tokens: number;
@@ -316,6 +317,10 @@ export class SessionMetadataStore {
         fields.push('initial_prompt = ?');
         values.push(meta.initialPrompt);
       }
+      if (meta.initialMessageId !== undefined) {
+        fields.push('initial_message_id = ?');
+        values.push(meta.initialMessageId);
+      }
       if (meta.sdkTranscriptVerified !== undefined) {
         fields.push('sdk_transcript_verified = ?');
         values.push(meta.sdkTranscriptVerified ? 1 : 0);
@@ -401,6 +406,7 @@ export class SessionMetadataStore {
         'reasoning_effort',
         'repository_workspace_id',
         'ordinary_workspace_id',
+        'initial_message_id',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -427,6 +433,7 @@ export class SessionMetadataStore {
         meta.reasoningEffort ?? null,
         meta.repositoryWorkspaceId ?? null,
         meta.ordinaryWorkspaceId ?? null,
+        meta.initialMessageId ?? null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -789,6 +796,7 @@ export function rowToSession(row: SessionRow): SessionMeta {
     promptCount: row.prompt_count ?? 0,
     manuallyRenamed: (row.manually_renamed ?? 0) === 1,
     initialPrompt: row.initial_prompt ?? null,
+    ...(row.initial_message_id ? { initialMessageId: row.initial_message_id } : {}),
     sdkTranscriptVerified: row.sdk_transcript_verified === 1,
     wtId: row.wt_id ?? null,
     inputTokens: row.input_tokens ?? 0,

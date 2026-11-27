@@ -187,7 +187,10 @@ export function mountApplicationChatRestTransport(
           live: !!ctx.sessionRegistry.findBySessionId(id),
           pendingCommandIds: queue?.queued ?? [],
           hasActiveCommand: queue?.active != null,
-          messages: replayEventsToMessages(events, meta.initialPrompt ?? undefined),
+          messages: replayEventsToMessages(
+            events,
+            ctx.eventStore.getInitialCommand(id)?.text ?? undefined,
+          ),
         };
       },
       commandState: (review) => {
