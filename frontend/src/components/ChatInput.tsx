@@ -107,6 +107,8 @@ interface Props {
     replyTo?: MessageReplyContext,
     queuedCommandId?: string,
   ) => boolean;
+  /** Shared queue admission owns the same exact draft receipt as Send. */
+  onQueue?: Props['onSend'];
   onStop: () => void;
   /** Ordinary source operation, separate from a retained shared send's Stop. */
   sourceStop?: () => void;
@@ -261,6 +263,7 @@ function ChatInputContent({
   interruptLabel = 'Interrupt and send now',
   interruptDisabledReason,
   onSend,
+  onQueue,
   onStop,
   sourceStop,
   sharedControl,
@@ -815,7 +818,12 @@ function ChatInputContent({
   }, [displayedText, autoResize]);
 
   const sendOrdinary = useCallback(
-    async (payload: QueuedMessage, queued = false, recovering = false): Promise<boolean> => {
+    async (
+      payload: QueuedMessage,
+      queued = false,
+      recovering = false,
+      dispatch = onSend,
+    ): Promise<boolean> => {
       if (queued && (boundedFirstCommand || sendDisabledReason)) return false;
       const submitted = latestDraft.current;
       const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
@@ -950,7 +958,7 @@ function ChatInputContent({
         }
         if (mounted.current && ownsDraft && draftEdited) restoreRejected(payload);
       };
-      const sent = onSend(
+      const sent = dispatch(
         attachmentPrompt(payload.text, payload.images),
         payload.images.length ? payload.images : undefined,
         payload.contextBlocks.length ? payload.contextBlocks : undefined,
@@ -1080,7 +1088,7 @@ function ChatInputContent({
     textareaRef.current?.focus();
   }
 
-  async function handleSend() {
+  async function submitDraft(dispatch = onSend) {
     if (importPending.current?.scope === composerScope) return;
     if (
       previewOpen ||
@@ -1096,16 +1104,21 @@ function ChatInputContent({
     sendGuard.current = true;
     try {
       if (draftStorageKey !== undefined) flushDraft();
-      const sent = await sendOrdinary({
-        text:
-          trimmed ||
-          (images.some((image) => image.name)
-            ? 'Please read the attached PDF.'
-            : 'What do you see in this image?'),
-        images: [...images],
-        contextBlocks: [...activeContextBlocks],
-        replyTo: replyTarget,
-      });
+      const sent = await sendOrdinary(
+        {
+          text:
+            trimmed ||
+            (images.some((image) => image.name)
+              ? 'Please read the attached PDF.'
+              : 'What do you see in this image?'),
+          images: [...images],
+          contextBlocks: [...activeContextBlocks],
+          replyTo: replyTarget,
+        },
+        false,
+        false,
+        dispatch,
+      );
       if (sent) {
         impactMedium();
         autoResize();
@@ -1114,6 +1127,14 @@ function ChatInputContent({
     } finally {
       sendGuard.current = false;
     }
+  }
+
+  function handleSend() {
+    return submitDraft();
+  }
+
+  function handleSharedQueue() {
+    if (onQueue) return submitDraft(onQueue);
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -1153,7 +1174,8 @@ function ChatInputContent({
       // Guarded turns queue on Enter unless the device opted into Enter-to-steer;
       // then Cmd/Ctrl+Enter queues, and Enter still queues when steering is refused.
       const steer = enterSteers && steerOnEnter && !e.metaKey && !e.ctrlKey;
-      if (running && guardedConversation && !steer) handleQueue();
+      if (running && sharedControl && (!steer || !onInterrupt)) handleSharedQueue();
+      else if (running && guardedConversation && !steer) handleQueue();
       else if (running && onInterrupt) handleInterrupt();
       else handleSend();
     }
@@ -1905,7 +1927,7 @@ function ChatInputContent({
                     className="chat-input-btn chat-input-btn--queue"
                     aria-label="Queue message"
                     disabled={!canSend || !!sendDisabledReason || importing || queueBusy}
-                    onClick={sharedControl ? handleSend : handleQueue}
+                    onClick={sharedControl ? handleSharedQueue : handleQueue}
                     title={
                       sharedControl
                         ? `Queue for ${sharedControl.label} after the current turn`

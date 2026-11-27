@@ -192,6 +192,8 @@ it('runs four complete unit shards after compile preflight and alongside remaini
   expect(commands).toContain('vitest list --filesOnly');
   expect(commands).toContain('--shard=${{ matrix.shard }}/4');
   expect(commands).toContain('--reporter=json');
+  // Failing unit tests must be readable as check annotations without job logs.
+  expect(commands).toContain('--reporter=github-actions');
   expect(jobs['unit-validation'].needs).toEqual(['core', 'unit']);
   expect(jobs['unit-validation'].if).toBe('always()');
   expect(
