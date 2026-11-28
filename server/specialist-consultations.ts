@@ -22,6 +22,7 @@ import {
   SpecialistRouteSchema,
   ConsultationInputSchema,
   SpecialistAuthorizationInputSchema,
+  ConsultationAllowanceSchema,
   type SpecialistRoute,
   type SpecialistPolicy,
   type ConsultationRecord,
@@ -44,6 +45,9 @@ import {
 } from './specialist-context-envelope.js';
 
 const log = createLogger('specialist-consultation');
+export type SpecialistApproval = (
+  display: Record<string, unknown>,
+) => Promise<boolean | Record<string, unknown>>;
 export type SpecialistAuthority = {
   leadSessionId: string;
   operatorConnectionId: string;
@@ -156,7 +160,8 @@ export class SpecialistConsultations {
       try {
         const inventory = ordinaryRepositoryRuntimeInventory('local', harness);
         for (const route of inventory.result.routes) {
-          if (!route.modes.some((mode) => String(mode) === 'ask')) continue;
+          if (!route.modes.some((mode) => ['ask', 'agent', 'auto'].includes(String(mode))))
+            continue;
           const account = inventory.result.accounts.find(
             (item) => item.account.accountId === route.account.accountId,
           );
@@ -167,6 +172,7 @@ export class SpecialistConsultations {
             harness,
             runOn: 'local' as const,
             targetId: route.targetId,
+            permissionModes: route.modes,
             models: account.models,
           });
           const binding = inventory.profiles.resolve(
@@ -209,6 +215,7 @@ export class SpecialistConsultations {
       routes,
       repositories: [...repositories.values()],
       policies: this.receipts.policies(a.leadSessionId),
+      modelPolicy: this.receipts.modelPolicies.view(a.leadSessionId),
       unavailable: [
         ...unavailable,
         ...repositorySourceRefusals(sourceInventory),
@@ -238,7 +245,7 @@ export class SpecialistConsultations {
       },
       harness,
       targetId: route.targetId,
-      mode: 'ask',
+      mode: route.permissionMode ?? 'ask',
     });
     if (resolved.status !== 'compatible') throw Error('Specialist runtime is unavailable');
     const agent = await resolveOrdinaryCodexAgentProfile({
@@ -257,11 +264,7 @@ export class SpecialistConsultations {
       throw Error('This specialist context recipe needs a qualified shared joining route');
     return { binding, runtime: resolved.binding, agent };
   }
-  async authorize(
-    a: SpecialistAuthority,
-    raw: unknown,
-    approve: (display: Record<string, unknown>) => Promise<boolean>,
-  ) {
+  async authorize(a: SpecialistAuthority, raw: unknown, approve: SpecialistApproval) {
     this.current(a);
     const input = specialistToolSchema.parse({ ...(raw as object), operation: 'authorize' });
     if (!input.requestId || !input.routes || !input.repository || !input.connectionId)
@@ -338,17 +341,30 @@ export class SpecialistConsultations {
       expiresAt:
         prior?.expiresAt ??
         Math.min(a.auth.expiresAt, Date.now() + authorizationInput.durationMinutes * 60000),
-      maxConsultations: authorizationInput.maxConsultations,
+      maxConsultations: prior ? prior.maxConsultations : authorizationInput.maxConsultations,
       maxContextBytes: authorizationInput.maxContextBytes,
     };
     const display = {
       ...selection,
-      specialistPermissionMode: 'ask',
+      specialistPermissionModes: routes.map((route) => ({
+        role: route.role,
+        mode: route.permissionMode ?? 'ask',
+      })),
       scope:
         'Only this lead may request bounded specialist turns, share selected public messages and artifact versions, and read attributed replies. No tool, repository credential, merge or deployment authority is inherited. Limits count requested turns; no dollar or total-token cap is certified.',
     };
-    if (!prior && !(await approve(display)))
-      throw Error('Specialist consultation policy was not approved');
+    if (!prior) {
+      const decision = await approve(display);
+      if (!decision) throw Error('Specialist consultation policy was not approved');
+      if (decision !== true) {
+        const { maxConsultations, ...rest } = decision;
+        const expected: Record<string, unknown> = { ...display };
+        delete expected.maxConsultations;
+        if (!isDeepStrictEqual(rest, expected))
+          throw Error('Consultation approval changed protected fields');
+        selection.maxConsultations = ConsultationAllowanceSchema.parse(maxConsultations);
+      }
+    }
     this.current(a);
     for (const route of routes) await this.resolveRoute(route);
     this.current(a);
@@ -361,13 +377,15 @@ export class SpecialistConsultations {
       throw Error('Choose one shared conversation before consulting specialists');
     // Select the final group before saving. A replay or interrupted setup must
     // retain this identity even if the lead has since joined another group.
-    const policy = this.receipts.authorize(
-      a.leadSessionId,
-      a.auth.id,
-      selection,
-      groups?.collaborations[0]?.collaborationId,
-      authorizationInput,
-    );
+    const policy =
+      prior ??
+      this.receipts.authorize(
+        a.leadSessionId,
+        a.auth.id,
+        selection,
+        groups?.collaborations[0]?.collaborationId,
+        authorizationInput,
+      );
     if (!this.owners.events.getSessionCollaboration(policy.collaborationId))
       this.owners.events.collaborationConversation.begin(policy.collaborationId, {
         requestId: policy.requestId,
@@ -522,10 +540,40 @@ export class SpecialistConsultations {
     );
     return envelope;
   }
-  async consult(a: SpecialistAuthority, policyId: string, raw: unknown) {
+  async consult(
+    a: SpecialistAuthority,
+    policyId: string,
+    raw: unknown,
+    approve?: SpecialistApproval,
+  ) {
     this.current(a);
     const input = ConsultationInputSchema.parse(raw);
     const policy = this.receipts.assertPolicy(a.leadSessionId, a.auth.id, policyId);
+    const previous = this.receipts.find(a.leadSessionId, input.requestId);
+    if (previous) {
+      if (previous.policyId !== policyId || !isDeepStrictEqual(previous.input, input))
+        throw Error('Consultation request conflict');
+      // A receipt still `reserved` never started, or lost its runner to a
+      // concurrent consult or restart. It holds an allowance slot, so retrying
+      // the same requestId resumes it through the original recovery owner
+      // (re-approving if its rule changed or its allowance was released).
+      // A retry of the request this host is still running joins its pending
+      // result, as before. Anything else reports its current state.
+      const pending = this.pending.get(a.leadSessionId);
+      if (pending?.requestId === input.requestId) return pending.result;
+      if (previous.state === 'reserved') {
+        if (pending)
+          throw Error(
+            'Another consultation is preparing; retain this requestId and retry after it settles',
+          );
+        return this.recover(a, input.requestId, approve);
+      }
+      return this.read(a, input.requestId);
+    }
+    if (this.pending.has(a.leadSessionId))
+      throw Error(
+        'Another consultation is preparing; retain this requestId and retry after it settles',
+      );
     let candidates = policy.routes.filter((route) => route.role === input.role);
     if (input.reviewOf) {
       const reviewed = this.read(a, input.reviewOf);
@@ -542,17 +590,12 @@ export class SpecialistConsultations {
     }
     if (!candidates.length)
       throw Error('No eligible independent specialist route is authorized for this role');
-    const existing = this.receipts.find(a.leadSessionId, input.requestId);
-    if (existing && (existing.policyId !== policyId || !isDeepStrictEqual(existing.input, input)))
-      throw Error('Consultation request conflict');
-    if (existing) {
-      if (existing.state !== 'reserved' && !this.pending.has(a.leadSessionId))
-        return this.read(a, existing.requestId);
-      return this.run(a, policy, existing);
-    }
     const boundary = this.owners.events.getDurableSessionTranscript(a.leadSessionId).boundary;
-    // No receipt, workspace preview, allocation or dispatch exists on refusal.
+    // Freeze and size the context first: no receipt, workspace preview,
+    // allocation, dispatch or operator prompt exists on a context refusal.
     const envelope = await this.preflight(a, policy, input, boundary);
+    this.current(a);
+    const selected = await this.approveModel(a, policy, candidates, approve);
     this.current(a);
     const record = this.receipts.reserve(
       a.leadSessionId,
@@ -560,16 +603,16 @@ export class SpecialistConsultations {
       policyId,
       input,
       boundary,
-      candidates[0],
-      { contextEnvelope: envelope },
+      selected.route,
+      { modelPolicyRevision: selected.revision, contextEnvelope: envelope },
     );
     if (record.state !== 'reserved' && !this.pending.has(a.leadSessionId))
       return this.read(a, record.requestId);
     return this.run(a, policy, record);
   }
-  async recover(a: SpecialistAuthority, requestId: string) {
+  async recover(a: SpecialistAuthority, requestId: string, approve?: SpecialistApproval) {
     this.current(a);
-    const record = this.receipts.read(a.leadSessionId, requestId);
+    let record = this.receipts.read(a.leadSessionId, requestId);
     const observed = this.read(a, requestId);
     if (observed.terminal || record.state === 'stopped') return observed;
     const policy = this.receipts.assertPolicy(a.leadSessionId, a.auth.id, record.policyId);
@@ -583,7 +626,114 @@ export class SpecialistConsultations {
       )
     )
       return observed;
+    const settings = this.receipts.modelPolicies.resolve(
+      a.leadSessionId,
+      record.route.accountId,
+      record.route.model,
+    );
+    if (record.modelPolicyRevision !== settings.revision || record.allowanceState === 'released') {
+      const approved = await this.approveModel(
+        a,
+        policy,
+        [record.route],
+        approve,
+        record.requestId,
+      );
+      record = this.receipts.update(a.leadSessionId, requestId, record.revision, {
+        modelPolicyRevision: approved.revision,
+      });
+    }
     return this.run(a, policy, record);
+  }
+  private async approveModel(
+    a: SpecialistAuthority,
+    policy: SpecialistPolicy,
+    candidates: SpecialistRoute[],
+    approve?: SpecialistApproval,
+    excludeRequest?: string,
+  ) {
+    const eligible = candidates.filter(
+      (route) =>
+        this.receipts.modelPolicies.resolve(a.leadSessionId, route.accountId, route.model)
+          .admission !== 'off',
+    );
+    if (!eligible.length) throw Error('Selected model is Off in the current Symposium policy');
+    // Never silently replace the proposed route, even with another approved model.
+    const proposed = candidates[0];
+    const settings = this.receipts.assertModelAllowance(a.leadSessionId, proposed, excludeRequest);
+    let route = proposed;
+    // Each route's revision fingerprints its own effective rule.
+    let approvedRevision = settings.revision;
+    if (settings.admission === 'ask') {
+      // The proposed route must be usable. An alternative that cannot resolve
+      // or has no allowance left is omitted from the options, so one stale
+      // alternative cannot block every Ask admission for this role.
+      await this.resolveRoute(proposed);
+      const options: { route: SpecialistRoute; revision: string }[] = [
+        { route: proposed, revision: settings.revision },
+      ];
+      for (const candidate of eligible) {
+        if (candidate === proposed) continue;
+        try {
+          const candidateSettings = this.receipts.assertModelAllowance(
+            a.leadSessionId,
+            candidate,
+            excludeRequest,
+          );
+          await this.resolveRoute(candidate);
+          options.push({ route: candidate, revision: candidateSettings.revision });
+        } catch (cause) {
+          log.info('Specialist alternative omitted from admission options', {
+            stage: 'specialist_admission',
+            code: 'alternative_unavailable',
+            leadSessionId: a.leadSessionId,
+            policyId: policy.policyId,
+            role: candidate.role,
+            accountId: candidate.accountId,
+            model: candidate.model,
+            err: cause,
+          });
+        }
+      }
+      const display = {
+        kind: 'specialist_admission',
+        policyId: policy.policyId,
+        role: proposed.role,
+        maxConsultations: policy.maxConsultations,
+        modelPolicyRevision: settings.revision,
+        routes: options.map(({ route: candidate, revision }) => ({
+          ...candidate,
+          modelPolicyRevision: revision,
+          accountLabel: loadAccountProfiles().resolve(candidate.accountId, candidate.model)
+            .accountLabel,
+        })),
+      };
+      const decision = await approve?.(display);
+      if (!decision) throw Error('Specialist admission was not approved');
+      if (decision !== true) {
+        const { routeIndex, ...rest } = decision;
+        if (
+          !isDeepStrictEqual(rest, display) ||
+          !Number.isInteger(routeIndex) ||
+          Number(routeIndex) < 0 ||
+          Number(routeIndex) >= options.length
+        )
+          throw Error('Consultation approval changed protected fields');
+        ({ route, revision: approvedRevision } = options[Number(routeIndex)]);
+      }
+    }
+    this.current(a);
+    const current = this.receipts.assertModelAllowance(a.leadSessionId, route, excludeRequest);
+    if (current.revision !== approvedRevision)
+      throw Error('Model policy changed during approval; review again');
+    await this.resolveRoute(route);
+    this.current(a);
+    if (
+      this.receipts.modelPolicies.resolve(a.leadSessionId, route.accountId, route.model)
+        .revision !== current.revision
+    )
+      throw Error('Model policy changed during approval; review again');
+    return { route, revision: current.revision };
   }
   private run(a: SpecialistAuthority, policy: SpecialistPolicy, record: ConsultationRecord) {
     const pending = this.pending.get(a.leadSessionId);
@@ -620,10 +770,19 @@ export class SpecialistConsultations {
     let record = original;
     const envelope = SpecialistContextEnvelopeSchema.parse(record.contextEnvelope);
     let stage = 'preparation';
+    let chargedHere = false;
     const assertCurrent = () => {
       signal.throwIfAborted();
       this.current(a);
-      this.receipts.assertPolicy(a.leadSessionId, a.auth.id, policy.policyId);
+      const latestPolicy = this.receipts.assertPolicy(a.leadSessionId, a.auth.id, policy.policyId);
+      this.receipts.assertAllowance(a.leadSessionId, latestPolicy, record.requestId);
+      const settings = this.receipts.assertModelAllowance(
+        a.leadSessionId,
+        record.route,
+        record.requestId,
+      );
+      if (record.modelPolicyRevision !== settings.revision)
+        throw Error('Model policy changed before admission; recover the original request');
       const current = this.receipts.read(a.leadSessionId, record.requestId);
       if (current.state === 'stopped') throw Error('Specialist consultation was stopped');
       if (current.revision !== record.revision)
@@ -634,6 +793,7 @@ export class SpecialistConsultations {
       record = this.receipts.update(a.leadSessionId, record.requestId, record.revision, patch);
     };
     try {
+      record = this.receipts.claimAllowance(a.leadSessionId, a.auth.id, record.requestId);
       assertCurrent();
       const resolved = await this.resolveRoute(record.route);
       assertCurrent();
@@ -697,7 +857,7 @@ export class SpecialistConsultations {
               reasoningEffort: record.route.reasoningEffort,
               agent: record.route.agent,
               repositoryWorkspaceId: record.workspaceId,
-              permissionMode: 'ask',
+              permissionMode: record.route.permissionMode ?? 'ask',
             },
           },
           signal,
@@ -770,6 +930,8 @@ export class SpecialistConsultations {
       }
       stage = 'delivery';
       assertCurrent();
+      chargedHere = record.allowanceState !== 'charged';
+      update({ allowanceState: 'charged' });
       await this.owners.messaging.send(
         a.auth,
         policy.collaborationId,
@@ -784,6 +946,18 @@ export class SpecialistConsultations {
     } catch (cause) {
       const diagnostic = specialistDiagnostic(cause);
       const current = this.receipts.read(a.leadSessionId, record.requestId);
+      // Messaging durably retains the request before any dispatch. Absence after
+      // send has settled proves this attempt never entered delivery. Never refund
+      // legacy or previously uncertain charges on this evidence alone.
+      const refusedBeforeDelivery =
+        chargedHere &&
+        record.messageInput &&
+        !this.owners.events.collaborationConversation.getMessageForRequest(
+          policy.collaborationId,
+          record.messageInput,
+        );
+      const allowanceState =
+        current.allowanceState === 'charged' && !refusedBeforeDelivery ? 'charged' : 'released';
       const details = {
         sessionId: a.leadSessionId,
         requestId: record.requestId,
@@ -796,6 +970,7 @@ export class SpecialistConsultations {
       if (current.state !== 'stopped' && current.revision === record.revision)
         this.receipts.update(a.leadSessionId, record.requestId, current.revision, {
           state: 'uncertain',
+          allowanceState,
           diagnostic: {
             code: diagnostic.code,
             stage,
@@ -803,6 +978,10 @@ export class SpecialistConsultations {
               diagnostic.message +
               ' Read or recover the original request; do not submit a replacement.',
           },
+        });
+      else if (current.state === 'stopped' && refusedBeforeDelivery)
+        this.receipts.update(a.leadSessionId, record.requestId, current.revision, {
+          allowanceState,
         });
       this.current(a);
       return this.read(a, record.requestId);
@@ -823,7 +1002,10 @@ export class SpecialistConsultations {
     const stopped =
       record.state === 'stopped'
         ? record
-        : this.receipts.update(a.leadSessionId, requestId, record.revision, { state: 'stopped' });
+        : this.receipts.update(a.leadSessionId, requestId, record.revision, {
+            state: 'stopped',
+            allowanceState: record.allowanceState === 'charged' ? 'charged' : 'released',
+          });
     const pending = this.pending.get(a.leadSessionId);
     if (pending?.requestId === requestId) pending.cancel.abort();
     const accepted =

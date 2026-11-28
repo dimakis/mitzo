@@ -8,7 +8,45 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const journey = createApplicationJourney();
+const approveAdmission = async () => true;
 afterAll(() => journey.close());
+
+it('serves operator settings, persists overrides and rejects stale edits through HTTP', async () => {
+  const h = await journey.getApplicationUiJourney();
+  const endpoint = '/api/specialist-model-policy/existing-chat';
+  const initial = await h.fetch(endpoint);
+  expect(initial.status).toBe(200);
+  const view = await initial.json();
+  const request = {
+    requestId: crypto.randomUUID(),
+    expectedRevision: view.conversation.revision,
+    scope: 'conversation',
+    policy: {
+      models: [
+        { accountId: 'offline-personal', model: 'fixture-model', admission: 'auto', allowance: 12 },
+      ],
+    },
+  };
+  const saved = await h.fetch(endpoint, { method: 'PUT', body: JSON.stringify(request) });
+  expect(saved.status).toBe(200);
+  const repeated = await h.fetch(endpoint, { method: 'PUT', body: JSON.stringify(request) });
+  expect(await repeated.json()).toEqual(await saved.json());
+  const stale = await h.fetch(endpoint, {
+    method: 'PUT',
+    body: JSON.stringify({ ...request, requestId: crypto.randomUUID() }),
+  });
+  expect(stale.status).toBe(409);
+  expect((await h.fetch('/api/specialist-model-policy/missing')).status).toBe(404);
+  await h.fetch(endpoint, {
+    method: 'PUT',
+    body: JSON.stringify({
+      ...request,
+      requestId: crypto.randomUUID(),
+      expectedRevision: request.expectedRevision + 1,
+      policy: null,
+    }),
+  });
+}, 30000);
 
 const authorizationFixture = (role?: string) => specialistAuthorizationFixture(journey, role);
 
@@ -18,9 +56,162 @@ it('replays an exact authorization outside the recent-policy catalog without ano
   for (let i = 0; i < 21; i++)
     await service.authorize(authority, { ...input, requestId: crypto.randomUUID() }, approve);
   expect(service.receipts.policies(authority.leadSessionId)).toHaveLength(20);
+  expect(
+    service.receipts
+      .activePolicies(authority.leadSessionId, authority.auth.id)
+      .map((entry) => entry.policyId),
+  ).toContain(original.policyId);
   const approvals = approve.mock.calls.length;
   await expect(service.authorize(authority, input, approve)).resolves.toEqual(original);
   expect(approve).toHaveBeenCalledTimes(approvals);
+}, 30000);
+
+it('reviews editable allowance, requires Ask admission and blocks Off before reservation', async () => {
+  const { service, authority, input } = await authorizationFixture();
+  const policy = await service.authorize(authority, input, async (display) => ({
+    ...display,
+    maxConsultations: null,
+  }));
+  expect(policy.maxConsultations).toBeNull();
+  const request = {
+    requestId: crypto.randomUUID(),
+    role: input.routes[0].role,
+    assignment: 'Check policy admission',
+  };
+  const decline = vi.fn(async () => false);
+  await expect(service.consult(authority, policy.policyId, request, decline)).rejects.toThrow(
+    /not approved/,
+  );
+  expect(decline).toHaveBeenCalledOnce();
+  expect(service.receipts.find(authority.leadSessionId, request.requestId)).toBeUndefined();
+  const current = service.receipts.modelPolicies.read(authority.leadSessionId);
+  service.receipts.modelPolicies.save(authority.leadSessionId, {
+    requestId: crypto.randomUUID(),
+    expectedRevision: current.revision,
+    policy: {
+      models: [
+        {
+          accountId: input.routes[0].accountId,
+          model: input.routes[0].model,
+          admission: 'off',
+          allowance: null,
+        },
+      ],
+    },
+  });
+  await expect(service.consult(authority, policy.policyId, request, decline)).rejects.toThrow(
+    /Off/,
+  );
+  expect(decline).toHaveBeenCalledOnce();
+  service.receipts.modelPolicies.save(authority.leadSessionId, {
+    requestId: crypto.randomUUID(),
+    expectedRevision: current.revision + 1,
+    policy: null,
+  });
+}, 30000);
+
+it('resumes a retried reserved receipt through recovery instead of stranding its allowance slot', async () => {
+  const { service, authority, input } = await authorizationFixture();
+  const policy = await service.authorize(authority, input, async () => true);
+  const request = {
+    requestId: crypto.randomUUID(),
+    role: input.routes[0].role,
+    assignment: 'Resume a reserved receipt',
+  };
+  const internals = service as unknown as {
+    owners: { events: { getDurableSessionTranscript(id: string): { boundary: never } } };
+    pending: Map<string, unknown>;
+  };
+  // A receipt left reserved, e.g. by a concurrent consult's refusal or a restart.
+  service.receipts.reserve(
+    authority.leadSessionId,
+    authority.auth.id,
+    policy.policyId,
+    request,
+    internals.owners.events.getDurableSessionTranscript(authority.leadSessionId).boundary,
+    policy.routes[0],
+  );
+  const resumed = { resumed: true };
+  const recover = vi
+    .spyOn(service, 'recover')
+    .mockResolvedValue(resumed as unknown as Awaited<ReturnType<typeof service.recover>>);
+  try {
+    internals.pending.set(authority.leadSessionId, { requestId: 'another-request' });
+    await expect(
+      service.consult(authority, policy.policyId, request, approveAdmission),
+    ).rejects.toThrow(/Another consultation is preparing; retain this requestId/);
+    expect(recover).not.toHaveBeenCalled();
+    // A retry of the request this host is still running joins its result.
+    const joined = { joined: true };
+    internals.pending.set(authority.leadSessionId, {
+      requestId: request.requestId,
+      result: Promise.resolve(joined),
+    });
+    await expect(
+      service.consult(authority, policy.policyId, request, approveAdmission),
+    ).resolves.toBe(joined);
+    expect(recover).not.toHaveBeenCalled();
+    internals.pending.delete(authority.leadSessionId);
+    await expect(
+      service.consult(authority, policy.policyId, request, approveAdmission),
+    ).resolves.toBe(resumed);
+    expect(recover).toHaveBeenCalledWith(authority, request.requestId, approveAdmission);
+  } finally {
+    internals.pending.delete(authority.leadSessionId);
+    recover.mockRestore();
+  }
+}, 30000);
+
+it('omits an unresolvable Ask alternative instead of blocking admission for its role', async () => {
+  const { service, authority, input } = await authorizationFixture();
+  const policy = await service.authorize(authority, input, async () => true);
+  const proposed = policy.routes[0];
+  const stale = { ...proposed, model: 'retired-fixture-model' };
+  const internals = service as unknown as {
+    resolveRoute(route: unknown): Promise<unknown>;
+    approveModel(
+      a: typeof authority,
+      p: typeof policy,
+      candidates: (typeof proposed)[],
+      approve: (display: Record<string, unknown>) => Promise<unknown>,
+    ): Promise<{ route: typeof proposed; revision: string }>;
+  };
+  const original = internals.resolveRoute.bind(service);
+  const resolveRoute = vi
+    .spyOn(internals, 'resolveRoute')
+    .mockImplementation(async (route) =>
+      (route as typeof proposed).model === stale.model
+        ? Promise.reject(Error('Specialist route runtime unavailable'))
+        : original(route),
+    );
+  try {
+    const displays: Record<string, unknown>[] = [];
+    await expect(
+      internals.approveModel(authority, policy, [proposed, stale], async (display) => {
+        displays.push(display);
+        return false;
+      }),
+    ).rejects.toThrow(/not approved/);
+    // The operator is still asked, with only the usable proposed route offered.
+    expect(displays).toHaveLength(1);
+    const routes = displays[0].routes as { model: string; modelPolicyRevision: string }[];
+    expect(routes.map((route) => route.model)).toEqual([proposed.model]);
+    expect(routes[0].modelPolicyRevision).toBe(displays[0].modelPolicyRevision);
+  } finally {
+    resolveRoute.mockRestore();
+  }
+}, 30000);
+
+it('edits a retained policy allowance through its operator route and replays the original authorization', async () => {
+  const { h, service, authority, input, approve } = await authorizationFixture();
+  const policy = await service.authorize(authority, input, approve);
+  const endpoint = `/api/specialist-model-policy/existing-chat/allowances/${policy.policyId}`;
+  const edit = { requestId: crypto.randomUUID(), expectedRevision: 0, maxConsultations: null };
+  const result = await h.fetch(endpoint, { method: 'PUT', body: JSON.stringify(edit) });
+  expect(result.status).toBe(200);
+  expect(await result.json()).toMatchObject({ revision: 1, maxConsultations: null });
+  expect((await service.authorize(authority, input, approve)).maxConsultations).toBeNull();
+  expect(approve).toHaveBeenCalledOnce();
 }, 30000);
 
 it('refuses an oversized UTF-8 envelope before reserving a consultation or workspace', async () => {
@@ -187,6 +378,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       maxContextBytes: 32000,
       routes: ['planner', 'plan-reviewer'].map((role) => ({
         role,
+        permissionMode: role === 'planner' ? 'auto' : 'agent',
         accountId: 'offline-personal',
         model: 'fixture-model',
         modelFamily: 'synthetic-openai-family',
@@ -200,7 +392,10 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
   expect(approve).toHaveBeenCalledOnce();
   expect(approve.mock.calls[0][0]).toMatchObject({
     maxConsultations: 4,
-    specialistPermissionMode: 'ask',
+    specialistPermissionModes: [
+      { role: 'planner', mode: 'auto' },
+      { role: 'plan-reviewer', mode: 'agent' },
+    ],
   });
   const { recordApplicationMessagingRuntime } =
     await import('./fixtures/symposium-recording-runtime.js');
@@ -215,7 +410,24 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       messageIds: ['selected-source'],
       artifacts: [artifact],
     };
-    const first = await service.consult(authority, policy.policyId, input);
+    const savedModels = service.receipts.modelPolicies.read(authority.leadSessionId);
+    service.receipts.modelPolicies.save(authority.leadSessionId, {
+      requestId: crypto.randomUUID(),
+      expectedRevision: savedModels.revision,
+      policy: {
+        models: [
+          {
+            accountId: 'offline-personal',
+            model: 'fixture-model',
+            admission: 'auto',
+            allowance: null,
+          },
+        ],
+      },
+    });
+    const admission = vi.fn(approveAdmission);
+    const first = await service.consult(authority, policy.policyId, input, admission);
+    expect(admission).not.toHaveBeenCalled();
     expect(
       first.receipt.state,
       readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
@@ -223,6 +435,9 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
         .filter((line) => line.includes('specialist-consultation'))
         .join('\n'),
     ).toBe('dispatched');
+    expect(
+      h.events.getOrdinaryConversationSettings(first.receipt.sessionId!)?.selection.permission.mode,
+    ).toBe('auto');
     expect(first.context).toMatchObject({ limitBytes: 32000, components: { assignment: 18017 } });
     expect(first.context!.totalBytes).toBeLessThan(32000);
     expect(first.context!.artifacts[0]).toMatchObject({
@@ -252,6 +467,12 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       { timeout: 5000 },
     );
     const planned = service.read(authority, input.requestId);
+    expect(planned.receipt.allowanceState).toBe('charged');
+    service.receipts.modelPolicies.save(authority.leadSessionId, {
+      requestId: crypto.randomUUID(),
+      expectedRevision: savedModels.revision + 1,
+      policy: savedModels.policy,
+    });
     expect(planned.contributions[0]).toMatchObject({
       role: 'planner',
       profileId: 'planner',
@@ -283,7 +504,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
         .messages.some((message) => message.messageId === planned.contributions[0].messageId),
     ).toBe(false);
     expect(service.read(authority, input.requestId).contributions).toEqual(planned.contributions);
-    const repeated = await service.consult(authority, policy.policyId, input);
+    const repeated = await service.consult(authority, policy.policyId, input, approveAdmission);
     expect(repeated.receipt.sessionId).toBe(first.receipt.sessionId);
     expect(native.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
     const reviewed = {
@@ -295,7 +516,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       messageIds: [],
       artifacts: [],
     };
-    const second = await service.consult(authority, policy.policyId, reviewed);
+    const second = await service.consult(authority, policy.policyId, reviewed, approveAdmission);
     expect(second.receipt.sessionId).not.toBe(first.receipt.sessionId);
     expect(second.independence).toMatchObject({ independent: true, differentFamily: false });
     await vi.waitFor(
@@ -311,7 +532,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
     ).toContain('Synthetic project context for specialists.');
     native.holdTurn(3);
     const held = { ...input, requestId: crypto.randomUUID(), messageIds: [] };
-    await service.consult(authority, policy.policyId, held);
+    await service.consult(authority, policy.policyId, held, approveAdmission);
     await vi.waitFor(
       () =>
         expect(
@@ -352,7 +573,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
         return send.apply(this, args);
       });
     const cancelled = { ...input, requestId: crypto.randomUUID(), messageIds: [] };
-    const preparing = service.consult(authority, policy.policyId, cancelled);
+    const preparing = service.consult(authority, policy.policyId, cancelled, approveAdmission);
     try {
       await vi.waitFor(
         () =>
@@ -393,7 +614,9 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       status: 'completed',
       contributions: planned.contributions,
     });
-    expect((await service.consult(authority, policy.policyId, input)).status).toBe('completed');
+    expect(
+      (await service.consult(authority, policy.policyId, input, approveAdmission)).status,
+    ).toBe('completed');
     expect(native.requests).toEqual([]);
     service.revoke(authority, policy.policyId);
     await expect(
@@ -468,7 +691,7 @@ it('recovers a lost join response using the original shared owner without alloca
       messageIds: [],
       artifacts: [],
     };
-    const interrupted = await service.consult(authority, policy.policyId, input);
+    const interrupted = await service.consult(authority, policy.policyId, input, approveAdmission);
     expect(interrupted.status).toBe('uncertain');
     expect(
       lost,
@@ -481,14 +704,14 @@ it('recovers a lost join response using the original shared owner without alloca
     expect(originalSessionId).toBeTruthy();
     expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
     lost.mockRestore();
-    const recovered = await service.recover(authority, input.requestId);
+    const recovered = await service.recover(authority, input.requestId, approveAdmission);
     expect(recovered.receipt.sessionId).toBe(originalSessionId);
     expect(recovered.receipt.workspaceId).toBe(interrupted.receipt.workspaceId);
     await vi.waitFor(
       () => expect(service.read(authority, input.requestId).status).toBe('completed'),
       { timeout: 5000 },
     );
-    await service.recover(authority, input.requestId);
+    await service.recover(authority, input.requestId, approveAdmission);
     expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
     const elapsedTime: { clock?: { mockRestore(): void } } = {};
     expect(authority.auth.expiresAt).toBeGreaterThan(policy.expiresAt + 1);
@@ -512,9 +735,10 @@ it('recovers a lost join response using the original shared owner without alloca
         ...input,
         requestId: crypto.randomUUID(),
       };
-      const refused = await service.consult(authority, policy.policyId, expiring);
+      const refused = await service.consult(authority, policy.policyId, expiring, approveAdmission);
       expect(elapsedTime.clock).toBeDefined();
       expect(refused.status).toBe('uncertain');
+      expect(refused.receipt.allowanceState).toBe('released');
       expect(
         h.events.collaborationConversation.getMessageForRequest(
           policy.collaborationId,
@@ -571,10 +795,15 @@ it('recovers a lost join response using the original shared owner without alloca
         }
       });
     try {
-      const finalFence = await service.consult(authority, policy.policyId, {
-        ...input,
-        requestId: crypto.randomUUID(),
-      });
+      const finalFence = await service.consult(
+        authority,
+        policy.policyId,
+        {
+          ...input,
+          requestId: crypto.randomUUID(),
+        },
+        approveAdmission,
+      );
       const { getCodexConversationStore } = await import('../codex-chat-session.js');
       await vi.waitFor(
         () =>
