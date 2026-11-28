@@ -1177,6 +1177,23 @@ export class SseConnection implements ChatConnection {
     this.livenessTimer = null;
   }
 
+  /**
+   * Sessions whose reconnect replay is already scheduled by this foreground
+   * transition. Every such replay ends in a `session_reconnect_snapshot` offer,
+   * whose bounded restore covers the store's foreground transcript recovery.
+   * An empty list means no replay is pending (for example while authentication
+   * is blocked), so the store keeps its own full-transcript fallback.
+   */
+  private foregroundReplaySessions(): string[] {
+    if (this.authBlocked || this.seqBySession.size === 0) return [];
+    const replayPending =
+      this.foregroundProbe?.resumeSessions === true ||
+      this.reconnectTimer !== null ||
+      (this.replayRequest !== null && this.replayRequest.es === this.es) ||
+      (this.es !== null && !this._connectionId);
+    return replayPending ? this.getTrackedSessions() : [];
+  }
+
   private probeForeground(resumeSessions = true): void {
     // Replay already owns a bounded recovery attempt for this exact stream.
     // The periodic liveness check must not replace it at 10s before its 15s
@@ -1235,7 +1252,7 @@ export class SseConnection implements ChatConnection {
     this.boundOnVisibility = () => {
       if (document.visibilityState === 'visible') {
         this.probeForeground();
-        this.listener?.({ type: '_foreground' });
+        this.listener?.({ type: '_foreground', replaySessions: this.foregroundReplaySessions() });
       } else if (document.visibilityState === 'hidden') {
         this.sendSuspend();
       }

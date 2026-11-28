@@ -597,6 +597,7 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
       // An ordinary chat has nothing to refresh; never offer a dead control.
       onRefresh={host.canRetry ? host.retry : undefined}
       rosterError={host.error ?? presentation.error ?? undefined}
+      modelPolicySessionId={host.historySource ? undefined : host.sourceConversationId}
       sharedIdentity={host.identity}
       showParticipantNames={host.active || props.showParticipantNames}
       addressedReadingOnly={host.active}

@@ -33,6 +33,7 @@ import { ConversationRepositoryPicker } from './ConversationRepositoryPicker';
 import { QuickSettingsContext, type SettingsDestination } from '../lib/quick-settings-context';
 import { QuickSettingsField } from './QuickChatSettings';
 import { useConversationAgentsPanel } from '../lib/conversation-agents-panel';
+import { SpecialistModelPolicySettings } from './SpecialistModelPolicySettings';
 import {
   sharedConversationLabel,
   type SharedConversationIdentity,
@@ -89,6 +90,7 @@ const initial = (): ConversationAgentSetup => ({
  */
 export function ConversationAgents(props: {
   scope: string;
+  modelPolicySessionId?: string;
   agents: ConversationAgent[];
   messages: FinishedMessage[];
   repository?: string;
@@ -131,6 +133,7 @@ function ParticipantHeaderFrame({ compact, children }: { compact?: boolean; chil
   return compact ? children : <div className="conversation-participants-container">{children}</div>;
 }
 function ConversationAgentsBody({
+  modelPolicySessionId,
   scope,
   agents,
   messages,
@@ -410,6 +413,12 @@ function ConversationAgentsBody({
                       </button>
                     )}
                   </div>
+                )}
+                {modelPolicySessionId && (
+                  <SpecialistModelPolicySettings
+                    key={modelPolicySessionId}
+                    sessionId={modelPolicySessionId}
+                  />
                 )}
                 {agents.length === 0 && <p role="status">Agent details are loading.</p>}
                 {agents.map((a) => (

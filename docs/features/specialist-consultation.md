@@ -35,12 +35,27 @@ identity. Shared specialist participants cannot recruit recursively.
    protocol differences do not prove it. A same-family selection includes a
    reason. No eligible independent route produces a visible refusal.
 
-Policies allow at most eight consultations and expire within two hours, capped
-by the original login lifetime. Every reserved intent consumes its call slot,
-including failed setup. There are no automatic recruitment or review loops.
+Policies default to four consultations; the operator can change or remove this
+allowance during approval and later in Agents → Model policy. They expire within
+two hours, capped by the original login lifetime. Reservations hold an allowance
+while preparing. A refusal before delivery releases it; retained delivery and
+uncertain dispatched work remain charged. Legacy receipts conservatively remain
+charged. There are no automatic recruitment or review loops.
 The existing role-routing resolver validates the selected account/model and its
 audit is retained with the request. This policy caps calls and selected context
 bytes; it does not certify a dollar or aggregate-token ceiling.
+
+Agents → Model policy also edits persisted workspace defaults and conversation
+overrides. Rules select an exact charged account and model, Ask/Auto/Off admission,
+and an optional conversation-wide model allowance. Unlisted models default to Ask.
+Ask displays eligible authorized alternatives for explicit selection; Auto admits
+under the previously reviewed policy; Off refuses without substitution. Changes
+apply to future admissions, including recovery of unstarted work. Edits use revision
+checks and retained request identities so a lost response can be retried safely.
+
+Model admission policy is separate from agent permissions. Consultation routes
+select Ask, Agent or Auto agent mode, retain it through review and joining, and use
+the ordinary execution permissions for that mode. Roles do not hard-code models.
 
 ## Context, receipts and controls
 

@@ -1,4 +1,4 @@
-import { isDeepStrictEqual } from 'node:util';
+import { specialistApprovalQuestions, specialistApprovalResult } from './specialist-approval.js';
 import {
   checkSkillPolicy,
   effectivePermissionMode,
@@ -93,39 +93,49 @@ export function sessionSpecialistTools(
           assertCurrent: current,
         };
         stage = input.operation;
+        const approve = async (display: Record<string, unknown>) => {
+          const decision = await buildPermissionHandler(source.clientId, registry)(
+            prefix + 'SymposiumConsult',
+            display,
+            {
+              signal,
+              toolUseID: call!.callId,
+              forcePrompt: true,
+              allowSessionGrant: false,
+              rememberSessionGrant: false,
+              approvalScope: 'request',
+              title:
+                display.kind === 'specialist_admission'
+                  ? 'Approve specialist admission'
+                  : 'Authorize specialist consultation',
+              questions: specialistApprovalQuestions(display),
+            },
+          );
+          current();
+          return decision.behavior === 'allow'
+            ? specialistApprovalResult(display, decision.updatedInput ?? display)
+            : false;
+        };
         let value: unknown;
         if (input.operation === 'catalog') value = await service.catalog(authority);
         else if (input.operation === 'authorize')
-          value = await service.authorize(authority, input, async (display) => {
-            const decision = await buildPermissionHandler(source.clientId, registry)(
-              prefix + 'SymposiumConsult',
-              display,
-              {
-                signal,
-                toolUseID: call!.callId,
-                forcePrompt: true,
-                allowSessionGrant: false,
-                rememberSessionGrant: false,
-                approvalScope: 'request',
-                title: 'Authorize bounded specialist consultation for this conversation?',
-              },
-            );
-            current();
-            return (
-              decision.behavior === 'allow' && isDeepStrictEqual(decision.updatedInput, display)
-            );
-          });
+          value = await service.authorize(authority, input, approve);
         else if (input.operation === 'consult') {
           if (!input.policyId || !input.requestId || !input.role || !input.assignment)
             throw Error('Consult requires policyId, requestId, role and assignment');
-          value = await service.consult(authority, input.policyId, {
-            requestId: input.requestId,
-            role: input.role,
-            assignment: input.assignment,
-            ...(input.messageIds !== undefined ? { messageIds: input.messageIds } : {}),
-            ...(input.artifacts !== undefined ? { artifacts: input.artifacts } : {}),
-            ...(input.reviewOf !== undefined ? { reviewOf: input.reviewOf } : {}),
-          });
+          value = await service.consult(
+            authority,
+            input.policyId,
+            {
+              requestId: input.requestId,
+              role: input.role,
+              assignment: input.assignment,
+              ...(input.messageIds !== undefined ? { messageIds: input.messageIds } : {}),
+              ...(input.artifacts !== undefined ? { artifacts: input.artifacts } : {}),
+              ...(input.reviewOf !== undefined ? { reviewOf: input.reviewOf } : {}),
+            },
+            approve,
+          );
         } else if (input.operation === 'revoke') {
           if (!input.policyId) throw Error('Revoke requires policyId');
           value = service.revoke(authority, input.policyId);
@@ -135,7 +145,7 @@ export function sessionSpecialistTools(
             input.operation === 'stop'
               ? await service.stop(authority, input.requestId)
               : input.operation === 'recover'
-                ? await service.recover(authority, input.requestId)
+                ? await service.recover(authority, input.requestId, approve)
                 : service.read(authority, input.requestId);
         }
         current();
