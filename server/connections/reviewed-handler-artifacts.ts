@@ -1514,7 +1514,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/github-command-consent.ts':
     '4f7978ac6ebf77446c28fbe55c588197697efdcf845b72a949e08698e11cb1b5',
   '../../packages/harness/src/index.ts':
-    'df81bb42685b4b20c0813a0d6556f80ab482ddb0fffb9978ca90f341799f0351',
+    '370a59402d8d14dd9f39689856ae4b2f28316752189c03c62f766def95d34114',
   '../../packages/harness/src/notify.ts':
     '0129017e62e20b7bb2a13b48c4f84bb66f087e17b1e5865ebaf99ae989d19652',
   '../../packages/harness/src/permission-audit.ts':
@@ -1552,7 +1552,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/tool-tiers.ts':
     '9738cbac21f86ced4c24769d551a139f2c30b9b4e93adf6e6e74b876b7bb6c32',
   '../../packages/harness/src/worktree-guard.ts':
-    '8efe2bc8e1f05ca3a01d6f8e05c91f0f35226863ca059cbea8c7d3a16cb2aa58',
+    '75dffeeadf35ddd9375686e02a3088a6df948c373f0c4ab2a5c2a7ea57c79304',
   '../../packages/protocol/__tests__/collaboration-conversation.test.ts':
     'c5fcb68fc501fd84a14b71a76ba1d18e8d61614e50ceb0dd30227c54937e5311',
   '../../packages/protocol/__tests__/collaboration-durable-transcript.test.ts':
