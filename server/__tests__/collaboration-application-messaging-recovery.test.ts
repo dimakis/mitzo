@@ -27,6 +27,13 @@ const diagnostics = vi.hoisted(() => ({
 }));
 vi.mock('../logger.js', () => ({ createLogger: () => diagnostics }));
 
+/** Tests that push an old message past the 50-message display page send 55
+ * real messages. Each send compiles the reading member's context packet over
+ * the retained discussion (up to the page), so the setup is genuinely about
+ * 55 bounded deliveries: ~1 s locally, measured at 4-5 s on a loaded CI unit
+ * shard. The default 5 s is too tight for that work, not hiding a hang. */
+const PAST_DISPLAY_PAGE_TIMEOUT_MS = 20_000;
+
 let store: EventStore;
 let owner: ApplicationCollaborationMessaging;
 let group: string;
@@ -429,26 +436,30 @@ it('stops retained reply commands independently with stable control identities a
   expect(prompts).toHaveLength(2);
 });
 
-it('keeps readiness and new explicit sends available after the display page overflows', async () => {
-  acknowledgeRecordedPrompts();
-  const ordinary = port(async () => {});
-  Object.assign(ordinary, { inspectCollaboration: vi.fn(async () => {}) });
-  const readiness = new ApplicationCollaborationMessaging(store, ordinary);
-  for (let i = 0; i < 55; i++)
-    await owner.send(auth, group, input('one', `Completed ${i}`), new AbortController().signal);
-  expect(store.collaborationConversation.view(group).hasEarlierMessages).toBe(true);
-  expect(
-    (await readiness.recipientReadiness(auth, group, 'one', new AbortController().signal)).ready,
-  ).toBe(true);
-  const request = input('one', 'Continue the long conversation');
-  const accepted = await owner.send(auth, group, request, new AbortController().signal);
-  expect(prompts).toHaveLength(56);
-  expect(prompts.at(-1)!.text).not.toContain('Completed 0');
-  await owner.send(auth, group, request, new AbortController().signal);
-  expect(prompts).toHaveLength(56);
-  expect(accepted.deliveries[0].status).toBe('delivered');
-  readiness.close();
-});
+it(
+  'keeps readiness and new explicit sends available after the display page overflows',
+  async () => {
+    acknowledgeRecordedPrompts();
+    const ordinary = port(async () => {});
+    Object.assign(ordinary, { inspectCollaboration: vi.fn(async () => {}) });
+    const readiness = new ApplicationCollaborationMessaging(store, ordinary);
+    for (let i = 0; i < 55; i++)
+      await owner.send(auth, group, input('one', `Completed ${i}`), new AbortController().signal);
+    expect(store.collaborationConversation.view(group).hasEarlierMessages).toBe(true);
+    expect(
+      (await readiness.recipientReadiness(auth, group, 'one', new AbortController().signal)).ready,
+    ).toBe(true);
+    const request = input('one', 'Continue the long conversation');
+    const accepted = await owner.send(auth, group, request, new AbortController().signal);
+    expect(prompts).toHaveLength(56);
+    expect(prompts.at(-1)!.text).not.toContain('Completed 0');
+    await owner.send(auth, group, request, new AbortController().signal);
+    expect(prompts).toHaveLength(56);
+    expect(accepted.deliveries[0].status).toBe('delivered');
+    readiness.close();
+  },
+  PAST_DISPLAY_PAGE_TIMEOUT_MS,
+);
 
 it('stops selected canonical commands without requiring the browser that sent the prompt', async () => {
   const ordinary = port(async (prompt) => {
@@ -553,31 +564,36 @@ it('delivers every old pending reader item once across keyset pages and owner re
   expect(prompts.at(-1)!.text).not.toContain('Ordered context');
 });
 
-it('refuses an old unclaimed reply outside the display page before accepting another request', async () => {
-  const original = store.collaborationConversation.acceptMessage(
-    group,
-    input('two', 'Still unclaimed'),
-  );
-  acknowledgeRecordedPrompts();
-  for (let i = 0; i < 55; i++)
-    await owner.send(
-      auth,
+it(
+  'refuses an old unclaimed reply outside the display page before accepting another request',
+  async () => {
+    const original = store.collaborationConversation.acceptMessage(
       group,
-      input('one', `Later completed ${i}`),
-      new AbortController().signal,
+      input('two', 'Still unclaimed'),
     );
-  const before = store.collaborationConversation.view(group);
-  const request = input('two', 'Do not steal the old request');
-  await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toThrow(
-    'execution_unavailable',
-  );
-  expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
-  expect(store.collaborationConversation.view(group).cursor).toBe(before.cursor);
-  expect(
-    store.collaborationConversation.getMessage(group, original.messageId)!.deliveries[0].commandId,
-  ).toBeNull();
-  expect(prompts).toHaveLength(55);
-});
+    acknowledgeRecordedPrompts();
+    for (let i = 0; i < 55; i++)
+      await owner.send(
+        auth,
+        group,
+        input('one', `Later completed ${i}`),
+        new AbortController().signal,
+      );
+    const before = store.collaborationConversation.view(group);
+    const request = input('two', 'Do not steal the old request');
+    await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toThrow(
+      'execution_unavailable',
+    );
+    expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
+    expect(store.collaborationConversation.view(group).cursor).toBe(before.cursor);
+    expect(
+      store.collaborationConversation.getMessage(group, original.messageId)!.deliveries[0]
+        .commandId,
+    ).toBeNull();
+    expect(prompts).toHaveLength(55);
+  },
+  PAST_DISPLAY_PAGE_TIMEOUT_MS,
+);
 
 it.each(['plain', 'escaped'] as const)(
   'refuses an oversized pending packet (%s) without accepting or claiming it',
@@ -607,26 +623,30 @@ it.each(['plain', 'escaped'] as const)(
   },
 );
 
-it('does not restore old reader authority after unlinking and rejoining', async () => {
-  shareWithReader();
-  acknowledgeRecordedPrompts();
-  for (let i = 0; i < 55; i++)
-    await owner.send(
-      auth,
-      group,
-      input('one', `Old membership ${i}`),
-      new AbortController().signal,
-    );
-  store.setSessionCollaboration(group, { expectedRevision: 1, participantSessionIds: ['one'] });
-  store.setSessionCollaboration(group, {
-    expectedRevision: 2,
-    participantSessionIds: ['one', 'two'],
-  });
-  const request = input('two', 'Rejoining does not authorize old context');
-  await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toThrow();
-  expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
-  expect(prompts).toHaveLength(55);
-});
+it(
+  'does not restore old reader authority after unlinking and rejoining',
+  async () => {
+    shareWithReader();
+    acknowledgeRecordedPrompts();
+    for (let i = 0; i < 55; i++)
+      await owner.send(
+        auth,
+        group,
+        input('one', `Old membership ${i}`),
+        new AbortController().signal,
+      );
+    store.setSessionCollaboration(group, { expectedRevision: 1, participantSessionIds: ['one'] });
+    store.setSessionCollaboration(group, {
+      expectedRevision: 2,
+      participantSessionIds: ['one', 'two'],
+    });
+    const request = input('two', 'Rejoining does not authorize old context');
+    await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toThrow();
+    expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
+    expect(prompts).toHaveLength(55);
+  },
+  PAST_DISPLAY_PAGE_TIMEOUT_MS,
+);
 
 it.each([false, true])(
   'renews old attributed reply visibility before the reader turn (hidden=%s)',
@@ -682,6 +702,7 @@ it.each([false, true])(
       expect(prompts.at(-1)!.text).not.toContain('Old attributed reviewer answer');
     }
   },
+  PAST_DISPLAY_PAGE_TIMEOUT_MS,
 );
 
 it('keeps unexpected pending-inventory failures observable without accepting a request', async () => {

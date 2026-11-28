@@ -2756,7 +2756,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-joining.test.ts':
     'be1743f10345640210afd63893f6a33f0dce081bc328333ab6ed9cd36aba8587',
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
-    '301d190e8720b421211cc0dfca4b4093d6edec919892afcef706fa34f3a0f162',
+    '3e32414a39bb0cab3cf364ea9a219641b2af41e53a830d4b9770802a5f3338d8',
   '../__tests__/collaboration-application-messaging.test.ts':
     '42f6f20d284afcec19b47b62ae4ada7caa5a29bf90fac92756185f57a5d6a801',
   '../__tests__/collaboration-application-observer-ui.test.tsx':
@@ -3186,7 +3186,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-claude-information.test.ts':
     '26ea3370d4b0fca7b18b6010ce24418459cf1a9f4adb2189cfc52ad70b485284',
   '../__tests__/ordinary-claude-startup-context.test.ts':
-    'ac14d16dd8a4adb47e634a39cc03f584633fc5a411c6a3bcbf2ad5e5e92436c3',
+    'e466a68518e4432654015e2174fa2248da820fea0c75b86d91dbcd0aa00ce514',
   '../__tests__/ordinary-claude-task-execution.test.ts':
     'd89a69fb23e1dd9b0ec918df9aaa25170a09e775bcee99812b5a32b586c00316',
   '../__tests__/ordinary-codex-agent-profile.test.ts':
