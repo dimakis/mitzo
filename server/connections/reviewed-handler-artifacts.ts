@@ -386,7 +386,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b6a57cad11c1b602605f2b1407965e10122218082f17dfc8510c38b3a54f6759',
   '../../frontend/src/App.tsx': '9624eaf58bc2ee2f118976895044085f25c0ef8accd5b5bfabda49e69b38f5cb',
   '../../frontend/src/client-store.ts':
-    '9353d2adffa430e30aca1910ba4c580efe40b8c8b8741c8a252558674330af24',
+    'd750db865c657d9d956a9b225814bc2703b0c546c775204c92a5a8acd38fbe77',
   '../../frontend/src/components/AccountModelPicker.tsx':
     '8a45ddae48e4c33bb1f666a8d9d464413bb65530809fccec2af37c906dc4889a',
   '../../frontend/src/components/ActiveSessionsList.tsx':
@@ -3885,7 +3885,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../api-tool-router.ts': '2b95fa7fa918be7ea1b59e04293d7fbbd80e55ef719d1b0a90e65ffb2e0b3eef',
   '../api-tool-runtime.ts': 'b81ed9f222e6b6aea47425b4fa33511c26235e02e5c548221522bd2cae43ed6c',
   '../api-tool-template.ts': '32908a45ddeacada75dfb4a1d0e8d2370b3fe441fabf8dad3d2fd3edb8eb8c51',
-  '../app.ts': '7ca515fbf1f2aa3a44b78c5bd6745c5961f0c2c15239824b33b21c3e4f9b0806',
+  '../app.ts': 'a823299dc56658b55e363a6ad8205fe1319ca38fab251af1906dd7bfba8e440e',
   '../approved-url-fetch.ts': '523bbd692e74a9c16b7fd851b6b4b1cdc6be5581e083c04f9549662e11548ee3',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../auth-route-boundary.ts': '9b853baf795f6c65a7cf956311787d049c961291cf4817ad53ad9e22ec62dd4c',
