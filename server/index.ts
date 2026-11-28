@@ -309,8 +309,7 @@ if (process.env.MITZO_LOCAL_KNOWLEDGE_ENABLED === '1') {
   installHostKnowledgeStore(store);
 }
 const knowledgePrewarming = startKnowledgePrewarming(configuredOpenShellRuntime?.knowledgeStore, {
-  onError: () =>
-    log.warn('Knowledge conversion prewarming unavailable; commands retain fresh admission'),
+  log,
 });
 const warmPoolHost = startWarmPoolHost(configuredOpenShellRuntime, {
   root: codexPrivateDirectory(),

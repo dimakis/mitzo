@@ -19,6 +19,7 @@ vi.mock('node:fs/promises', async (original) => {
 import {
   KnowledgePublicationBridge,
   KnowledgePublicationUnavailableError,
+  knowledgePublicationFailureDiagnostic,
 } from '../knowledge-publication-bridge.js';
 import { findSessionRuntimeError } from '../session-runtime-error.js';
 import {
@@ -544,4 +545,95 @@ it('prewarms the published snapshot without replacing command-time freshness rec
     expect.objectContaining({ method: 'POST' }),
   );
   expect(s.adapt).toHaveBeenCalledOnce();
+});
+
+type Fixture = Awaited<ReturnType<typeof setup>>;
+it.each([
+  {
+    name: 'a missing publication on prewarm GET',
+    arrange: (s: Fixture) =>
+      s.fetcher.mockResolvedValue(
+        new Response('Bearer host-secret http://127.0.0.1:8643', { status: 404 }),
+      ),
+    expected: { stage: 'http_status', code: 'http_error', status: 404 },
+  },
+  {
+    name: 'a transport failure',
+    arrange: (s: Fixture) =>
+      s.fetcher.mockRejectedValue(new TypeError('fetch failed http://127.0.0.1:8643 host-secret')),
+    expected: { stage: 'transport', code: 'fetch_failed' },
+  },
+  {
+    name: 'an oversized body',
+    arrange: (s: Fixture) =>
+      s.fetcher.mockResolvedValue(new Response(new Uint8Array(1024 * 1024 + 1))),
+    expected: { stage: 'response', code: 'body_too_large' },
+  },
+  {
+    name: 'a selection schema mismatch',
+    arrange: (s: Fixture) =>
+      s.fetcher.mockResolvedValue(
+        Response.json({ current: { ...s.selection, revision: 'host-secret' } }),
+      ),
+    expected: { stage: 'selection_schema', code: 'schema_mismatch' },
+  },
+  {
+    name: 'an invalid JSON body',
+    arrange: (s: Fixture) => s.fetcher.mockResolvedValue(new Response('host-secret <html>')),
+    expected: { stage: 'selection_schema', code: 'invalid_json' },
+  },
+  {
+    name: 'a publication outside the configured source',
+    arrange: (s: Fixture) =>
+      s.fetcher.mockResolvedValue(
+        Response.json({ current: { ...s.selection, directory: s.root } }),
+      ),
+    expected: { stage: 'verification', code: 'escaped_source' },
+  },
+  {
+    name: 'an adapter failure',
+    arrange: (s: Fixture) =>
+      s.adapt.mockRejectedValue(
+        Object.assign(Error('private-path host-secret conversion failed'), { code: 'ENOENT' }),
+      ),
+    expected: {
+      stage: 'adapter',
+      code: 'adapter_failed',
+      runtimeFailureCode: 'knowledge_unavailable',
+      causeCode: 'ENOENT',
+    },
+  },
+  {
+    name: 'a bundle from another revision',
+    arrange: (s: Fixture) =>
+      s.adapt.mockResolvedValue({
+        seed: join(s.root, 'bundle/mgmt'),
+        sourceCommit: 'b'.repeat(40),
+      }),
+    expected: { stage: 'bundle_verification', code: 'revision_mismatch' },
+  },
+])('classifies $name with a sanitized stable diagnostic', async ({ arrange, expected }) => {
+  const s = await setup();
+  arrange(s);
+  const failure = await s.bridge.prewarm(new AbortController().signal).catch((e: unknown) => e);
+  expect(failure).toBeInstanceOf(Error);
+  const diagnostic = knowledgePublicationFailureDiagnostic(failure);
+  expect(diagnostic).toMatchObject(expected);
+  if (!('status' in expected)) expect(diagnostic).not.toHaveProperty('status');
+  expect(JSON.stringify(diagnostic)).not.toMatch(
+    /host-secret|Bearer|127\.0\.0\.1|http:|private-path|mitzo-publication-/,
+  );
+});
+
+it('keeps the public unavailable error identity while exposing its stage and status', async () => {
+  const s = await setup();
+  s.fetcher.mockResolvedValue(new Response('{}', { status: 503 }));
+  const failure = await s.bridge.reconcile(new AbortController().signal).catch((e: unknown) => e);
+  expect(failure).toBeInstanceOf(KnowledgePublicationUnavailableError);
+  expect(failure).toMatchObject({ stage: 'http_status', status: 503 });
+  expect(knowledgePublicationFailureDiagnostic(Error('unclassified host-secret'))).toEqual({
+    stage: 'unknown',
+    code: 'unexpected_failure',
+    causeType: 'Error',
+  });
 });

@@ -2,6 +2,8 @@ import {
   hasHostKnowledgeStore,
   prepareHostKnowledge,
   hostKnowledgeReceipt,
+  observeHostKnowledgeSelection,
+  recordHostKnowledgeSelectionSkipped,
 } from './published-host-knowledge.js';
 import { closeMcpAfterFailure } from './codex-mcp-tools.js';
 import {
@@ -2725,6 +2727,16 @@ async function openCodexChatBound(
         options.assertWorkTurnAdmission?.();
       }
     : undefined;
+  const route = options.binding?.provider === 'openai' ? 'openai-api' : 'chatgpt-subscription';
+  const knowledgeIdentity = { sessionId: options.conversationId, route } as const;
+  const hostKnowledgeEnabled =
+    !!options.ownedLocal && !options.adviserScope && hasHostKnowledgeStore();
+  // Local Codex turns otherwise leave no trace of why published knowledge is absent.
+  if (options.ownedLocal && !hostKnowledgeEnabled)
+    recordHostKnowledgeSelectionSkipped(
+      options.adviserScope ? 'adviser_scope' : 'store_not_enrolled',
+      { ...knowledgeIdentity, commandId: options.messageId },
+    );
   const runtimeOptions: CodexConversationOptions = {
     ...(selectedTelosRole && options.ownedLocal
       ? {
@@ -2742,7 +2754,7 @@ async function openCodexChatBound(
     cwd: options.session.cwd!,
     profile: options.profile,
     storedBinding: options.binding,
-    route: options.binding?.provider === 'openai' ? 'openai-api' : 'chatgpt-subscription',
+    route,
     store: privateStorage,
     deferToolSurfaceReplacement: !!runtimeManager || !!options.ownedLocal,
     enableCapacityRecovery: !options.ownedLocal && !options.ownedOpenShell,
@@ -2955,18 +2967,23 @@ async function openCodexChatBound(
             await hooks.run('Stop', { stop_hook_active: false }, signal);
           }
         : undefined,
-    ...(options.ownedLocal && !options.adviserScope && hasHostKnowledgeStore()
+    ...(hostKnowledgeEnabled
       ? {
-          prepareSystemPrompt: async (signal: AbortSignal) => {
+          prepareSystemPrompt: async (signal: AbortSignal, turn?: { commandId: string }) => {
             await options.ownedLocal?.assertCurrent();
-            const selected = await prepareHostKnowledge(
-              options.session,
-              agentContext?.source === 'packs',
+            const selected = await observeHostKnowledgeSelection(
+              { ...knowledgeIdentity, commandId: turn?.commandId },
               signal,
               () =>
-                sessionLearningGuidance(
-                  options.eventStore.getSession(options.conversationId)?.learningPolicy ??
-                    parseSessionLearningPolicy(),
+                prepareHostKnowledge(
+                  options.session,
+                  agentContext?.source === 'packs',
+                  signal,
+                  () =>
+                    sessionLearningGuidance(
+                      options.eventStore.getSession(options.conversationId)?.learningPolicy ??
+                        parseSessionLearningPolicy(),
+                    ),
                 ),
             );
             await options.ownedLocal?.assertCurrent();

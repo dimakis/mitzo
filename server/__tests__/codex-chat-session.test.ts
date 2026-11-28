@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   custodianController: false,
   nativeDeniedRoots: ['/offline/owned-login'],
   proposalLogError: vi.fn(),
+  knowledgeLog: { info: vi.fn(), warn: vi.fn() },
 }));
 vi.mock('../logger.js', async (original) => {
   const actual = await original<typeof import('../logger.js')>();
@@ -47,6 +48,7 @@ vi.mock('../logger.js', async (original) => {
     ...actual,
     createLogger(module: string) {
       const log = actual.createLogger(module);
+      if (module === 'published-host-knowledge') return { ...log, ...mocks.knowledgeLog };
       return module === 'codex-chat-session' ? { ...log, error: mocks.proposalLogError } : log;
     },
   };
@@ -370,27 +372,49 @@ function ownedLocalOptions(
   mode: 'ask' | 'agent' | 'auto' = 'agent',
   authenticationSignal?: AbortSignal,
   retainedAuthenticationFailure?: () => unknown,
+  billing: 'subscription' | 'api' = 'subscription',
 ) {
   const eventStore = new EventStore(':memory:');
   // This qualified Mac lease fixture must select the same host branch on CI.
   // Load the actual host SQLite binding before changing only the fixture identity.
   vi.stubGlobal('process', Object.create(process, { platform: { value: 'darwin' } }));
+  const models = [{ id: 'owned-model', label: 'Fixture' }];
   const profiles = new AccountProfiles(
     [
-      {
-        id: 'owned-personal',
-        label: 'Personal',
-        provider: 'openai-codex',
-        credentialRef: '/offline/owned-login',
-        email: 'fixture@example.test',
-        planType: 'plus',
-        models: [{ id: 'owned-model', label: 'Fixture' }],
-      },
+      billing === 'api'
+        ? {
+            // An operator-managed OpenAI-compatible API account (e.g. enMaas).
+            id: 'owned-personal',
+            label: 'Work API',
+            provider: 'openai',
+            credentialRef: { provider: 'keychain', service: 'offline-test', account: 'owned' },
+            connection: {
+              endpoint: 'https://api.enmaas.example/v1',
+              protocol: 'responses',
+              qualification: {
+                source: 'operator',
+                streaming: true,
+                toolCalls: true,
+                continuation: true,
+                cancellation: true,
+              },
+            },
+            models,
+          }
+        : {
+            id: 'owned-personal',
+            label: 'Personal',
+            provider: 'openai-codex',
+            credentialRef: '/offline/owned-login',
+            email: 'fixture@example.test',
+            planType: 'plus',
+            models,
+          },
     ],
     { codexEnabled: true },
   );
   const binding = profiles.resolve('owned-personal', 'owned-model'),
-    profile = profiles.codexProfile(binding);
+    profile = profiles.localCodexProfile(binding);
   const runtimeBinding = {
     version: 2 as const,
     account: {
@@ -3628,7 +3652,16 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
   scope.bindCommand('owned-session', 'owned-command');
   let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
+    mocks.knowledgeLog.info.mockClear();
     query = await openCodexChat({ ...f.opts, adviserScope: scope });
+    expect(mocks.knowledgeLog.info).toHaveBeenCalledExactlyOnceWith(
+      'Local Codex knowledge selection skipped',
+      expect.objectContaining({
+        outcome: 'skipped',
+        reason: 'adviser_scope',
+        sessionId: 'owned-session',
+      }),
+    );
     const captured = mocks.conversationOptions!;
     expect(captured.tools).toEqual([]);
     expect(
@@ -8118,73 +8151,92 @@ it('exposes approved web access in owned local chat and integration discovery', 
   }
 });
 
-it('delivers selected host memory on the retained provider thread and records only its acknowledgement', async () => {
-  vi.clearAllMocks();
-  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'host-memory-context-')));
-  const publication = hostKnowledgePublication(root, 'a', 'Accepted memory');
-  const reconcile = vi.fn().mockResolvedValue(publication);
-  const dispose = installHostKnowledgeStore({ id: 'mgmt', reconcile });
-  const fixture = ownedLocalOptions('/tmp');
-  const opts = fixture.opts;
-  vi.spyOn(opts.eventStore, 'append');
-  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
-  try {
-    chat = await openCodexChat(opts);
-    const prepare = mocks.conversationOptions?.prepareSystemPrompt as (
-      signal: AbortSignal,
-    ) => Promise<string>;
-    const acknowledge = mocks.conversationOptions?.onApplicationContextAccepted as (
-      command: string,
-      thread: string,
-      turn: string,
-      context: string,
-    ) => void;
-    const context = await prepare(AbortSignal.timeout(5000));
-    expect(context).toContain(publication.sourceCommit);
-    expect(context).toContain('<session_learning mode="auto">');
-    expect(opts.eventStore.append).not.toHaveBeenCalledWith(
-      opts.conversationId,
-      'published_knowledge_adopted',
-      expect.anything(),
-    );
-    expect(() =>
-      acknowledge('command', 'same-provider-thread', 'turn', context + 'changed'),
-    ).toThrow();
-    expect(opts.eventStore.append).not.toHaveBeenCalledWith(
-      opts.conversationId,
-      'published_knowledge_adopted',
-      expect.anything(),
-    );
-    acknowledge('command', 'same-provider-thread', 'turn', context);
-    expect(opts.eventStore.append).toHaveBeenCalledWith(
-      opts.conversationId,
-      'published_knowledge_adopted',
-      expect.objectContaining({
-        runtime: 'local-mac',
-        sourceCommit: publication.sourceCommit,
-        threadId: 'same-provider-thread',
-        turnId: 'turn',
-      }),
-    );
-    expect(reconcile).toHaveBeenCalledOnce();
-    opts.eventStore.setSessionLearningMode(opts.conversationId, 'off', 0);
-    const offContext = await prepare(AbortSignal.timeout(5000));
-    expect(offContext).toContain(publication.sourceCommit);
-    expect(offContext).not.toContain('<session_learning');
-    acknowledge('off-command', 'same-provider-thread', 'off-turn', offContext);
-    expect(opts.eventStore.append).toHaveBeenCalledWith(
-      opts.conversationId,
-      'published_knowledge_adopted',
-      expect.objectContaining({ commandId: 'off-command', turnId: 'off-turn' }),
-    );
-  } finally {
-    chat?.close();
-    dispose();
-    fixture.eventStore.close();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+it.each(['subscription', 'api'] as const)(
+  'delivers selected host memory on the retained provider thread and records only its acknowledgement (%s billing)',
+  async (billing) => {
+    vi.clearAllMocks();
+    mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'host-memory-context-')));
+    const publication = hostKnowledgePublication(root, 'a', 'Accepted memory');
+    const reconcile = vi.fn().mockResolvedValue(publication);
+    const dispose = installHostKnowledgeStore({ id: 'mgmt', reconcile });
+    const fixture = ownedLocalOptions('/tmp', undefined, 'agent', undefined, undefined, billing);
+    const opts = fixture.opts;
+    vi.spyOn(opts.eventStore, 'append');
+    let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      chat = await openCodexChat(opts);
+      expect(mocks.conversationOptions?.route).toBe(
+        billing === 'api' ? 'openai-api' : 'chatgpt-subscription',
+      );
+      const prepare = mocks.conversationOptions?.prepareSystemPrompt as (
+        signal: AbortSignal,
+        turn?: { commandId: string },
+      ) => Promise<string>;
+      const acknowledge = mocks.conversationOptions?.onApplicationContextAccepted as (
+        command: string,
+        thread: string,
+        turn: string,
+        context: string,
+      ) => void;
+      mocks.knowledgeLog.info.mockClear();
+      const context = await prepare(AbortSignal.timeout(5000), { commandId: 'command' });
+      expect(context).toContain(publication.sourceCommit);
+      expect(mocks.knowledgeLog.info).toHaveBeenCalledWith(
+        'Local Codex knowledge selection completed',
+        expect.objectContaining({
+          outcome: 'success',
+          reason: 'selected',
+          route: billing === 'api' ? 'openai-api' : 'chatgpt-subscription',
+          sessionId: opts.conversationId,
+          commandId: 'command',
+          sourceCommit: publication.sourceCommit.slice(0, 12),
+        }),
+      );
+      expect(context).toContain('<session_learning mode="auto">');
+      expect(opts.eventStore.append).not.toHaveBeenCalledWith(
+        opts.conversationId,
+        'published_knowledge_adopted',
+        expect.anything(),
+      );
+      expect(() =>
+        acknowledge('command', 'same-provider-thread', 'turn', context + 'changed'),
+      ).toThrow();
+      expect(opts.eventStore.append).not.toHaveBeenCalledWith(
+        opts.conversationId,
+        'published_knowledge_adopted',
+        expect.anything(),
+      );
+      acknowledge('command', 'same-provider-thread', 'turn', context);
+      expect(opts.eventStore.append).toHaveBeenCalledWith(
+        opts.conversationId,
+        'published_knowledge_adopted',
+        expect.objectContaining({
+          runtime: 'local-mac',
+          sourceCommit: publication.sourceCommit,
+          threadId: 'same-provider-thread',
+          turnId: 'turn',
+        }),
+      );
+      expect(reconcile).toHaveBeenCalledOnce();
+      opts.eventStore.setSessionLearningMode(opts.conversationId, 'off', 0);
+      const offContext = await prepare(AbortSignal.timeout(5000));
+      expect(offContext).toContain(publication.sourceCommit);
+      expect(offContext).not.toContain('<session_learning');
+      acknowledge('off-command', 'same-provider-thread', 'off-turn', offContext);
+      expect(opts.eventStore.append).toHaveBeenCalledWith(
+        opts.conversationId,
+        'published_knowledge_adopted',
+        expect.objectContaining({ commandId: 'off-command', turnId: 'off-turn' }),
+      );
+    } finally {
+      chat?.close();
+      dispose();
+      fixture.eventStore.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 it('discovers and executes StartSession through the actual owned native default-agent registration without starting work', async () => {
   const { SessionRegistry } = await import('@mitzo/harness');
   const { readBuiltinAgentLibraryProfile, bindAgentLibraryTransport } =
