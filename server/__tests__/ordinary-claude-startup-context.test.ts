@@ -95,7 +95,19 @@ async function fixture(personal: boolean, consumeInput = false) {
   const first = hostKnowledgePublication(f.root, 'a', 'Accepted shared memory');
   const second = hostKnowledgePublication(f.root, 'b', 'Next accepted shared memory');
   const reconcile = vi.fn().mockResolvedValueOnce(first).mockResolvedValue(second);
-  const restorePublication = knowledge.installHostKnowledgeStore({ id: 'mgmt', reconcile });
+  // Startup reaching publication reconcile is an event, not a deadline: a loaded
+  // CI shard can take longer than vi.waitFor's 1 s default to get there.
+  let markReconciled!: () => void;
+  const reconciled = new Promise<void>((resolve) => {
+    markReconciled = resolve;
+  });
+  const restorePublication = knowledge.installHostKnowledgeStore({
+    id: 'mgmt',
+    reconcile: (...args: Parameters<typeof reconcile>) => {
+      markReconciled();
+      return reconcile(...args);
+    },
+  });
   cleanups.push(restorePublication);
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const calls: Options[] = [];
@@ -265,8 +277,16 @@ async function fixture(personal: boolean, consumeInput = false) {
     first,
     second,
     reconcile,
+    reconciled,
     restorePublication,
   };
+}
+/** Start admission and observe its settlement at once, so a failing assertion
+ * before `await admitted` cannot leave teardown's abort as an unhandled rejection. */
+function startAdmission(x: Awaited<ReturnType<typeof fixture>>) {
+  const admitted = x.owner.admit(x.f.request);
+  admitted.catch(() => {});
+  return admitted;
 }
 it.each(['unavailable', 'invalid'] as const)(
   'reports an enrolled publication %s through actual startup without creating a provider',
@@ -623,12 +643,15 @@ it('prepares startup context while Tool Library discovery is still pending', asy
     finishDiscovery = () => resolve(undefined);
   });
   vi.spyOn(library, 'createSdkToolLibrary').mockReturnValue(discovery);
-  const admitted = x.owner.admit(x.f.request);
-  await vi.waitFor(() => expect(x.reconcile).toHaveBeenCalled());
+  const admitted = startAdmission(x);
+  await x.reconciled;
+  expect(x.reconcile).toHaveBeenCalled();
   expect(x.calls).toHaveLength(0);
   finishDiscovery();
   await admitted;
-  await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
+  // The admitted prompt reaches the SDK stream asynchronously; a loaded shard
+  // needs more than the 1 s default. Stay well inside the 20 s test bound.
+  await vi.waitFor(() => expect(x.inputs).toHaveLength(1), { timeout: 10_000 });
 }, 20_000);
 
 it('keeps the operator in control when its stream reconnects during Claude startup', async () => {
@@ -639,8 +662,9 @@ it('keeps the operator in control when its stream reconnects during Claude start
     finishDiscovery = () => resolve(undefined);
   });
   vi.spyOn(library, 'createSdkToolLibrary').mockReturnValue(discovery);
-  const admitted = x.owner.admit(x.f.request);
-  await vi.waitFor(() => expect(x.reconcile).toHaveBeenCalled());
+  const admitted = startAdmission(x);
+  await x.reconciled;
+  expect(x.reconcile).toHaveBeenCalled();
   // Startup is registered but the native SDK query does not exist yet.
   expect(x.calls).toHaveLength(0);
   const session = x.chat.registry.get('startup-context')!;
@@ -662,7 +686,9 @@ it('keeps the operator in control when its stream reconnects during Claude start
 
   finishDiscovery();
   await admitted;
-  await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
+  // The admitted prompt reaches the SDK stream asynchronously; a loaded shard
+  // needs more than the 1 s default. Stay well inside the 20 s test bound.
+  await vi.waitFor(() => expect(x.inputs).toHaveLength(1), { timeout: 10_000 });
 }, 20_000);
 
 async function ownedEntry(x: Awaited<ReturnType<typeof fixture>>, ownerConnectionId: string) {

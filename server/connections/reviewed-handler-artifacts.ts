@@ -2763,7 +2763,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-joining.test.ts':
     'be1743f10345640210afd63893f6a33f0dce081bc328333ab6ed9cd36aba8587',
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
-    '301d190e8720b421211cc0dfca4b4093d6edec919892afcef706fa34f3a0f162',
+    '3e32414a39bb0cab3cf364ea9a219641b2af41e53a830d4b9770802a5f3338d8',
   '../__tests__/collaboration-application-messaging.test.ts':
     '42f6f20d284afcec19b47b62ae4ada7caa5a29bf90fac92756185f57a5d6a801',
   '../__tests__/collaboration-application-observer-ui.test.tsx':
@@ -3193,7 +3193,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-claude-information.test.ts':
     '26ea3370d4b0fca7b18b6010ce24418459cf1a9f4adb2189cfc52ad70b485284',
   '../__tests__/ordinary-claude-startup-context.test.ts':
-    'ac14d16dd8a4adb47e634a39cc03f584633fc5a411c6a3bcbf2ad5e5e92436c3',
+    'e466a68518e4432654015e2174fa2248da820fea0c75b86d91dbcd0aa00ce514',
   '../__tests__/ordinary-claude-task-execution.test.ts':
     'd89a69fb23e1dd9b0ec918df9aaa25170a09e775bcee99812b5a32b586c00316',
   '../__tests__/ordinary-codex-agent-profile.test.ts':
@@ -3915,7 +3915,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '179119fc3d7019655b0fd7dacc94c4592ab62c24c3beaaf12b2b81f32bc9d957',
-  '../chat.ts': 'deaad9b23bc6e554712c25c5a1cdea73653fb735f64f053dde2633acf3db18ef',
+  '../chat.ts': '4797758934eb17312be49fa7326097d37ebe8b780c19dff4f869002b109191ba',
   '../claude-turn-attribution.ts':
     'df91ef6cf912d7ba7e3405fce233ccf563bea53740041725b40783ee3b82b64d',
   '../__tests__/claude-turn-attribution.test.ts':
