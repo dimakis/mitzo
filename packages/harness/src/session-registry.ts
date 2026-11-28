@@ -194,16 +194,25 @@ export interface CloseoutEpisode {
 export type CloseoutHandler = (clientId: string, episode: CloseoutEpisode) => void;
 
 export class SessionRegistry {
-  private startups = new Map<string, { sessionId?: string; abortController: AbortController }>();
+  private startups = new Map<
+    string,
+    { sessionId?: string; abortController: AbortController; contributorExecution?: true }
+  >();
 
-  /** Cancellation ownership only; preparation is not a routable query or tool authority. */
+  /** Cancellation ownership only; preparation is not a routable query or tool authority.
+   * A contributor startup is drained by its Symposium owner, not by shutdown. */
   registerStartup(
     clientId: string,
     sessionId: string | undefined,
     abortController: AbortController,
+    options: { contributorExecution?: boolean } = {},
   ): () => void {
     if (this.startups.has(clientId)) throw Error('Session startup already in progress');
-    const owner = { sessionId, abortController };
+    const owner = {
+      sessionId,
+      abortController,
+      ...(options.contributorExecution ? { contributorExecution: true as const } : {}),
+    };
     this.startups.set(clientId, owner);
     return () => {
       if (this.startups.get(clientId) === owner) this.startups.delete(clientId);
@@ -564,6 +573,27 @@ export class SessionRegistry {
     this.closingOut.delete(clientId);
     this.userClosing.delete(clientId);
     this.closeoutEpisodes.delete(clientId);
+  }
+
+  /**
+   * Shutdown's first step: end ordinary drivers and pending startups before any
+   * slower cleanup, so a supervisor kill cannot leave their native CLI process
+   * groups running without the server. Contributor drivers and publication
+   * queues keep their own drain. Returns the number of owners aborted.
+   */
+  abortOrdinaryRuntimeOwners(): number {
+    let aborted = 0;
+    for (const [clientId, startup] of [...this.startups]) {
+      if (startup.contributorExecution) continue;
+      this.abort(clientId);
+      aborted++;
+    }
+    for (const [clientId, session] of [...this.sessions]) {
+      if (!session.ordinaryRuntimeOwner || session.contributorExecutionOwner) continue;
+      this.abort(clientId);
+      aborted++;
+    }
+    return aborted;
   }
 
   /**

@@ -1,4 +1,5 @@
 import type { StoredEvent } from '@mitzo/protocol';
+import { RESTARTED_SDK_COMMAND_ERRORS } from '@mitzo/protocol';
 import { publicProviderFailureMessage } from './provider-failure.js';
 
 /** Session and exact command echoes are scoped to one replay/provenance partition. */
@@ -25,6 +26,24 @@ export function recordAcceptedReplaySession(event: StoredEvent, accepted: Accept
   }
 }
 
+/** A session-level restart-settlement notice carrying exactly its sanctioned text. */
+function restartSettlementNotice(event: StoredEvent): string | undefined {
+  const p = event.payload;
+  if (
+    p.v !== 2 ||
+    p.type !== 'error' ||
+    p.sessionId !== event.sessionId ||
+    p.clientMsgId !== undefined ||
+    p.retainedCommandFailure !== undefined ||
+    typeof p.restartCommandId !== 'string' ||
+    !p.restartCommandId ||
+    (p.restartSettlement !== 'not_delivered' && p.restartSettlement !== 'unknown')
+  )
+    return;
+  const sanctioned = RESTARTED_SDK_COMMAND_ERRORS[p.restartSettlement];
+  return sanctioned && p.error === sanctioned ? sanctioned : undefined;
+}
+
 export function replayError(
   event: StoredEvent,
   accepted: AcceptedReplaySessions,
@@ -37,6 +56,12 @@ export function replayError(
   if (p.providerFailure) {
     return { prefix: 'provider-error', message: publicProviderFailureMessage(p.providerFailure) };
   }
+  // Startup restart settlement writes a fixed host notice for a command whose
+  // first input may never have been echoed (for example, a restart before the
+  // CLI started). Only that exact sanctioned text is authorized without an
+  // accepted echo; it discloses no diagnostics and names no other command.
+  const restartNotice = restartSettlementNotice(event);
+  if (restartNotice) return { prefix: 'runtime-error', message: restartNotice };
   if (
     p.v !== 2 ||
     p.type !== 'error' ||

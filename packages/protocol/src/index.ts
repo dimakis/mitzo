@@ -364,6 +364,7 @@ export {
 } from './agent-context-recipe.js';
 
 export { sessionApprovalServer } from './session-approval-scope.js';
+export * from './restart-settlement.js';
 export * from './ordinary-local-admission.js';
 export * from './prepared-repository-transition.js';
 export * from './local-codex-first-command.js';
