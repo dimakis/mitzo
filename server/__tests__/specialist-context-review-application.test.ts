@@ -69,7 +69,9 @@ it('preflights the complete long reviewOf contribution without allocating or dis
   const native = await recordApplicationMessagingRuntime(h.events, { answerText: answer });
   try {
     const first = { requestId: crypto.randomUUID(), role: 'large-plan', assignment: 'Plan.' };
-    await service.consult(authority, policy.policyId, first);
+    // The default Ask admission needs the operator's approval to dispatch.
+    // The later reviewOf refusal is a context preflight that precedes any prompt.
+    await service.consult(authority, policy.policyId, first, async () => true);
     await vi.waitFor(
       () => expect(service.read(authority, first.requestId).status).toBe('completed'),
       { timeout: 5000 },
