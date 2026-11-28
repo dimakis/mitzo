@@ -742,6 +742,11 @@ it.each(
       ? await realpath(await mkdtemp(repoJoin(tmpdir(), 'mitzo-transfer-')))
       : f.root;
     if (repositoryTransfer) cleanups.push(() => rm(targetRoot, { recursive: true, force: true }));
+    // Transfer variants create, interrupt and recover real Git worktrees inside
+    // the queued and cold commands. Measured at ~9.6s (queued), ~6.4s (retained
+    // tail startup) and ~4.7s (cold) on an unloaded Mac, so a 10s wait fails on
+    // loaded Linux runners regardless of the code under test. Budget the work.
+    const repositoryWorkTimeoutMs = repositoryTransfer ? 30_000 : 10_000;
     const repositorySources = ['mitzo', 'another', 'interrupted', 'removed'].map((name) => ({
       name,
       path: repoJoin(targetRoot, name),
@@ -1992,7 +1997,7 @@ it.each(
         expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
           'TERMINAL',
         ),
-      { timeout: 10_000 },
+      { timeout: repositoryWorkTimeoutMs },
     );
     expect(services.requests[1].options).toMatchObject({
       resume: f.reservation.conversationId,
@@ -2082,7 +2087,7 @@ it.each(
     // prove the new input cannot overtake its still-unsettled result.
     await waitForFixtureWork('retained-cold-tail');
     await vi.waitFor(() => expect(releaseRetainedTail).toBeTypeOf('function'), {
-      timeout: 10_000,
+      timeout: repositoryWorkTimeoutMs,
     });
     expect(history).toEqual([f.request.clientMsgId, 'queued', 'retained-cold-tail']);
     expect(
@@ -2118,7 +2123,7 @@ it.each(
         expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
           'TERMINAL',
         ),
-      { timeout: 10_000 },
+      { timeout: repositoryWorkTimeoutMs },
     );
     await vi.waitFor(() =>
       expect(approvedInputs).toEqual(

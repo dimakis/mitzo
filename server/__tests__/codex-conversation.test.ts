@@ -1716,6 +1716,18 @@ describe('host GitHub login for native commands', () => {
     expect(config.default_permissions).toBe('mitzo-native-auto');
   });
 
+  it('keeps the gws broker variables alongside the operator login', async () => {
+    const { config } = await start({
+      ...nativeOwner(),
+      nativeShellEnvironment: { MITZO_GWS_SOCKET: '/fixture/gws.sock' },
+      hostGithubCredential: () => ({ token: 'gho_fixtureLogin', gh: '/fixture/gh' }),
+    } as Partial<CodexConversationOptions>);
+    expect(config['shell_environment_policy.set']).toMatchObject({
+      MITZO_GWS_SOCKET: '/fixture/gws.sock',
+      GH_TOKEN: 'gho_fixtureLogin',
+    });
+  });
+
   it('never resolves the host login for non-native threads', async () => {
     const resolve = vi.fn(() => ({ token: 'gho_fixtureLogin', gh: '/fixture/gh' }));
     const { frames } = await start({ hostGithubCredential: resolve });

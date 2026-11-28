@@ -18,6 +18,7 @@ import {
 } from './repository-materialization.js';
 import { assembleReplyText, captureMessageReply } from './message-reply-context.js';
 import { sessionLocalServiceTools } from './session-local-service-tools.js';
+import { gwsBrokerForSession, gwsShellGuidance } from './gws-broker.js';
 import { sessionGoogleWorkspaceTools } from './session-google-workspace-tools.js';
 import { captureTelosProgressConsent } from './telos-progress-consent.js';
 import { decideTelosApproval } from './telos-approval-policy.js';
@@ -2029,6 +2030,19 @@ async function openCodexChatBound(
         assertCurrentSync: assertHostCurrentSync,
       })
     : undefined;
+  // Shell gws reaches the host login only through Mitzo's per-chat broker.
+  const gwsBroker = options.ownedLocal
+    ? await gwsBrokerForSession({
+        key: `codex:${options.conversationId}`,
+        registry: options.registry,
+        lifetime: options.session.abortController.signal,
+        assertCurrent: () => assertHostCurrent(),
+        resolve: () => {
+          const found = options.registry.findBySessionId(options.conversationId);
+          return found?.session === options.session ? found : null;
+        },
+      })
+    : undefined;
   const googleReadOutputScope = createHash('sha256').update(randomUUID()).digest('hex');
   const googleRetainedConsent = new Map<string, () => void>();
   const localServiceTools = options.ownedLocal
@@ -2309,6 +2323,7 @@ async function openCodexChatBound(
         return Promise.resolve();
       }
     };
+    attempt('gws_broker', () => gwsBroker?.close());
     attempt('message_subscription', () => unwatchAgentMessages?.());
     attempt('local_owner', () => options.ownedLocal?.close());
     attempt('publishing_owner', () => githubPublishing.close());
@@ -2424,8 +2439,9 @@ async function openCodexChatBound(
         (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
         (localServiceTools?.instructions ?? '') +
         (googleWorkspaceTools?.definitions.length
-          ? '\nUse GoogleWorkspaceRead for Google Drive, Docs, Sheets, Slides and Calendar reads. Discover its full schema with DescribeIntegrationTool. This controller tool uses the existing Google sign-in; Auto reads freely, other modes ask once per chat and account. Prefer it over shell gws, which has no credential access.\n'
+          ? '\nGoogleWorkspaceRead can also read Google Drive, Docs, Sheets, Slides and Calendar; discover its schema with DescribeIntegrationTool.\n'
           : '') +
+        (gwsBroker ? `\n${gwsShellGuidance()}\n` : '') +
         WEB_ACCESS_INSTRUCTIONS +
         GITHUB_PUBLISHING_INSTRUCTIONS +
         (localRepositoryReadDefinitions.some((tool) => agentToolAllowed(options.session, tool.name))
@@ -2761,6 +2777,7 @@ async function openCodexChatBound(
     ...(nativeExecution
       ? {
           nativeExecution,
+          ...(gwsBroker ? { nativeShellEnvironment: gwsBroker.env() } : {}),
           ...(options.hostGithubCredential && !options.adviserScope
             ? { hostGithubCredential: options.hostGithubCredential }
             : {}),
@@ -4646,6 +4663,7 @@ async function openCodexChatBound(
               ? () => options.ownedLocal!.assertCurrentSync()
               : undefined,
             env: options.env,
+            ...(gwsBroker ? { gwsBroker } : {}),
             forcePrompt,
             onDemandCreate: options.onDemandCreate,
           });

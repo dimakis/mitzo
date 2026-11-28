@@ -359,6 +359,8 @@ export interface CodexConversationOptions {
   /** Initial trusted selected target policy. Its named profiles are installed
    * once; per-command workspace roots remain owned by the admission authority. */
   nativeExecution?: CodexNativeExecutionPolicy;
+  /** Extra variables for native shell commands (for example the gws broker socket). */
+  nativeShellEnvironment?: Readonly<Record<string, string>>;
   /** Host operator's own gh login, resolved fresh for each native thread
    * start/resume. Codex's macOS sandbox cannot reach the Keychain where gh
    * keeps it, so it is set only on native command environments, sent over the
@@ -2366,10 +2368,15 @@ export class CodexConversation {
           : {}),
       };
       const hostGithub = this.opts.nativeExecution ? this.opts.hostGithubCredential?.() : undefined;
-      if (hostGithub)
-        // Applied after Codex's inherited-variable filtering, which otherwise
-        // drops *TOKEN* names; the sandbox profile and network fence still apply.
-        config['shell_environment_policy.set'] = hostGithubCommandEnvironment(hostGithub);
+      // Applied after Codex's inherited-variable filtering, which otherwise
+      // drops *TOKEN* names; the sandbox profile and network fence still apply.
+      // The gws broker and host GitHub variables use disjoint names.
+      const shellEnvironment = {
+        ...(this.opts.nativeExecution ? this.opts.nativeShellEnvironment : undefined),
+        ...(hostGithub ? hostGithubCommandEnvironment(hostGithub) : undefined),
+      };
+      if (Object.keys(shellEnvironment).length)
+        config['shell_environment_policy.set'] = shellEnvironment;
       return {
         ...config,
         ...(this.disableWebSearch ? { web_search: 'disabled' } : {}),
