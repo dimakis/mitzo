@@ -48,6 +48,7 @@ import {
 import { ConversationAgents } from './ConversationAgents';
 import type { SharedConversationIdentity } from '../lib/shared-conversation-identity';
 import { CollaborationTranscript } from './CollaborationTranscript';
+import { SeatColorProvider } from './SeatColorProvider';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
 import { ChatArea, type ChatAreaProps } from './ChatArea';
@@ -124,7 +125,13 @@ export function SharedConversationHost({
   ...options
 }: Parameters<typeof useSharedConversation>[0] & { children: ReactNode }) {
   const value = useSharedConversation(options);
-  return <Context.Provider value={value}>{children}</Context.Provider>;
+  return (
+    <Context.Provider value={value}>
+      <SeatColorProvider roster={value.presentation.projection?.view.seatOrder}>
+        {children}
+      </SeatColorProvider>
+    </Context.Provider>
+  );
 }
 function useSharedConversation({
   sourceConversationId,

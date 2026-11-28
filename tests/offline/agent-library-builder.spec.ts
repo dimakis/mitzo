@@ -582,7 +582,11 @@ async function openTaskReview(page: Page, expectedRevision: number, screenshotPa
     0,
   );
   await expect(page.getByRole('textbox', { name: 'Task name', exact: true })).toHaveCount(0);
-  const activity = page.getByRole('button', { name: 'Activity: AgentProposeTask', exact: true });
+  // Activity previews humanize tool names and keep raw JSON arguments out of the summary.
+  const activity = page.getByRole('button', {
+    name: 'Activity: Agent Propose Task',
+    exact: true,
+  });
   await expect(activity).toBeVisible();
   if ((await activity.getAttribute('aria-expanded')) !== 'true') await activity.click();
   await page.getByRole('button', { name: 'AgentProposeTask', exact: true }).click();

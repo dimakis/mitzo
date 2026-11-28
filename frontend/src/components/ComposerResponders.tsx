@@ -3,7 +3,7 @@ import type { CollaborationMessageInput } from '@mitzo/protocol';
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import './ComposerResponders.css';
-import { seatAccentColor } from '../lib/seat-color';
+import { useSeatAccentColor } from '../lib/seat-color-context';
 import type { CSSProperties } from 'react';
 import { useMotionPresence } from '../hooks/useMotionPresence';
 
@@ -37,6 +37,7 @@ export function ComposerResponders(props: ResponderProps) {
   );
 }
 function InlineComposerResponders({ selection, text, onTextChange, input }: ResponderProps) {
+  const seatAccentColor = useSeatAccentColor();
   const [expanded, setExpanded] = useState(false);
   const listId = useId();
   const mention = /(?:^|\s)@([\p{L}\p{N}_-]*)$/u.exec(text);

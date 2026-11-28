@@ -2,6 +2,7 @@ import type {
   CollaborationMessageInput,
   CollaborationView,
   FinishedMessage,
+  CollaborationMessage,
 } from '@mitzo/protocol';
 import type { ComposerResponderSelection } from '../components/ComposerResponders';
 
@@ -9,19 +10,46 @@ import type { ComposerResponderSelection } from '../components/ComposerResponder
  * Ordinary source cursors, timestamps and legacy seat provenance are not interchangeable.
  */
 export function conversationMessages(view: CollaborationView): FinishedMessage[] {
-  return view.messages.map((message) => ({
-    messageId: message.projectionId,
-    startedSeq: message.sequence,
-    role: message.author === 'operator' ? 'user' : 'assistant',
-    ...(message.recordedAt !== undefined ? { timestamp: message.recordedAt } : {}),
-    ...(message.inReplyTo
-      ? { inReplyTo: message.inReplyTo, replyToMessageId: message.inReplyTo.messageId }
-      : {}),
-    ...(message.images?.length
-      ? { images: message.images.map((image) => `data:${image.mediaType};base64,${image.data}`) }
-      : {}),
-    blocks: [{ blockId: `${message.projectionId}:text`, blockType: 'text', content: message.text }],
-  }));
+  const prompts = new Map(
+    view.messages.flatMap((message) =>
+      message.deliveries
+        .filter((delivery) => delivery.purpose === 'reply')
+        .map((delivery) => [delivery.deliveryId, message] as const),
+    ),
+  );
+  return view.messages.map((message) => {
+    const original = message.replyToDeliveryId ? prompts.get(message.replyToDeliveryId) : undefined;
+    const inReplyTo =
+      message.inReplyTo ??
+      (original
+        ? {
+            messageId: original.projectionId,
+            role: conversationAuthor(original) ? ('assistant' as const) : ('user' as const),
+            text: original.text,
+            ...(original.recordedAt !== undefined ? { timestamp: original.recordedAt } : {}),
+          }
+        : undefined);
+    return {
+      messageId: message.projectionId,
+      startedSeq: message.sequence,
+      role: conversationAuthor(message) ? 'assistant' : 'user',
+      ...(message.recordedAt !== undefined ? { timestamp: message.recordedAt } : {}),
+      ...(inReplyTo ? { inReplyTo, replyToMessageId: inReplyTo.messageId } : {}),
+      ...(message.images?.length
+        ? { images: message.images.map((image) => `data:${image.mediaType};base64,${image.data}`) }
+        : {}),
+      blocks: [
+        { blockId: `${message.projectionId}:text`, blockType: 'text', content: message.text },
+      ],
+    };
+  });
+}
+
+export function conversationAuthor(message: CollaborationMessage): string | undefined {
+  return (
+    message.origin?.sessionId ??
+    (message.author === 'operator' ? undefined : message.author.sessionId)
+  );
 }
 
 /** Presentation only: resolving Defaults or changing a read policy cannot queue work. */

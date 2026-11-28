@@ -5,6 +5,7 @@ export interface ActivityRow<T> {
   scope: string;
   value: T;
   attribution?: T;
+  speaker?: { id: string; name: string };
   block?: ChatBlock;
   streaming?: boolean;
   /** Quiet request lifecycle detail, shown only inside existing activity. */

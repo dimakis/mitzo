@@ -65,6 +65,234 @@ const sourceStream = (commandId: string): StreamingMessage => ({
   ]),
   blockOrder: ['text'],
 });
+
+it('keeps unmatched completed source rows in native sequence order around exact shared anchors', () => {
+  const view = sharedConversationView();
+  const rich: FinishedMessage = {
+    messageId: 'final-answer',
+    role: 'assistant',
+    startedSeq: 10,
+    blocks: [{ blockId: 'text', blockType: 'text', content: 'Anchored reply' }],
+  };
+  const later: FinishedMessage = {
+    messageId: 'later-source',
+    role: 'assistant',
+    startedSeq: 30,
+    blocks: [{ blockId: 'text', blockType: 'text', content: 'Later native work' }],
+  };
+  // Independent completion/reload arrival order is not chronology.
+  const { container, rerender } = render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        names={names}
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat([later, rich])}
+      />
+    </MemoryRouter>,
+  );
+  const order = () => container.querySelector('.chat-messages')!.textContent!;
+  expect(order().indexOf('Anchored reply')).toBeLessThan(order().indexOf('Later native work'));
+  rerender(
+    <MemoryRouter>
+      <CollaborationTranscript
+        names={names}
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat([rich, later])}
+      />
+    </MemoryRouter>,
+  );
+  expect(order().indexOf('Anchored reply')).toBeLessThan(order().indexOf('Later native work'));
+});
+
+it('retains an exact reply quote through streaming, rich completion and reload', () => {
+  const view = sharedConversationView();
+  view.messages = [sharedPrompt];
+  const progress = {
+    collaborationId: view.collaborationId,
+    membershipRevision: view.membershipRevision,
+    replies: [
+      {
+        projectionId: sharedReply.projectionId,
+        sourceMessageId: 'final-answer',
+        deliveryId: sharedReply.replyToDeliveryId!,
+        sessionId: 'architect',
+        text: 'Live reply',
+      },
+    ],
+    refusals: [],
+  };
+  const tree = (ordinary?: ChatAreaProps) => (
+    <MemoryRouter>
+      <CollaborationTranscript
+        names={names}
+        projection={createCollaborationProjection(view)}
+        progress={progress}
+        ordinary={ordinary}
+      />
+    </MemoryRouter>
+  );
+  const mounted = render(tree());
+  expect(screen.getByRole('button', { name: `Replying to: ${sharedPrompt.text}` })).toBeTruthy();
+  view.messages.push(sharedReply);
+  mounted.rerender(
+    tree(
+      sourceChat([
+        {
+          messageId: 'final-answer',
+          replyToMessageId: 'ordinary-architect',
+          role: 'assistant',
+          blocks: [{ blockId: 'text', blockType: 'text', content: sharedReply.text }],
+        },
+      ]),
+    ),
+  );
+  expect(screen.getByRole('button', { name: `Replying to: ${sharedPrompt.text}` })).toBeTruthy();
+  expect(screen.queryByText('Original message unavailable')).toBeNull();
+  mounted.rerender(tree());
+  expect(screen.getByRole('button', { name: `Replying to: ${sharedPrompt.text}` })).toBeTruthy();
+});
+
+it('keeps a native stream before later native completion across reload', () => {
+  const view = sharedConversationView();
+  view.messages = [sharedPrompt];
+  const stream = { ...sourceStream('ordinary-architect'), startedSeq: 10 };
+  const later: FinishedMessage = {
+    messageId: 'later-completion',
+    replyToMessageId: 'ordinary-architect',
+    startedSeq: 30,
+    role: 'assistant',
+    blocks: [{ blockId: 'later', blockType: 'text', content: 'Later completion' }],
+  };
+  const tree = (ordinary: ChatAreaProps) => (
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={ordinary}
+        names={names}
+      />
+    </MemoryRouter>
+  );
+  const { container, rerender } = render(tree(sourceChat([later], stream)));
+  const order = () => container.querySelector('.chat-messages')!.textContent!;
+  expect(order().indexOf('Same visible body')).toBeLessThan(order().indexOf('Later completion'));
+  rerender(
+    tree(
+      sourceChat([
+        later,
+        {
+          messageId: stream.messageId,
+          startedSeq: stream.startedSeq,
+          replyToMessageId: stream.replyToMessageId,
+          role: 'assistant',
+          blocks: [{ blockId: 'text', blockType: 'text', content: 'Same visible body' }],
+        },
+      ]),
+    ),
+  );
+  expect(order().indexOf('Same visible body')).toBeLessThan(order().indexOf('Later completion'));
+});
+
+it('names automated assignments and activity with readable summaries and retained technical detail', () => {
+  const view = sharedConversationView();
+  view.messages = [{ ...sharedPrompt, origin: { sessionId: 'reader', requestId: uuid(901) } }];
+  const { container } = render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        names={names}
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat([
+          {
+            messageId: 'tool',
+            replyToMessageId: 'ordinary-architect',
+            role: 'assistant',
+            blocks: [
+              {
+                blockId: 't',
+                blockType: 'tool_use',
+                toolName: 'mcp__mitzo__TaskExecution',
+                toolInput: '{"operation":"run","command":"npm test","grantId":"technical-grant"}',
+                content: '',
+              },
+            ],
+          },
+        ])}
+      />
+    </MemoryRouter>,
+  );
+  expect(
+    screen
+      .getByText(sharedPrompt.text)
+      .closest('.msg-bubble')
+      ?.getAttribute('data-speaker-session'),
+  ).toBe('reader');
+  const activity = screen.getByRole('button', { name: /Architect.*Run command/ });
+  expect(activity.textContent).not.toContain('technical-grant');
+  expect(container.querySelector('.agent-activity')?.textContent).toContain('Architect');
+  fireEvent.click(screen.getByRole('button', { name: /^mcp__mitzo__TaskExecution/ }));
+  expect(screen.getAllByText(/technical-grant/).length).toBeGreaterThan(0);
+});
+
+it.each(['__proto__', 'constructor', 'toString', 'unknown', '{"nested":true}'])(
+  'keeps an invalid TaskExecution operation %s as a generic readable summary',
+  (operation) => {
+    const view = sharedConversationView();
+    view.messages = [{ ...sharedPrompt, origin: { sessionId: 'reader', requestId: uuid(902) } }];
+    render(
+      <MemoryRouter>
+        <CollaborationTranscript
+          names={names}
+          projection={createCollaborationProjection(view)}
+          ordinary={sourceChat([
+            {
+              messageId: 'tool',
+              replyToMessageId: 'ordinary-architect',
+              role: 'assistant',
+              blocks: [
+                {
+                  blockId: 't',
+                  blockType: 'tool_use',
+                  toolName: 'mcp__mitzo__TaskExecution',
+                  toolInput: JSON.stringify({ operation }),
+                  content: '',
+                },
+              ],
+            },
+          ])}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: /Architect.*Task operation/ })).toBeTruthy();
+  },
+);
+
+it('keeps roster accents distinct and stable for removed authors after remount', () => {
+  const view = sharedConversationView();
+  view.seatOrder = Array.from({ length: 16 }, (_, index) => `seat-${index}`);
+  view.participantSessionIds = [...view.seatOrder];
+  view.messages = view.seatOrder.map((sessionId, index) => ({
+    ...sharedReply,
+    messageId: uuid(700 + index),
+    projectionId: uuid(800 + index),
+    sequence: index + 1,
+    author: { sessionId },
+    source: { ...sharedReply.source!, conversationId: sessionId },
+  }));
+  const tree = (key: number) => (
+    <MemoryRouter>
+      <CollaborationTranscript key={key} projection={createCollaborationProjection(view)} />
+    </MemoryRouter>
+  );
+  const { container, rerender } = render(tree(0));
+  const accents = () =>
+    [...container.querySelectorAll<HTMLElement>('[data-speaker-session]')].map((node) =>
+      node.style.getPropertyValue('--message-speaker-color'),
+    );
+  const before = accents();
+  expect(new Set(before).size).toBe(16);
+  view.participantSessionIds = view.participantSessionIds.slice(2);
+  rerender(tree(1));
+  expect(accents()).toEqual(before);
+});
 it('navigates a shared quote to the exact retained rich source through projection aliases', () => {
   HTMLElement.prototype.scrollIntoView = vi.fn();
   render(
@@ -92,6 +320,81 @@ it('navigates a shared quote to the exact retained rich source through projectio
   );
   fireEvent.click(screen.getByRole('button', { name: 'Replying to: Exact rich source' }));
   expect(document.activeElement?.getAttribute('data-reply-source')).toBe('final-answer');
+});
+
+it('keeps ordinary source aliases and actual quoted author after reloading projected rows', () => {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  const view = sharedConversationView();
+  view.messages.push({
+    ...sharedPrompt,
+    messageId: uuid(940),
+    projectionId: uuid(941),
+    sequence: 3,
+    text: 'Follow up',
+    inReplyTo: { messageId: 'final-answer', role: 'assistant', text: sharedReply.text },
+  });
+  render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        names={names}
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat([])}
+      />
+    </MemoryRouter>,
+  );
+  const quote = screen.getByRole('button', { name: `Replying to: ${sharedReply.text}` });
+  expect(quote.textContent).toContain('Architect');
+  fireEvent.click(quote);
+  expect(document.activeElement?.getAttribute('data-reply-source')).toBe(sharedReply.projectionId);
+});
+
+it('does not guess a reply target when one native packet carries several shared prompts', () => {
+  const view = sharedConversationView();
+  view.messages = [
+    sharedPrompt,
+    {
+      ...sharedPrompt,
+      messageId: uuid(950),
+      projectionId: uuid(951),
+      sequence: 2,
+      text: 'Another exact body',
+    },
+  ];
+  render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat([], sourceStream('ordinary-architect'))}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByRole('button', { name: 'Replying to: Another exact body' })).toBeNull();
+  expect(screen.getByText('Original message unavailable')).toBeTruthy();
+});
+
+it('does not duplicate a just-finished source while its old stream is still present', () => {
+  const view = sharedConversationView();
+  view.messages = [sharedPrompt];
+  const stream = sourceStream('ordinary-architect');
+  render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat(
+          [
+            {
+              messageId: stream.messageId,
+              role: 'assistant',
+              replyToMessageId: stream.replyToMessageId,
+              blocks: [{ blockId: 'text', blockType: 'text', content: 'Same visible body' }],
+            },
+          ],
+          stream,
+        )}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getAllByText('Same visible body')).toHaveLength(1);
 });
 
 it('suppresses a native delivery packet while retaining each operator body and projection identity', () => {
@@ -291,6 +594,52 @@ it('deduplicates ordinary finished/live source echoes using command identity wit
   // Reusing a source message ID under another command is distinct work.
   h.rerender(tree(sourceChat([], sourceStream('different-command'))));
   expect(screen.getAllByText('Same visible body')).toHaveLength(3);
+});
+
+it('keeps a live shared reply below its prompt after an ordinary native prefix through completion', () => {
+  const view = sharedConversationView();
+  view.messages = [sharedPrompt];
+  const prefix: FinishedMessage = {
+    messageId: 'prefix',
+    role: 'user',
+    startedSeq: 10,
+    blocks: [{ blockId: 'text', blockType: 'text', content: 'Ordinary prefix' }],
+  };
+  const stream = { ...sourceStream(sharedReply.source!.commandId!), startedSeq: 20 };
+  const tree = (ordinary: ChatAreaProps) => (
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={ordinary}
+        names={names}
+      />
+    </MemoryRouter>
+  );
+  const { container, rerender } = render(tree(sourceChat([prefix], stream)));
+  const order = () => container.querySelector('.chat-messages')!.textContent!;
+  // The reply quotes its prompt, so locate the prompt by its own delivery line.
+  const promptDelivery = 'To Architect, Reviewer';
+  const expectOrdered = () => {
+    expect(order().indexOf('Ordinary prefix')).toBeLessThan(order().indexOf(promptDelivery));
+    expect(order().indexOf(promptDelivery)).toBeGreaterThanOrEqual(0);
+    expect(order().indexOf(promptDelivery)).toBeLessThan(order().indexOf('Same visible body'));
+  };
+  expectOrdered();
+  rerender(
+    tree(
+      sourceChat([
+        prefix,
+        {
+          messageId: stream.messageId,
+          startedSeq: stream.startedSeq,
+          replyToMessageId: stream.replyToMessageId,
+          role: 'assistant',
+          blocks: [{ blockId: 'text', blockType: 'text', content: 'Same visible body' }],
+        },
+      ]),
+    ),
+  );
+  expectOrdered();
 });
 
 it('keeps ordinary prefix order and shared sequence order despite unrelated source cursors and timestamps', () => {

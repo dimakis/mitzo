@@ -36,7 +36,9 @@ type DiscussionMessage = Pick<
   CollaborationMessage,
   'sequence' | 'author' | 'text' | 'source' | 'inReplyTo'
 > &
-  Partial<Pick<CollaborationMessage, 'snapshot' | 'forward' | 'images'>>;
+  Partial<
+    Pick<CollaborationMessage, 'snapshot' | 'forward' | 'images' | 'origin' | 'replyToDeliveryId'>
+  >;
 type MessageContextReference =
   | {
       kind: 'snapshot';
@@ -87,7 +89,8 @@ function discussionMessage(message: DiscussionMessage, contexts: PreparedMessage
 }
 // The preparation inventory uses the same encoder before retaining/compiling
 // source witnesses. Raw material here grants no delivery or source capability.
-function discussionMaterial(
+/** Exported for focused encoding tests; delivery uses discussionMessage(). */
+export function discussionMaterial(
   message: DiscussionMessage,
   context?: Pick<PreparedMessageContext, 'sha256' | 'material'>,
 ) {
@@ -97,8 +100,12 @@ function discussionMaterial(
   return {
     sequence: message.sequence,
     author: message.author,
+    ...(message.origin ? { origin: message.origin } : {}),
     text: message.text,
-    ...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
+    // An agent reply projection's quote is its own prompt, which history already
+    // carries. Repeating it in every later delivery only inflates agent context;
+    // the transcript derives that quote from replyToDeliveryId instead.
+    ...(message.inReplyTo && !message.replyToDeliveryId ? { inReplyTo: message.inReplyTo } : {}),
     ...(message.images?.length
       ? {
           attachments: message.images.map((image) => ({
@@ -438,11 +445,16 @@ export class ApplicationCollaborationMessaging {
     raw: unknown,
     signal: AbortSignal,
     originatingAuthority?: () => void,
+    origin: CollaborationMessage['origin'] | null = null,
   ) {
     this.current(auth, signal);
     originatingAuthority?.();
     const input = CollaborationMessageInputSchema.parse(raw);
-    const retained = this.store.collaborationConversation.getMessageForRequest(group, input);
+    const retained = this.store.collaborationConversation.getMessageForRequest(
+      group,
+      input,
+      origin,
+    );
     if (retained) {
       this.reconcile(auth, group);
       return this.store.collaborationConversation.getMessage(group, retained.messageId)!;
@@ -522,6 +534,7 @@ export class ApplicationCollaborationMessaging {
     const acceptedWhilePreparing = this.store.collaborationConversation.getMessageForRequest(
       group,
       input,
+      origin,
     );
     if (acceptedWhilePreparing) {
       this.reconcile(auth, group);
@@ -547,6 +560,7 @@ export class ApplicationCollaborationMessaging {
         {
           sequence: pending.cursor + 1,
           author: 'operator',
+          ...(origin ? { origin } : {}),
           text: input.text,
           images: input.images,
           source: null,
@@ -579,7 +593,7 @@ export class ApplicationCollaborationMessaging {
         snapshots,
       );
     }
-    const message = this.store.collaborationConversation.acceptMessage(group, input);
+    const message = this.store.collaborationConversation.acceptMessage(group, input, origin);
     for (const delivery of message.deliveries.filter((d) => d.purpose === 'reply')) {
       // Claim synchronously before the first await. Concurrent request replay can
       // observe this receipt but cannot dispatch another command. A crash in this

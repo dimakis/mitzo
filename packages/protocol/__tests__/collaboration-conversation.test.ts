@@ -81,6 +81,51 @@ function prompt() {
     snapshot: null,
   } as const;
 }
+
+it('retains trusted automated origin separately from operator authorization and fences retries', () => {
+  const input = { ...prompt(), responders: { kind: 'selected', sessionIds: ['two'] } };
+  const origin = { sessionId: 'one', requestId: randomUUID() };
+  const accepted = store.collaborationConversation.acceptMessage(group, input, origin);
+  expect(accepted).toMatchObject({ author: 'operator', source: null, origin });
+  expect(() =>
+    store.collaborationConversation.acceptMessage(group, {
+      ...input,
+      requestId: randomUUID(),
+      origin,
+    }),
+  ).toThrow();
+  expect(() => store.collaborationConversation.acceptMessage(group, input)).toThrow(
+    'request_conflict',
+  );
+  expect(() => store.collaborationConversation.getMessageForRequest(group, input, null)).toThrow(
+    'request_conflict',
+  );
+  expect(() =>
+    store.collaborationConversation.getMessageForRequest(group, input, {
+      ...origin,
+      sessionId: 'two',
+    }),
+  ).toThrow('request_conflict');
+  store.close();
+  store = new EventStore(path);
+  expect(store.collaborationConversation.getMessageForRequest(group, input, origin)).toEqual(
+    accepted,
+  );
+  expect(store.collaborationConversation.view(group).messages[0]).toEqual(accepted);
+});
+
+it('keeps original seat color order through removal and reload', () => {
+  const before = store.collaborationConversation.view(group).seatOrder;
+  // The membership owner canonicalizes IDs within each revision.
+  expect(before).toEqual(['one', 'reader', 'two']);
+  store.setSessionCollaboration(group, {
+    expectedRevision: 1,
+    participantSessionIds: ['two', 'reader'],
+  });
+  store.close();
+  store = new EventStore(path);
+  expect(store.collaborationConversation.view(group).seatOrder).toEqual(before);
+});
 function snapshotDraft() {
   return {
     requestId: randomUUID(),

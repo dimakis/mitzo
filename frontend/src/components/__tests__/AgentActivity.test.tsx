@@ -423,7 +423,13 @@ it.each([
       </MemoryRouter>,
     );
     const toggle = screen.getByRole('button', { name: /^(?:Activity|Agents at work):/ });
-    expect(toggle.textContent).toContain(toolName === 'Bash' ? 'Command completed' : toolName);
+    expect(toggle.textContent).toContain(
+      toolName === 'Bash'
+        ? 'Command completed'
+        : toolName === 'exec_command'
+          ? 'Run command'
+          : toolName.replaceAll('_', ' '),
+    );
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByRole('button', { name: new RegExp(`^${toolName}`) })).toBeTruthy();
   },

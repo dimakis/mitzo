@@ -120,6 +120,13 @@ it('projects an exact ordinary reply without allocating a turn or changing recip
     text: 'Exact finalized reply',
     source: input.source,
     replyToDeliveryId: input.deliveryId,
+    replyToMessageId: message.messageId,
+    inReplyTo: {
+      messageId: message.projectionId,
+      role: 'user',
+      text: message.text,
+      timestamp: message.recordedAt,
+    },
     responders: [],
     readers: ['one', 'reader'],
     deliveries: [
