@@ -385,7 +385,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b6a57cad11c1b602605f2b1407965e10122218082f17dfc8510c38b3a54f6759',
   '../../frontend/src/App.tsx': '9624eaf58bc2ee2f118976895044085f25c0ef8accd5b5bfabda49e69b38f5cb',
   '../../frontend/src/client-store.ts':
-    '9353d2adffa430e30aca1910ba4c580efe40b8c8b8741c8a252558674330af24',
+    'd750db865c657d9d956a9b225814bc2703b0c546c775204c92a5a8acd38fbe77',
   '../../frontend/src/components/AccountModelPicker.tsx':
     '8a45ddae48e4c33bb1f666a8d9d464413bb65530809fccec2af37c906dc4889a',
   '../../frontend/src/components/ActiveSessionsList.tsx':
@@ -1488,9 +1488,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/slices/messages.ts':
     '0887cdf532176a41a3b11d31ebfe16c88d32d2e25d44fa25e17cadb8894af88e',
   '../../packages/client/src/sse-connection.ts':
-    '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
+    '8fca48e9da2c914ad276337ac3915fc20dafcf27630dabd15cb75284bc0f24fc',
   '../../packages/client/src/store.ts':
-    '653904f430fa52aef78e379328e68634ed055aad5785163a9836736e2e6497a1',
+    '5c713d81f0fe51f257815d26ac55f64ef4c223074d214c4730a09416f1d622a8',
   '../../packages/client/src/telos-work-api.ts':
     '9ed6a275becdc3084307d01b6c5ee65084ec7989e4ccb9bca2fc18668f2bb1d8',
   '../../packages/harness/__tests__/approval-expiry.test.ts':
@@ -3884,7 +3884,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../api-tool-router.ts': '2b95fa7fa918be7ea1b59e04293d7fbbd80e55ef719d1b0a90e65ffb2e0b3eef',
   '../api-tool-runtime.ts': 'b81ed9f222e6b6aea47425b4fa33511c26235e02e5c548221522bd2cae43ed6c',
   '../api-tool-template.ts': '32908a45ddeacada75dfb4a1d0e8d2370b3fe441fabf8dad3d2fd3edb8eb8c51',
-  '../app.ts': '90c826465c42dbc76c36d3d6da32ca678557a22d64bb0da390e31508e8eb3e28',
+  '../app.ts': '95aedc00c52652d9d20b49cba227ecfdc3bf58fc5099c416e28aa65b82dcc66a',
   '../approved-url-fetch.ts': '523bbd692e74a9c16b7fd851b6b4b1cdc6be5581e083c04f9549662e11548ee3',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../auth-route-boundary.ts': '9b853baf795f6c65a7cf956311787d049c961291cf4817ad53ad9e22ec62dd4c',
