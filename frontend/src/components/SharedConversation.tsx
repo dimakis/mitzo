@@ -544,6 +544,8 @@ function useSharedConversation({
     provisionalOrdinary: startedInView && !association.group && !association.historySource,
     /** A source check already classified this conversation for the current owner. */
     confirmed: !!association.ordinaryHistory || !!association.group,
+    /** Retry can act: failed setup reruns, or a begun collaboration rereads its view. */
+    canRetry: !!association.error || (!!association.begun && !!association.group),
     retry: () => {
       // Setup and the retained conversation read have different owners. Repeating
       // unchanged setup does not rerun a failed read of the same collaboration.
@@ -592,7 +594,8 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
     <ConversationAgents
       {...props}
       agents={agents}
-      onRefresh={host.retry}
+      // An ordinary chat has nothing to refresh; never offer a dead control.
+      onRefresh={host.canRetry ? host.retry : undefined}
       rosterError={host.error ?? presentation.error ?? undefined}
       sharedIdentity={host.identity}
       showParticipantNames={host.active || props.showParticipantNames}

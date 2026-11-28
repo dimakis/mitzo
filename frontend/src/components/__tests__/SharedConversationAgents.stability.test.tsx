@@ -133,3 +133,33 @@ it('opens the same Agents owner from status and header, retains rows/configurati
   await act(async () => {});
   expect(fetch.mock.calls.every(([url]) => !/send|stop|review|join/.test(url))).toBe(true);
 });
+
+it('offers no agent-status refresh in an ordinary chat, where a refresh cannot act', async () => {
+  const fetch = vi.fn(async (url: string) => {
+    if (url.includes('source-setup'))
+      return Response.json({ state: 'unstarted', sourceConversationId: 'architect' });
+    throw Error('Unexpected request: ' + url);
+  });
+  render(
+    <MemoryRouter>
+      <SharedConversationHost
+        sourceConversationId="architect"
+        api={new MitzoApiClient(fetch)}
+        clientId="client"
+        authScope={proof()}
+        getVerifiedAuthScope={proof}
+      >
+        <SharedConversationAgents
+          scope="architect"
+          agents={[{ id: 'architect', name: 'Architect', state: 'Current conversation' }]}
+          messages={[]}
+        />
+      </SharedConversationHost>
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(fetch).toHaveBeenCalled());
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: /^Agents, Architect/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Details for Architect' }));
+  expect(screen.queryByRole('button', { name: 'Refresh agent status' })).toBeNull();
+});
