@@ -20,6 +20,7 @@ import {
   SessionActivityDetails,
 } from './SessionActivityStatus';
 import { sessionActivityLabel } from '../lib/session-activity';
+import { useConversationAgentsPanel } from '../lib/conversation-agents-panel';
 import {
   ActiveContext,
   SinkContext,
@@ -85,13 +86,17 @@ export function ComposerStatusRail({
   awaitingApproval = false,
   sessionId,
   recipients,
+  onRecipientsClick,
 }: {
   running?: boolean;
   scope?: number;
   awaitingApproval?: boolean;
   sessionId?: string;
   recipients?: string;
+  onRecipientsClick?(): void;
 }) {
+  const panel = useConversationAgentsPanel();
+  const shared = panel?.active && panel.agents.length > 0 ? panel : null;
   const { activities, connected, lastKnownActivities = [] } = useSessionOverview();
   const reportedActivity = (connected ? activities : lastKnownActivities).find(
     (a) => a.sessionId === sessionId,
@@ -179,11 +184,37 @@ export function ComposerStatusRail({
           : running
             ? workingLabel
             : 'Ready';
+  // The rail tone reflects this conversation's own issues only. Peer attention
+  // marks the Agents summary, so it never hides this conversation's running
+  // indicator or turn timer.
   const tone = issues.some((notice) => notice.tone === 'danger')
     ? 'danger'
     : issues.length
       ? 'warning'
       : 'normal';
+  const rosterAttention = shared?.agents.some(
+    (agent) => agent.diagnostic || agent.activityState === 'waiting',
+  );
+  const roster = shared?.agents
+    .map((agent) => `${agent.name}: ${agent.state}${agent.diagnostic ? ' · needs attention' : ''}`)
+    .join('; ');
+  const count = shared
+    ? `${shared.agents.length} ${shared.agents.length === 1 ? 'agent' : 'agents'}`
+    : '';
+  const workingCount =
+    shared?.agents.filter(
+      (agent) => agent.activityState === 'working' || agent.activityState === 'init',
+    ).length ?? 0;
+  const attentionCount =
+    shared?.agents.filter((agent) => agent.diagnostic || agent.activityState === 'waiting')
+      .length ?? 0;
+  const compactRoster = [
+    count,
+    workingCount ? `${workingCount} working` : '',
+    attentionCount ? `${attentionCount} need attention` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <>
       <div
@@ -191,7 +222,10 @@ export function ComposerStatusRail({
         role="region"
         aria-label="Conversation status"
         data-tone={tone}
+        data-shared={shared ? 'true' : undefined}
       >
+        {/* The conversation's own send/turn status stays visible in shared mode.
+            Only this message is a live region; the streaming roster is not. */}
         {liveRunning && tone === 'normal' ? (
           <ActivityBars />
         ) : (
@@ -207,11 +241,49 @@ export function ComposerStatusRail({
         {liveRunning && tone === 'normal' && activity?.turnStartedAt !== undefined && (
           <SessionTurnElapsed startedAt={activity.turnStartedAt} />
         )}
-        {recipients && (
-          <span className="composer-status-recipients" title={recipients}>
-            {recipients}
-          </span>
-        )}
+        {shared &&
+          (shared.canOpen ? (
+            <button
+              type="button"
+              className="composer-status-agents"
+              data-attention={rosterAttention ? 'true' : undefined}
+              aria-label={`Open Agents, ${compactRoster}`}
+              aria-haspopup="dialog"
+              title={roster}
+              onClick={(event) => {
+                event.currentTarget.focus();
+                shared.open();
+              }}
+            >
+              <span className="composer-status-agent-names">{roster}</span>
+              <span className="composer-status-agent-count">{compactRoster}</span>
+            </button>
+          ) : (
+            // No mounted Agents panel can open: show the summary, not a dead control.
+            <span
+              className="composer-status-agents"
+              data-attention={rosterAttention ? 'true' : undefined}
+              title={roster}
+            >
+              <span className="composer-status-agent-names">{roster}</span>
+              <span className="composer-status-agent-count">{compactRoster}</span>
+            </span>
+          ))}
+        {recipients &&
+          (onRecipientsClick ? (
+            <button
+              type="button"
+              className="composer-status-recipients"
+              title={recipients}
+              onClick={onRecipientsClick}
+            >
+              {recipients}
+            </button>
+          ) : (
+            <span className="composer-status-recipients" title={recipients}>
+              {recipients}
+            </span>
+          ))}
         {queued > 0 && (
           <button
             type="button"

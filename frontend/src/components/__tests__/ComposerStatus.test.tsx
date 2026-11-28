@@ -7,6 +7,10 @@ import {
   ComposerStatusNotice,
 } from '../ComposerStatus';
 import { ChatStatusMessage } from '../ChatStatusMessage';
+import {
+  ConversationAgentsPanelContext,
+  type ConversationAgentsPanel,
+} from '../../lib/conversation-agents-panel';
 
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
@@ -121,4 +125,88 @@ it('shows the existing approval state and returns to working after it clears', (
     </ComposerStatusProvider>,
   );
   expect(screen.getByRole('status').textContent).toBe('Working');
+});
+
+function sharedPanel(canOpen: boolean, open = vi.fn()): ConversationAgentsPanel {
+  return {
+    scope: 'shared',
+    active: true,
+    canOpen,
+    agents: [
+      { id: 'architect', name: 'Architect', state: 'Working', activityState: 'working' },
+      { id: 'reviewer', name: 'Reviewer', state: 'Idle' },
+    ],
+    register: () => () => {},
+    open,
+  };
+}
+
+it('keeps the conversation’s own sending and turn status beside the shared roster', () => {
+  render(
+    <ConversationAgentsPanelContext.Provider value={sharedPanel(true)}>
+      <ComposerStatusProvider>
+        <ChatStatusMessage status="Sending your message" busy />
+        <ComposerStatusRail running />
+      </ComposerStatusProvider>
+    </ConversationAgentsPanelContext.Provider>,
+  );
+  const rail = screen.getByRole('region', { name: 'Conversation status' });
+  // The live region announces only this conversation's own status, not the roster.
+  expect(within(rail).getByRole('status').textContent).toBe('Working');
+  const opener = within(rail).getByRole('button', { name: /^Open Agents,/ });
+  expect(opener.getAttribute('aria-label')).toBe('Open Agents, 2 agents · 1 working');
+  expect(within(opener).queryByRole('status')).toBeNull();
+  expect(within(opener).queryByRole('alert')).toBeNull();
+});
+
+it('keeps a shared issue in the alert outside the Agents control', () => {
+  render(
+    <ConversationAgentsPanelContext.Provider value={sharedPanel(true)}>
+      <ComposerStatusProvider>
+        <ChatStatusMessage error="Delivery to Reviewer failed" />
+        <ComposerStatusRail />
+      </ComposerStatusProvider>
+    </ConversationAgentsPanelContext.Provider>,
+  );
+  const rail = screen.getByRole('region', { name: 'Conversation status' });
+  expect(within(rail).getByRole('alert').textContent).toBe('Delivery to Reviewer failed');
+  expect(
+    within(within(rail).getByRole('button', { name: /^Open Agents,/ })).queryByRole('alert'),
+  ).toBeNull();
+});
+
+it('keeps its own running status when a peer needs attention and marks only the Agents summary', () => {
+  const panel = sharedPanel(true);
+  panel.agents = [
+    ...panel.agents,
+    { id: 'unavailable', name: 'Unavailable', state: 'Not observed', diagnostic: 'Unavailable' },
+  ];
+  render(
+    <ConversationAgentsPanelContext.Provider value={panel}>
+      <ComposerStatusProvider>
+        <ComposerStatusRail running />
+      </ComposerStatusProvider>
+    </ConversationAgentsPanelContext.Provider>,
+  );
+  const rail = screen.getByRole('region', { name: 'Conversation status' });
+  expect(rail.getAttribute('data-tone')).toBe('normal');
+  expect(within(rail).getByRole('status').textContent).toBe('Working');
+  const opener = within(rail).getByRole('button', { name: /^Open Agents,/ });
+  expect(opener.getAttribute('data-attention')).toBe('true');
+  expect(opener.getAttribute('aria-label')).toContain('1 need attention');
+});
+
+it('shows the shared roster without a dead Open Agents control when no panel can open', () => {
+  const open = vi.fn();
+  render(
+    <ConversationAgentsPanelContext.Provider value={sharedPanel(false, open)}>
+      <ComposerStatusProvider>
+        <ComposerStatusRail />
+      </ComposerStatusProvider>
+    </ConversationAgentsPanelContext.Provider>,
+  );
+  const rail = screen.getByRole('region', { name: 'Conversation status' });
+  expect(within(rail).queryByRole('button', { name: /^Open Agents/ })).toBeNull();
+  expect(rail.textContent).toContain('Architect: Working; Reviewer: Idle');
+  expect(open).not.toHaveBeenCalled();
 });

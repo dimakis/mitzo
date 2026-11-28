@@ -1637,6 +1637,14 @@ function ChatViewContent() {
                   account: workspaceSummary?.profile,
                   model: workspaceSummary?.model,
                   thinking: workspaceSummary?.thinking,
+                  profile: agentLabel,
+                  mode,
+                  location:
+                    workspaceSummary?.location === 'local'
+                      ? 'Local Mac'
+                      : workspaceSummary?.location === 'openshell'
+                        ? 'OpenShell'
+                        : undefined,
                   state: 'Current conversation',
                 },
               ]}

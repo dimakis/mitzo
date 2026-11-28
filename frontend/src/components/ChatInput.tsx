@@ -1576,6 +1576,8 @@ function ChatInputContent({
         running={running}
         scope={composerScope}
         awaitingApproval={awaitingApproval}
+        // A disabled responder picker cannot open; keep the plain recipients text.
+        onRecipientsClick={responders && !responders.disabled ? chooseResponders : undefined}
         recipients={
           responders
             ? `To ${selectedResponderIds.map((id) => responders.members.find((m) => m.id === id)?.name ?? 'Unavailable agent').join(', ') || 'no agents'}`

@@ -581,3 +581,20 @@
   color: var(--color-muted);
   font-size: var(--text-xs);
 }
+/* Records are grid items: without a zero minimum, a single-line state or
+ * settings summary widens the panel on narrow phones instead of truncating. */
+.conversation-agent-record {
+  min-width: 0;
+}
+.conversation-agent-heading small,
+.conversation-agent-state {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-agent-actions,
+.conversation-agent-result {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

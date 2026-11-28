@@ -51,8 +51,8 @@ import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
 import { ChatArea, type ChatAreaProps } from './ChatArea';
-import { useSessionOverview } from '../hooks/useSessionOverview';
-import { sessionActivityLabel } from '../lib/session-activity';
+import { useConversationAgentRoster } from '../hooks/useConversationAgentRoster';
+import { ConversationAgentsPanelContext } from '../lib/conversation-agents-panel';
 import {
   SharedConversationComposerContext,
   type SharedConversationComposerRouting,
@@ -124,7 +124,49 @@ export function SharedConversationHost({
   ...options
 }: Parameters<typeof useSharedConversation>[0] & { children: ReactNode }) {
   const value = useSharedConversation(options);
-  return <Context.Provider value={value}>{children}</Context.Provider>;
+  const owner = useMemo(
+    () => ({ source: options.sourceConversationId, auth: options.authScope, api: options.api }),
+    [options.sourceConversationId, options.authScope, options.api],
+  );
+  const agents = useConversationAgentRoster(owner, value.presentation.projection, value.names);
+  // Rendered state, so the status rail offers Open Agents only while the
+  // header panel is mounted (it is not while controls are blocked).
+  const [canOpen, setCanOpen] = useState(false);
+  const handle = useMemo(() => {
+    let opener: (() => void) | undefined;
+    return {
+      owner,
+      register(open: () => void) {
+        opener = open;
+        setCanOpen(true);
+        return () => {
+          if (opener !== open) return;
+          opener = undefined;
+          setCanOpen(false);
+        };
+      },
+      open() {
+        opener?.();
+      },
+    };
+  }, [owner]);
+  const panel = useMemo(
+    () => ({
+      ...handle,
+      scope: options.sourceConversationId,
+      active: value.active,
+      agents,
+      canOpen,
+    }),
+    [handle, options.sourceConversationId, value.active, agents, canOpen],
+  );
+  return (
+    <Context.Provider value={value}>
+      <ConversationAgentsPanelContext.Provider value={panel}>
+        {children}
+      </ConversationAgentsPanelContext.Provider>
+    </Context.Provider>
+  );
 }
 function useSharedConversation({
   sourceConversationId,
@@ -502,6 +544,8 @@ function useSharedConversation({
     provisionalOrdinary: startedInView && !association.group && !association.historySource,
     /** A source check already classified this conversation for the current owner. */
     confirmed: !!association.ordinaryHistory || !!association.group,
+    /** Retry can act: failed setup reruns, or a begun collaboration rereads its view. */
+    canRetry: !!association.error || (!!association.begun && !!association.group),
     retry: () => {
       // Setup and the retained conversation read have different owners. Repeating
       // unchanged setup does not rerun a failed read of the same collaboration.
@@ -515,7 +559,7 @@ function useSharedConversation({
 
 export function SharedConversationAgents(props: ComponentProps<typeof ConversationAgents>) {
   const host = useContext(Context);
-  const { activities } = useSessionOverview();
+  const panel = useContext(ConversationAgentsPanelContext);
   const presentSourceName =
     host && host.sourceConversationId === props.scope ? host.presentSourceName : undefined;
   const sourceName = props.agents.find((agent) => agent.id === props.scope)?.name;
@@ -523,35 +567,36 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
     if (sourceName) presentSourceName?.(sourceName);
   }, [presentSourceName, sourceName]);
   if (!host || host.sourceConversationId !== props.scope) return <ConversationAgents {...props} />;
-  const { presentation, names } = host;
+  const { presentation } = host;
   const view = presentation.projection?.view;
-  const agents = view
-    ? view.participantSessionIds.map((id) => {
-        const existing = props.agents.find((a) => a.id === id);
-        const policy = view.policies.find((p) => p.sessionId === id);
-        const activity = activities.find((a) => a.sessionId === id);
-        return {
-          ...existing,
-          id,
-          historySessionId: id !== props.scope ? id : undefined,
-          name: existing?.name ?? names[id] ?? id,
-          state: view.unavailableParticipantSessionIds.includes(id)
-            ? 'Unavailable'
-            : activity
-              ? sessionActivityLabel(activity)
-              : id === props.scope
-                ? 'Current conversation'
-                : 'Joined',
-          policy: policy
-            ? { reads: policy.readsFutureDiscussion, replies: policy.repliesByDefault }
-            : undefined,
-        };
-      })
-    : props.agents;
+  const agents =
+    view && panel
+      ? panel.agents.map((agent) => {
+          const existing = props.agents.find((a) => a.id === agent.id);
+          return {
+            ...agent,
+            ...existing,
+            account: existing?.account ?? agent.account,
+            model: existing?.model ?? agent.model,
+            thinking: existing?.thinking ?? agent.thinking,
+            profile: existing?.profile ?? agent.profile,
+            mode: existing?.mode ?? agent.mode,
+            location: existing?.location ?? agent.location,
+            historySessionId: agent.id !== props.scope ? agent.id : undefined,
+            state: agent.state,
+            membership: agent.membership,
+            membershipLabel: agent.membershipLabel,
+            policy: agent.policy,
+          };
+        })
+      : props.agents;
   return (
     <ConversationAgents
       {...props}
       agents={agents}
+      // An ordinary chat has nothing to refresh; never offer a dead control.
+      onRefresh={host.canRetry ? host.retry : undefined}
+      rosterError={host.error ?? presentation.error ?? undefined}
       modelPolicySessionId={host.historySource ? undefined : host.sourceConversationId}
       sharedIdentity={host.identity}
       showParticipantNames={host.active || props.showParticipantNames}
