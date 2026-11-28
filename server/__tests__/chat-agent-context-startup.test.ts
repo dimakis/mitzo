@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -1195,6 +1195,55 @@ it('preserves legacy SDK hook matchers and outputs when no pack context is selec
     expect(query).toHaveBeenCalledOnce();
     expect(project[0].hooks[0]).toHaveBeenCalledOnce();
     expect(legacyOutput).toEqual({ systemMessage: 'legacy hook' });
+  } finally {
+    unbind();
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('stages a legacy SDK startup image once for the provider prompt and the public record', async () => {
+  const { root, chat, transport, unbind } = await setup();
+  const boundary = await import('../credential-sdk-boundary.js');
+  vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue(undefined);
+  let providerText = '';
+  let sdkSession = '';
+  try {
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(query).mockImplementation((args) => {
+      sdkSession = (args.options as { sessionId?: string }).sessionId!;
+      return {
+        close: vi.fn(),
+        interrupt: vi.fn(),
+        async *[Symbol.asyncIterator]() {
+          for await (const message of args.prompt as AsyncIterable<{
+            message: { content: unknown };
+          }>) {
+            providerText = JSON.stringify(message.message.content);
+            break;
+          }
+          yield { type: 'assistant', message: { content: [] }, session_id: sdkSession };
+          yield { type: 'result', session_id: sdkSession };
+        },
+      } as never;
+    });
+    await chat.startChat(transport, 'image-sdk', 'Inspect this', {
+      cwd: root,
+      isolation: false,
+      model: 'luna',
+      clientMsgId: 'image-command',
+      images: [{ data: 'cG5n', mediaType: 'image/png' }],
+    });
+    const staged = await readdir(join(root, '.mitzo-images'));
+    expect(staged).toHaveLength(1);
+    expect(providerText).toContain(staged[0]);
+    const [first] = chat.eventStore
+      .getSessionEvents(sdkSession)
+      .filter((event) => event.type === 'user_message');
+    expect(first.payload).toMatchObject({ messageId: 'image-command' });
+    expect(first.payload.text).toContain(staged[0]);
+    expect(chat.eventStore.getSession(sdkSession)?.initialMessageId).toBe('image-command');
   } finally {
     unbind();
     chat.registry.dispose();

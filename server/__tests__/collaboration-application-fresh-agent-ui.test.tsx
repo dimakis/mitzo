@@ -415,10 +415,16 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     const retainedDraft = (await import('../../frontend/src/lib/chat-drafts.js')).getChatDraft;
     // The host owns the exact original input; Defaults is not rewritten to a
     // fresh selection or reinterpreted by later policy changes during recovery.
-    const keys = Object.keys(localStorage).filter((key) => key.startsWith('mitzo-chat-draft:'));
-    const original = keys
-      .map((key) => retainedDraft(key.slice('mitzo-chat-draft:'.length))?.collaborationSend)
-      .find((pending) => pending?.input.text === fanout.text)!;
+    // The retained journal flush can settle after the admitted message is visible.
+    let keys: string[] = [];
+    let original!: NonNullable<ReturnType<typeof retainedDraft>>['collaborationSend'] & {};
+    await waitFor(() => {
+      keys = Object.keys(localStorage).filter((key) => key.startsWith('mitzo-chat-draft:'));
+      original = keys
+        .map((key) => retainedDraft(key.slice('mitzo-chat-draft:'.length))?.collaborationSend)
+        .find((pending) => pending?.input.text === fanout.text)!;
+      expect(original).toBeTruthy();
+    });
     expect(original.input.responders).toEqual({ kind: 'default' });
     expect((await h.api.observeSend(h.group, original.input)).terminal).toBe(false);
     await act(async () => runtime.streamTurn(4, 'This is the live reply before completion.'));
@@ -600,17 +606,9 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     });
     ui.unmount();
     ui = render(surface);
-    // Multiple retained controls live in the existing status-details dialog.
-    fireEvent.click(await screen.findByRole('button', { name: 'Conversation status details' }));
-    const status = await screen.findByRole('dialog', { name: 'Conversation status' });
-    fireEvent.click(
-      await within(status).findByRole(
-        'button',
-        { name: 'Check original request' },
-        { timeout: 5000 },
-      ),
-    );
-    fireEvent.click(within(status).getByRole('button', { name: 'Close', exact: true }));
+    // Reopening observes the retained acknowledged request itself. Recipient
+    // readiness loading is advisory (a press awaits its own preflight), so no
+    // transient "Check original request" status is required to recover it.
     await waitFor(() => {
       const request = h.events.collaborationConversation.getMessageForRequest(
         h.group,

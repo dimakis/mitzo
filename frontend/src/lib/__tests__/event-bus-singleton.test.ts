@@ -73,6 +73,15 @@ describe('event-bus-singleton visibilitychange recovery', () => {
     ensureConnectedSpy.mockRestore();
   });
 
+  it('passes the native-resume force option through to the bus', () => {
+    const ensureConnectedSpy = vi.spyOn(eventBus, 'ensureConnected');
+
+    ensureEventBusConnected({ force: true });
+
+    expect(ensureConnectedSpy).toHaveBeenCalledWith({ force: true });
+    ensureConnectedSpy.mockRestore();
+  });
+
   it('does not call ensureConnected when page becomes hidden', () => {
     const ensureConnectedSpy = vi.spyOn(eventBus, 'ensureConnected');
 

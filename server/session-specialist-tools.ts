@@ -21,6 +21,7 @@ import { getSpecialistConsultations } from './specialist-consultation-runtime.js
 import { createLogger } from './logger.js';
 import { specialistDiagnostic } from './specialist-consultation-diagnostics.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
+import { SpecialistContextLimitError } from './specialist-context-envelope.js';
 
 const log = createLogger('specialist-tool');
 export function sessionSpecialistTools(
@@ -145,6 +146,41 @@ export function sessionSpecialistTools(
           ['uncertain', 'failed'].includes(String(value.status));
         return { content: JSON.stringify(value), isError: !!failed };
       } catch (cause) {
+        if (
+          cause instanceof SpecialistContextLimitError &&
+          !externalSignal.aborted &&
+          !session.abortController.signal.aborted &&
+          !operation?.signal.aborted
+        ) {
+          log.info('Specialist context preflight refused', {
+            sessionId,
+            requestId,
+            callId: call?.callId,
+            stage: 'context_preflight',
+            code: cause.code,
+            outcome: cause.outcome,
+            context: cause.report,
+          });
+          const result = {
+            content: JSON.stringify({
+              error: cause.code,
+              outcome: cause.outcome,
+              stage: 'context_preflight',
+              sessionId,
+              requestId,
+              context: cause.report,
+              message:
+                cause.message +
+                (cause.outcome === 'not_started'
+                  ? ' No consultation, workspace or dispatch was started.'
+                  : ' The existing request is retained; inspect it before recovery. Earlier effects are not cleared.'),
+            }),
+            isError: true,
+          };
+          return cause.outcome === 'not_started'
+            ? retainCallbackOutcome(result, 'settled')
+            : result;
+        }
         if (
           cause instanceof SpecialistInputError &&
           !externalSignal.aborted &&

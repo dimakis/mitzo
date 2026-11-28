@@ -40,6 +40,122 @@ const bundle = build({
     '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
   },
 });
+
+test('one press waits for readiness, then shared Queue acknowledges a distinct prompt', async ({
+  page,
+  isMobile,
+}, info) => {
+  const files = (await bundle).outputFiles!;
+  const view = sharedConversationView();
+  view.messages = [];
+  const sends: ReturnType<typeof CollaborationMessageInputSchema.parse>[] = [];
+  let release!: () => void;
+  const readiness = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/*', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/check')
+      return route.fulfill({ json: { ok: true, authSessionId: 'offline-one-press' } });
+    if (path.endsWith('/source-setup'))
+      return route.fulfill({
+        json: {
+          state: 'selected',
+          sourceConversationId: 'architect',
+          collaboration: {
+            version: 1,
+            collaborationId: view.collaborationId,
+            revision: view.membershipRevision,
+            participantSessionIds: view.participantSessionIds,
+          },
+        },
+      });
+    if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+    if (path.endsWith('/progress'))
+      return route.fulfill({
+        json: {
+          collaborationId: view.collaborationId,
+          membershipRevision: view.membershipRevision,
+          replies: [],
+          refusals: [],
+        },
+      });
+    if (path.includes('/recipients/')) {
+      await readiness;
+      return route.fulfill({
+        json: {
+          collaborationId: view.collaborationId,
+          sessionId: decodeURIComponent(path.split('/').at(-1)!),
+          membershipRevision: view.membershipRevision,
+          policySequence: view.policySequence,
+          ready: true,
+          reason: null,
+        },
+      });
+    }
+    if (path.endsWith('/messages/observe'))
+      return route.fulfill({ json: { message: null, terminal: false } });
+    if (path.endsWith('/messages')) {
+      const input = CollaborationMessageInputSchema.parse(route.request().postDataJSON());
+      sends.push(input);
+      const receipt = CollaborationMessageSchema.parse({
+        ...sharedPrompt,
+        messageId: input.requestId,
+        projectionId: input.requestId,
+        sequence: ++view.cursor,
+        text: input.text,
+        snapshot: input.snapshot,
+        responders: ['architect'],
+        readers: ['architect'],
+        settings: { architect: sharedPrompt.settings.architect },
+        membershipRevision: input.expectedMembershipRevision,
+        policySequence: input.expectedPolicySequence,
+        deliveries: [
+          { ...sharedPrompt.deliveries[0], deliveryId: uuid(700 + sends.length), status: 'queued' },
+        ],
+      });
+      view.messages.push(receipt);
+      return route.fulfill({ json: receipt });
+    }
+    const file = files.find((file) => path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'));
+    if (file)
+      return route.fulfill({
+        body: file.text,
+        contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+      });
+    if (path !== '/') return route.fulfill({ json: [] });
+    return route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><html data-theme="dark"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body,#root{margin:0;height:100%;overflow:hidden}</style><div id="root"></div><script src="/fixture.js"></script></html>',
+    });
+  });
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
+  await page.goto('/');
+  const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+  await input.fill('First press waits');
+  const send = page.getByRole('button', { name: 'Send message' });
+  await expect(send).toBeEnabled();
+  if (isMobile) await send.tap();
+  else await input.press('Enter');
+  expect(sends).toHaveLength(0);
+  await input.fill('Keep my next draft');
+  release();
+  await expect.poll(() => sends.length).toBe(1);
+  await expect(input).toHaveValue('Keep my next draft');
+  const queue = page.getByRole('button', { name: 'Queue message' });
+  await expect(queue).toBeEnabled();
+  if (isMobile) await queue.tap();
+  else await input.press('Control+Enter');
+  await expect.poll(() => sends.length).toBe(2);
+  expect(sends.map((s) => s.text)).toEqual(['First press waits', 'Keep my next draft']);
+  expect(sends[1].requestId).not.toBe(sends[0].requestId);
+  await expect(input).toHaveValue('');
+  await expect(
+    page.getByText('Prompt queued. It will run when each selected agent is available.').first(),
+  ).toBeVisible();
+  await page.screenshot({ path: info.outputPath('single-press-queue.png'), fullPage: true });
+});
+
 for (const theme of ['dark', 'light'])
   test(
     'shared observer survives singleton membership (' + theme + ')',
