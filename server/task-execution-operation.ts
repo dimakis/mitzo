@@ -9,7 +9,23 @@ import type { ProfileToolCall } from './session-profile-tools.js';
 import type { taskExecutionSchema } from './task-execution-definitions.js';
 import type { TaskExecutionGrant, TaskExecutionStore } from './task-execution-store.js';
 import { createLogger } from './logger.js';
+import { TaskExecutionRefusal } from './task-execution-failure.js';
 const log = createLogger('task-execution');
+
+function existingDirectory(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+    throw new TaskExecutionRefusal(
+      'invalid_input',
+      'admission',
+      `Command directory ${path} does not exist. The command did not run. Use an existing cwd inside this task grant's roots.`,
+      'cwd_unavailable',
+    );
+  }
+}
 
 export async function executeTaskOperation(options: {
   input: z.infer<typeof taskExecutionSchema>;
@@ -57,21 +73,38 @@ export async function executeTaskOperation(options: {
       exact.message = input.message;
     } else {
       const repository = /^\/repos\/([^/?]+\/[^/?]+)(?:[/?]|$)/.exec(input.endpoint ?? '')?.[1];
-      if (!repository || !grant.repositories.includes(repository))
-        throw Error('Repository is outside the approved task read scope');
+      if (!repository)
+        throw new TaskExecutionRefusal(
+          'invalid_input',
+          'admission',
+          'Task github_read endpoint must start with /repos/OWNER/REPO; account-wide endpoints are not task-scoped.',
+          'invalid_github_endpoint',
+        );
+      if (!grant.repositories.includes(repository))
+        throw new TaskExecutionRefusal(
+          'scope_insufficient',
+          'admission',
+          `Repository ${repository} is outside this task grant's GitHub read scope (${
+            grant.repositories.length
+              ? `grant covers: ${grant.repositories.join(', ')}`
+              : 'grant covers no GitHub repositories'
+          }). The read did not run. Call TaskExecution authorize with repositories: ['${repository}'] and a fresh requestId, then retry github_read with the new grantId.`,
+          'repository_out_of_scope',
+        );
       exact.endpoint = input.endpoint;
       exact.access = input.access ?? 'authenticated';
       if (input.view) exact.view = input.view;
       if (input.log) exact.log = input.log;
     }
-    const cwd = input.cwd ? realpathSync(resolve(session.cwd!, input.cwd)) : session.cwd!;
-    if (
-      !isAbsolute(cwd) ||
-      !grant.members
-        .find((member) => member.sessionId === sessionId)!
-        .roots.some((root) => cwd === root || cwd.startsWith(root + '/'))
-    )
-      throw Error('Command directory is outside the selected task roots');
+    const cwd = input.cwd ? existingDirectory(resolve(session.cwd!, input.cwd)) : session.cwd!;
+    const roots = grant.members.find((member) => member.sessionId === sessionId)!.roots;
+    if (!isAbsolute(cwd) || !roots.some((root) => cwd === root || cwd.startsWith(root + '/')))
+      throw new TaskExecutionRefusal(
+        'invalid_input',
+        'admission',
+        `Command directory ${cwd} is outside this task grant's roots (${roots.join(', ')}). The command did not run. Use a cwd inside one of these roots.`,
+        'cwd_out_of_scope',
+      );
     const before = store.begin(
       grant.id,
       sessionId,

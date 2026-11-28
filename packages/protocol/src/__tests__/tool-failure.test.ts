@@ -28,6 +28,17 @@ it('keeps cancellation, explicit denial and authentication distinct', () => {
   ).toMatch(/original.*receipt/i);
 });
 
+it('asks for a broader authorization when the current scope does not cover the resource', () => {
+  const failure = toolFailure('scope_insufficient', 'admission', 'not_started');
+  expect(failure.recovery).toBe('renew_approval');
+  const action = toolFailureAction(failure);
+  expect(action).toMatch(/does not cover/i);
+  expect(action).not.toMatch(/timed out|do not retry/i);
+  expect(toolFailure('scope_insufficient', 'execution', 'unknown').recovery).toBe(
+    'inspect_operation',
+  );
+});
+
 it('rejects provider-selected recovery metadata and unknown fields', () => {
   expect(
     ToolFailureSchema.safeParse({

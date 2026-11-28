@@ -1590,7 +1590,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/__tests__/paid-reasoning-selection.test.ts':
     '7aa40889714815bf9af2a4fa926bc6da4090f8cd0dfab33ccf61bfaa30d07a22',
   '../../packages/protocol/src/__tests__/tool-failure.test.ts':
-    'f9fa837070c3ed2c20bf9bcfe1f32e8a4348c0546572bfdb6437550443ab53d7',
+    '94433449d9f163fc54eaca799143b0650ebe0f8c2b071b73234d116564609122',
   '../../packages/protocol/src/__tests__/user-turn-steering-capability.test.ts':
     'df821218ee6b8d3d47ff408e785ed40c9ee01c85a3dafbe201e054a3bcd86fbc',
   '../../packages/protocol/src/account-binding.ts':
@@ -1776,7 +1776,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../../packages/protocol/src/tool-failure.ts':
-    'dabb0ea92a7111308e3a4f6207af69b51eb698a55cd67a41ab2bb7292e4afc29',
+    '1cd3404a5aed00edf8633d979ced63495b6954a63e2c634b846443912f1fb94d',
   '../../packages/protocol/src/tool-lifecycle.ts':
     'd786494647ec605246a1d0a3d0537bdff167dffba435db1e425649c0b8800cd1',
   '../../packages/protocol/src/tool-summary.ts':
@@ -3642,7 +3642,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/task-execution-store.test.ts':
     'dc0e1af35b5f803769c42ff7793a509c07d89dca9f669ca5af91dd16e1defa8f',
   '../__tests__/task-execution-tools.test.ts':
-    'de5e55a570d117aad4044deda23781369a711831e38e5c9983c6cb650cf93406',
+    'af461bf1e7971694f893f09d89817384bab3b1fffcade8eeac0f66bb0b1e0d93',
   '../__tests__/task-mcp-selection.test.ts':
     'd304a8ef802b7e3c160a65730f978ed53b3533027481fad763a74be6c1e77e2f',
   '../__tests__/task-orchestrator-worker-binding.test.ts':
@@ -4831,9 +4831,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-execution-definitions.ts':
     'b3f04eb20facc0aaa0f9153af09a183685854fce8e722d87be4d961f1d73fe4c',
   '../task-execution-failure.ts':
-    '0e2da2e95f4fe7742e714ba5f0dbfabb642912e79ae860e97682fcb9ec8fbd70',
+    'dc362da9c969f715735d7f92d8f730b6a83c7f0198e03d10c577ffb1d54d8b02',
   '../task-execution-operation.ts':
-    'd32f0d4d6bfbcd3fa1adddfcb34b5818c103e359a1aaa923f4c8d24dc36a1d86',
+    'b2136e04495661b437d9f8159d9e069d7b72dc8577d171886197245564af1250',
   '../task-execution-runtime.ts':
     '3d8027c88f7348490683c3fc500625cbe53c9d1e470e40a074f6d90df431351c',
   '../task-execution-scope.ts': 'c9f08e9b051fab877e7c8b6afc9615b4d8939c887c89ef82e0db609260869400',

@@ -9,6 +9,8 @@ export class TaskExecutionRefusal extends Error {
     readonly code: ToolFailure['code'],
     readonly phase: ToolFailure['phase'],
     message?: string,
+    /** Specific public code, e.g. `repository_out_of_scope`; defaults to `task_execution_failed`. */
+    readonly publicCode?: string,
   ) {
     super(message ?? code);
   }
@@ -52,7 +54,11 @@ export function taskExecutionFailure(
       : 'Inspect TaskExecution status with the original grantId/requestId and the existing workspace before retrying. Reuse the original requestId; do not repeat the command with a new ID.';
   return {
     failure,
-    code: authenticationRequired ? 'operator_authentication_required' : 'task_execution_failed',
+    code: authenticationRequired
+      ? 'operator_authentication_required'
+      : cause instanceof TaskExecutionRefusal && cause.publicCode && !cancelled
+        ? cause.publicCode
+        : 'task_execution_failed',
     error: authenticationRequired
       ? "TaskExecution cannot access this chat's authenticated operator connection. The connection is unavailable, or the login expired or was revoked."
       : cause instanceof Error

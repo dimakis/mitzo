@@ -229,6 +229,94 @@ it.each([
   expect(error.message).not.toContain('secret');
 });
 
+// The Claude chat sandbox always denies writes named .gitmodules and .idea/*;
+// npm reports those entries as non-fatal warnings and still installs.
+const sandboxTarWarnings = (cwd: string) =>
+  [
+    `npm warn tar TAR_ENTRY_ERROR EPERM: operation not permitted, open '${cwd}/node_modules/extsprintf/.gitmodules'`,
+    `npm warn tar TAR_ENTRY_ERROR EPERM: operation not permitted, open '${cwd}/node_modules/iconv-lite/.idea/modules.xml'`,
+  ].join('\n');
+function rejectCi(
+  f: Awaited<ReturnType<typeof fixture>>,
+  cause: (cwd: string) => Record<string, unknown>,
+) {
+  const original = f.run.getMockImplementation()!;
+  f.run.mockImplementation(async (command, args, options) => {
+    if (args[0] === 'ci') throw Object.assign(Error('Command failed: npm ci'), cause(f.cwd));
+    return original(command, args, options);
+  });
+}
+
+it('classifies a failed install by its npm error, not sandbox TAR warnings, and keeps safe subprocess detail', async () => {
+  const f = await fixture();
+  rejectCi(f, (cwd) => ({
+    code: 1,
+    signal: null,
+    killed: false,
+    stderr: [
+      sandboxTarWarnings(cwd),
+      'npm error code ELIFECYCLE',
+      `npm error path ${cwd}/node_modules/better-sqlite3`,
+      'npm error command failed token=secret',
+    ].join('\n'),
+  }));
+  const error = await prepareDevelopment({ ...f, install: true }).catch((error) => error);
+  expect(error).toMatchObject({ phase: 'dependencies', reason: 'command_failed' });
+  expect(error.toJSON().subprocess).toEqual({
+    exitCode: 1,
+    signal: null,
+    code: 'ELIFECYCLE',
+    failingPath: 'node_modules/better-sqlite3',
+  });
+  expect(JSON.stringify(error)).not.toContain(f.cwd);
+  expect(JSON.stringify(error)).not.toContain('secret');
+});
+
+it('omits a failing path outside the task or with unexpected characters', async () => {
+  for (const path of ['/etc/passwd', '{cwd}/node_modules/a b?token=secret']) {
+    const f = await fixture();
+    rejectCi(f, (cwd) => ({
+      code: 1,
+      stderr: `npm error code EPERM\nnpm error path ${path.replace('{cwd}', cwd)}`,
+    }));
+    const error = await prepareDevelopment({ ...f, install: true }).catch((error) => error);
+    expect(error.reason).toBe('filesystem_denied');
+    expect(error.toJSON().subprocess).toMatchObject({ code: 'EPERM', failingPath: null });
+    expect(JSON.stringify(error)).not.toMatch(/passwd|secret/);
+  }
+});
+
+it('declares readiness when npm ci succeeds with sandbox TAR warnings', async () => {
+  const f = await fixture();
+  const original = f.run.getMockImplementation()!;
+  f.run.mockImplementation(async (command, args, options) => {
+    const result = await original(command, args, options);
+    return args[0] === 'ci' ? { ...result, stderr: sandboxTarWarnings(f.cwd) } : result;
+  });
+  await expect(prepareDevelopment({ ...f, install: true })).resolves.toMatchObject({
+    ready: true,
+  });
+});
+
+it.each([
+  [
+    'output_limit_exceeded',
+    { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER', signal: 'SIGTERM', killed: true },
+    { exitCode: null, signal: 'SIGTERM', code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' },
+  ],
+  [
+    'timed_out',
+    { code: null, signal: 'SIGTERM', killed: true },
+    { exitCode: null, signal: 'SIGTERM', code: null },
+  ],
+] as const)('reports an install stopped by its %s guard', async (reason, cause, subprocess) => {
+  const f = await fixture();
+  rejectCi(f, (cwd) => ({ ...cause, stderr: sandboxTarWarnings(cwd) }));
+  const error = await prepareDevelopment({ ...f, install: true }).catch((error) => error);
+  expect(error).toMatchObject({ phase: 'dependencies', reason });
+  expect(error.toJSON().subprocess).toEqual({ ...subprocess, failingPath: null });
+});
+
 it('reuses only verified unchanged workspace artifacts on a second explicit install', async () => {
   const f = await fixture();
   const first = await prepareDevelopment({ ...f, install: true });
