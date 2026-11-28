@@ -8,6 +8,26 @@ export function specialistDiagnostic(cause: unknown) {
   const message = cause instanceof Error ? cause.message : '';
   const rules = [
     [
+      /^Selected model is Off/,
+      'model_off',
+      'This model is Off in Symposium model policy. Ask the operator to edit Model policy in Agents, or authorize a consultation policy whose routes for this role are not Off. No replacement was selected.',
+    ],
+    [
+      /^Model consultation allowance/,
+      'model_allowance_exhausted',
+      'This model has reached its conversation allowance. Edit or remove its allowance in Agents → Model policy.',
+    ],
+    [
+      /^Model policy changed/,
+      'model_policy_changed',
+      'Model policy changed before admission. Inspect the current policy and recover the original request for fresh review.',
+    ],
+    [
+      /^Specialist admission was not approved/,
+      'admission_not_approved',
+      'The specialist admission was not approved. No consultation was reserved or dispatched.',
+    ],
+    [
       /^No eligible independent specialist/,
       'independent_route_unavailable',
       'No independent specialist route is authorized and available for this role. Inspect catalog and review the policy; no replacement model was selected.',
@@ -40,7 +60,7 @@ export function specialistDiagnostic(cause: unknown) {
     [
       /^Consultation call budget/,
       'budget_exhausted',
-      'The approved consultation call budget is exhausted. Request a new bounded policy before more model work.',
+      'The approved consultation allowance is exhausted. Edit or remove it in Agents → Model policy before more model work.',
     ],
     [
       /^Consultation policy expired or revoked|^Original consultation authorization/,

@@ -267,6 +267,7 @@ import { createOutputContributorRouter } from './output-contributor-routes.js';
 import { createSessionCollaborationRouter } from './session-collaboration-router.js';
 import { CollaborationApplicationReview } from './collaboration-application-review.js';
 import { SpecialistConsultations } from './specialist-consultations.js';
+import { createSpecialistModelPolicyRouter } from './specialist-model-policy-router.js';
 import {
   setSpecialistConsultations,
   closeSpecialistConsultations,
@@ -3757,6 +3758,13 @@ setSpecialistConsultations(
     messaging: collaborationMessaging,
     databasePath: join(process.env.REPO_PATH || '.', '.mitzo', 'events.db'),
   }),
+);
+
+mountObservedRouter(
+  app,
+  '/api/specialist-model-policy',
+  operatorAuthMiddleware,
+  createSpecialistModelPolicyRouter(eventStore),
 );
 
 mountObservedRouter(

@@ -31,7 +31,9 @@ export function specialistRoleExecution(
       authorityGrant: { grantId: policy.policyId, revision: 1 },
       requiredCapabilities: { route: true, context: true, tools: false },
       limits: {
-        maxAttempts: policy.maxConsultations,
+        // The receipt store atomically accounts held/charged slots. Ordinals
+        // remain unique audit identities even when a refused attempt is free.
+        maxAttempts: Number.MAX_SAFE_INTEGER,
         // The collaboration policy caps calls and selected context bytes. It
         // deliberately does not advertise a total-token or dollar budget.
         maxTokens: Number.MAX_SAFE_INTEGER,
@@ -46,7 +48,7 @@ export function specialistRoleExecution(
     capabilities: () => ({ route: true, context: true, tools: false }),
     pricing: () => ({ kind: 'unknown' }),
     usage: {
-      attempts: record.attemptOrdinal,
+      attempts: 0,
       tokens: 0,
       costUsd: 0,
       replans: 0,
