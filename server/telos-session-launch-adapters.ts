@@ -10,6 +10,10 @@ import { agentToolAllowed } from './agent-tool-selection.js';
 import { SessionLaunchError } from './session-launch-store.js';
 import { createLogger } from './logger.js';
 import { retainTelosSessionProposalFailure } from './telos-session-proposal-failure.js';
+import {
+  reportTelosSessionRefusal,
+  TelosSessionProposalRefusal,
+} from './telos-session-proposal-refusal.js';
 export { executeTelosCreateSession } from './telos-session-launch-tool.js';
 export { telosSessionProposalFailure } from './telos-session-proposal-failure.js';
 
@@ -94,6 +98,14 @@ export function createTelosSessionProposalRouter(deps: {
       captured.assertCurrent();
       res.json(result);
     } catch (cause) {
+      if (cause instanceof TelosSessionProposalRefusal && !controller.signal.aborted) {
+        const refusal = reportTelosSessionRefusal(cause, {
+          requestId: input.requestId,
+          sourceSessionId: sessionId,
+        });
+        if (!res.destroyed) res.status(cause.status).json({ ...refusal, error: refusal.message });
+        return;
+      }
       const known = cause instanceof SessionLaunchError;
       if (!known) {
         retainTelosSessionProposalFailure(input.requestId, 'proposal', cause);

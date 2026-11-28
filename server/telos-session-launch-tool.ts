@@ -15,6 +15,21 @@ export const TelosSessionProposalResponseSchema = SessionLaunchRecordSchema.exte
   handoverDownloadUrl: z.string().min(1).optional(),
   startupBlocker: z.string().optional(),
 });
+/** Host refusal body from `reportTelosSessionRefusal`; only this shape may
+ * report an unstarted effect. */
+const TelosSessionRefusalSchema = z.object({
+  code: z.enum(['not_found', 'unauthorized', 'conflict', 'invalid']),
+  reason: z
+    .string()
+    .regex(/^[a-z_]{1,64}$/)
+    .optional(),
+  stage: z.literal('proposal_scope'),
+  requestId: z.string(),
+  sourceSessionId: z.string(),
+  effectStatus: z.literal('not_started'),
+  message: z.string().max(500),
+  recovery: z.string().max(500),
+});
 
 export async function executeTelosCreateSession(
   baseUrl: string,
@@ -51,6 +66,15 @@ export async function executeTelosCreateSession(
     signal?.throwIfAborted();
     const record = TelosSessionProposalResponseSchema.safeParse(body);
     if (!response.ok) {
+      // A definite read-only refusal keeps its stable code and unstarted effect.
+      const definite = TelosSessionRefusalSchema.safeParse(body);
+      if (
+        definite.success &&
+        definite.data.requestId === parsed.data.requestId &&
+        definite.data.sourceSessionId === sessionId
+      ) {
+        return { content: JSON.stringify(definite.data), isError: true };
+      }
       const refusal = z.object({ error: z.string() }).safeParse(body);
       return {
         content: refusal.success

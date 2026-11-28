@@ -16,6 +16,10 @@ import { sessionSdkHistoryTools } from './session-history-sdk.js';
 import type { EventStore } from './event-store.js';
 import { sessionLaunchTools, sessionLaunchDefinitions } from './session-launch-tools.js';
 import { learningToolSchemas, learningToolDefinitions } from './session-learning-tools.js';
+import {
+  reportTelosSessionRefusal,
+  TelosSessionProposalRefusal,
+} from './telos-session-proposal-refusal.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
@@ -396,24 +400,42 @@ export function createCredentialSdkServer(
                   toolAuthority
                 ) {
                   await toolAuthority.assertCurrent(signal);
-                  const result = await sessionLaunchTools({
-                    sessionId: id,
-                    session,
-                    registry,
-                    permissionPrefix: prefix,
-                    assertCurrent: () => toolAuthority.assertCurrent(signal),
-                    assertCurrentSync: () => toolAuthority.assertCurrentSync(signal),
-                  }).execute(
-                    input,
-                    signal,
-                    {
-                      turnId: runtimeId,
-                      callId: String(
-                        (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
-                      ),
-                    },
-                    definition.name,
-                  );
+                  let result;
+                  try {
+                    result = await sessionLaunchTools({
+                      sessionId: id,
+                      session,
+                      registry,
+                      permissionPrefix: prefix,
+                      assertCurrent: () => toolAuthority.assertCurrent(signal),
+                      assertCurrentSync: () => toolAuthority.assertCurrentSync(signal),
+                    }).execute(
+                      input,
+                      signal,
+                      {
+                        turnId: runtimeId,
+                        callId: String(
+                          (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
+                        ),
+                      },
+                      definition.name,
+                    );
+                  } catch (error) {
+                    // A definite read-only refusal is not an uncertain effect.
+                    if (!(error instanceof TelosSessionProposalRefusal) || signal.aborted)
+                      throw error;
+                    const refusal = reportTelosSessionRefusal(error, {
+                      requestId: String((input as { requestId?: unknown }).requestId),
+                      sourceSessionId: id,
+                    });
+                    return retainCallbackOutcome(
+                      {
+                        content: [{ type: 'text' as const, text: JSON.stringify(refusal) }],
+                        isError: true,
+                      },
+                      'settled',
+                    );
+                  }
                   await toolAuthority.assertCurrent(signal);
                   return {
                     content: [{ type: 'text' as const, text: JSON.stringify(result) }],

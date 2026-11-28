@@ -96,6 +96,10 @@ import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import { sessionLaunchDefinitions, sessionLaunchTools } from './session-launch-tools.js';
 import { SessionLaunchError } from './session-launch-store.js';
 import { retainTelosSessionProposalFailure } from './telos-session-proposal-failure.js';
+import {
+  reportTelosSessionRefusal,
+  TelosSessionProposalRefusal,
+} from './telos-session-proposal-refusal.js';
 import { retainTelosDiagnosticFailure } from './telos-operation-failure.js';
 import {
   AGENT_COMMUNICATION_TOOL,
@@ -4127,6 +4131,23 @@ async function openCodexChatBound(
             isError: false,
           };
         } catch (error) {
+          if (
+            name === 'TelosCreateSession' &&
+            error instanceof TelosSessionProposalRefusal &&
+            !signal.aborted
+          )
+            return retainCallbackOutcome(
+              {
+                content: JSON.stringify(
+                  reportTelosSessionRefusal(error, {
+                    requestId: String((input as { requestId?: unknown }).requestId),
+                    sourceSessionId: options.conversationId,
+                  }),
+                ),
+                isError: true,
+              },
+              'settled',
+            );
           if (name === 'TelosCreateSession' && !(error instanceof SessionLaunchError)) {
             const parsed = TelosCreateSessionInputSchema.safeParse(input);
             const requestId = parsed.success

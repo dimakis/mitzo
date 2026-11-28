@@ -4,7 +4,12 @@ import * as credentialRuntime from '../credential-connections-runtime.js';
 import * as credentialTools from '../session-credential-tools.js';
 import * as launchTools from '../session-launch-tools.js';
 import { SessionRegistry, ToolGuardTimeoutError, type ToolGuardPolicy } from '@mitzo/harness';
-import { TurnCallbacks, assertTurnCallbackEffects } from '../turn-callbacks.js';
+import {
+  TurnCallbacks,
+  assertTurnCallbackEffects,
+  retainedCallbackOutcome,
+} from '../turn-callbacks.js';
+import { TelosSessionProposalRefusal } from '../telos-session-proposal-refusal.js';
 import { AgentCommunicationError } from '../agent-message-runtime.js';
 import { createSdkCallbackState } from '../ordinary-local-vertex-sdk-query.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
@@ -199,13 +204,36 @@ it('routes Telos proposals through the owned callback and refuses retired query 
     expect(adapter).toHaveBeenCalledWith(
       expect.objectContaining({ permissionPrefix: 'mcp__mitzo-connections__' }),
     );
+    // A definite read-only refusal keeps its code and unstarted effect.
+    execute.mockRejectedValueOnce(
+      new TelosSessionProposalRefusal(
+        'conflict',
+        'No current owner exists; use reviewed initial role setup',
+        409,
+      ),
+    );
+    const refused = (await tool.handler(input, { requestId: 'sdk-refused' })) as {
+      isError: boolean;
+      content: { text: string }[];
+    };
+    expect(refused.isError).toBe(true);
+    expect(retainedCallbackOutcome(refused)).toBe('settled');
+    expect(JSON.parse(refused.content[0].text)).toMatchObject({
+      code: 'conflict',
+      stage: 'proposal_scope',
+      requestId: input.requestId,
+      sourceSessionId: 'sdk-owned',
+      effectStatus: 'not_started',
+      message: 'No current owner exists; use reviewed initial role setup',
+    });
     retired = true;
     await expect(tool.handler(input)).rejects.toMatchObject({
       name: 'SessionRuntimeError',
       code: 'runtime_unavailable',
       cause: { message: 'query retired' },
     });
-    expect(execute).toHaveBeenCalledOnce();
+    // Retirement is refused before dispatch: only the two earlier calls ran.
+    expect(execute).toHaveBeenCalledTimes(2);
   } finally {
     adapter.mockRestore();
     registry.dispose();
