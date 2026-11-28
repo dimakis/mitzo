@@ -3,6 +3,7 @@ import type { SendMessageOptions } from '@mitzo/client';
 import {
   CodexSteerInputSchema as Request,
   type CodexSteerInput as Correction,
+  type CommandState,
   type ImageAttachment,
 } from '@mitzo/protocol';
 import { chatStorage, CHAT_STORAGE_CHANGED } from '../lib/large-chat-storage';
@@ -21,6 +22,15 @@ function retained(id: string | null): Correction | null {
  * after stdin release; these cover a late echo while keeping the unconfirmed
  * state visible within a few seconds. */
 export const RECEIPT_RECHECK_DELAYS_MS = [500, 1000, 1500] as const;
+/** Transcript states the server projects for a correction's own message only
+ * after it has reserved that correction's receipt: `steered` (provider ACK),
+ * `failed` (refused) and `uncertain` (unconfirmed, or a Codex interim state).
+ * A provider ACK can land long after the re-check window (Claude reads queued
+ * input only between steps, so a slow tool delays it), and a retained
+ * correction otherwise stays "not confirmed" until a manual Retry, even across
+ * reloads. Each newly recorded outcome earns one same-identity re-read, which
+ * the retained receipt makes idempotent, so it can never dispatch again. */
+const RECORDED_OUTCOMES: ReadonlySet<CommandState> = new Set(['steered', 'failed', 'uncertain']);
 async function checkReceipt(
   sessionId: string,
   input: Correction,
@@ -92,6 +102,8 @@ export function useTurnSteering(
   sessionId: string | null,
   targetCommandId: string | undefined,
   enabled: boolean,
+  /** The active chat's durable per-message command states. */
+  commandStates?: Readonly<Record<string, CommandState>>,
 ) {
   const owner = useRef<{
     sessionId: string | null;
@@ -100,6 +112,8 @@ export function useTurnSteering(
     delivery?: Delivery;
     refusal?: () => void;
     busy: boolean;
+    /** `requestId:state` of the last recorded outcome already re-read. */
+    reconciled?: string;
   }>({ sessionId: null, pending: null, blocked: false, busy: false });
   if (owner.current.sessionId !== sessionId) {
     let pending: Correction | null = null,
@@ -138,12 +152,13 @@ export function useTurnSteering(
         : selected.pending
           ? 'Correction delivery not confirmed. Retry checks the original correction.'
           : '';
-  const execute = async (
+  // Stable: it reads only the owner ref and state setters, never render values.
+  const execute = useCallback(async function execute(
     scope: typeof selected,
     input: Correction,
     delivery?: Delivery,
     onDefinitiveRefusal?: () => void,
-  ) => {
+  ) {
     if (!scope.sessionId || scope.busy) return;
     scope.busy = true;
     render((n) => n + 1);
@@ -229,7 +244,19 @@ export function useTurnSteering(
         });
     }
     render((n) => n + 1);
-  };
+  }, []);
+  const recorded = selected.pending ? commandStates?.[selected.pending.requestId] : undefined;
+  const busy = selected.busy;
+  useEffect(() => {
+    const pending = selected.pending;
+    if (owner.current !== selected || !pending || busy || selected.blocked) return;
+    if (!recorded || !RECORDED_OUTCOMES.has(recorded)) return;
+    const mark = `${pending.requestId}:${recorded}`;
+    // One re-read per recorded outcome: a lost re-read keeps the manual Retry.
+    if (selected.reconciled === mark) return;
+    selected.reconciled = mark;
+    void execute(selected, pending, selected.delivery, selected.refusal);
+  }, [recorded, busy, selected, execute]);
   return {
     error,
     busy: selected.busy,

@@ -1017,7 +1017,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTodoData.ts':
     '54312cbf0f5503c5c252b2a4cf5105fb5c3d784df79ea3b55161929471885b1a',
   '../../frontend/src/hooks/useTurnSteering.ts':
-    '7d8c36abd5da3f8d9084a9eda6a85ea994f61b95b66f0725d5e70668a45f4480',
+    '31115d6619f015626d8ef55a2b25318ea6e7b0dcf955c7d88ed1441a161ff27e',
   '../../frontend/src/lib/__tests__/account-preference.test.ts':
     '4143a4f2c597cbc62160aa07c574e3a61cb10f70e0a989b5a8200dbe70d26675',
   '../../frontend/src/lib/__tests__/api-fetch.test.ts':
@@ -1262,7 +1262,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/BackupsView.tsx':
     '12d153ee61c3c2e7e9fd1771369e49ba799a1530521c3db501f28d4eeee07dc2',
   '../../frontend/src/pages/ChatView.tsx':
-    '0a2e48f4e9f6b386136807b6e36e04c2d835c9a1772943dcea0fbe8ac6a01509',
+    'b9e3fd86f2ca2b7f045263adb67e1486043570a4b09fdf548556d325008c4bd4',
   '../../frontend/src/pages/ConnectionSetupView.tsx':
     'cbffe9d8e9bd438da3abf3118540310b6acedb635b61b1506b913ae374d18e43',
   '../../frontend/src/pages/ConnectionsRoute.tsx':
@@ -1270,7 +1270,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/ConnectionsView.tsx':
     '9781df7959b8b27362f2bc3928662b595b8298e52f6bc053ffd54975a1ff65e5',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'bfda8caffd633ed97cbcd986ac852926b826b64dcac37258ecffa4b6545c3773',
+    '9852bc31dac07c346f61a4c99a51a01d469b49da7fb990af0f17977e4f2b25ad',
   '../../frontend/src/pages/FileViewer.tsx':
     '0e00272198278445e891fcb707deabf5c1ce1dc5303262088e6ce1d695dd6a2c',
   '../../frontend/src/pages/MockupsView.css':

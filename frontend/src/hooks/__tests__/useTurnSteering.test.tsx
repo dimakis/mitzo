@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import type { CommandState } from '@mitzo/protocol';
 import { useTurnSteering } from '../useTurnSteering';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
@@ -367,4 +368,70 @@ it('retires an unconfirmed correction as terminal, returns the text and never re
   expect(hook.result.current.retry).toBeUndefined();
   expect(hook.result.current.error).toContain('may or may not have been applied');
   expect(localStorage.getItem('mitzo-turn-steering:unconfirmed-chat')).toBeNull();
+});
+it('settles a correction whose provider ACK lands after the re-check window from its recorded transcript outcome', async () => {
+  vi.useFakeTimers();
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const status = { current: 'uncertain' };
+  vi.mocked(apiFetch).mockImplementation(async (_url, options) =>
+    Response.json(
+      { requestId: JSON.parse(options!.body as string).requestId, status: status.current },
+      { status: status.current === 'uncertain' ? 202 : 200 },
+    ),
+  );
+  const delivery = vi.fn();
+  const hook = renderHook(({ states }) => useTurnSteering('late-ack-chat', 'turn', true, states), {
+    initialProps: { states: {} as Record<string, CommandState> },
+  });
+  await act(async () => {
+    hook.result.current.submit('Correction', delivery, undefined, 'late-id');
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  expect(apiFetch).toHaveBeenCalledTimes(4);
+  expect(hook.result.current.error).toMatch(/not confirmed/);
+  status.current = 'accepted';
+  await act(async () => {
+    hook.rerender({ states: { 'late-id': 'steered' } });
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(apiFetch).toHaveBeenCalledTimes(5);
+  const bodies = vi.mocked(apiFetch).mock.calls.map((call) => call[1]!.body);
+  expect(new Set(bodies).size).toBe(1);
+  expect(delivery).toHaveBeenLastCalledWith('accepted');
+  expect(hook.result.current.error).toBe('');
+  expect(hook.result.current.retry).toBeUndefined();
+  expect(localStorage.getItem('mitzo-turn-steering:late-ack-chat')).toBeNull();
+});
+it('re-reads a reloaded correction only once the transcript records its terminal outcome', async () => {
+  const retained = JSON.stringify({ requestId: 'original', targetCommandId: 'a', text: 'Fix' });
+  localStorage.setItem('mitzo-turn-steering:reload-chat', retained);
+  const hook = renderHook(({ states }) => useTurnSteering('reload-chat', 'b', true, states), {
+    initialProps: { states: { original: 'steering' } as Record<string, CommandState> },
+  });
+  expect(hook.result.current.error).toMatch(/not confirmed/);
+  expect(apiFetch).not.toHaveBeenCalled();
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    Response.json({ requestId: 'original', status: 'accepted' }),
+  );
+  await act(async () => hook.rerender({ states: { original: 'steered' } }));
+  expect(apiFetch).toHaveBeenCalledOnce();
+  expect(vi.mocked(apiFetch).mock.calls[0][1]!.body).toBe(retained);
+  expect(hook.result.current.error).toBe('');
+  expect(localStorage.getItem('mitzo-turn-steering:reload-chat')).toBeNull();
+});
+it('re-reads once per recorded outcome and keeps manual retry when that re-read is lost', async () => {
+  localStorage.setItem(
+    'mitzo-turn-steering:lost-reread',
+    JSON.stringify({ requestId: 'original', targetCommandId: 'a', text: 'Fix' }),
+  );
+  vi.mocked(apiFetch).mockRejectedValue(Error('lost'));
+  const hook = renderHook(({ states }) => useTurnSteering('lost-reread', 'b', true, states), {
+    initialProps: { states: { original: 'steered' } as Record<string, CommandState> },
+  });
+  await act(async () => {});
+  await act(async () => hook.rerender({ states: { original: 'steered' } }));
+  expect(apiFetch).toHaveBeenCalledOnce();
+  expect(hook.result.current.error).toMatch(/not confirmed/);
+  expect(hook.result.current.retry).toBeDefined();
+  expect(localStorage.getItem('mitzo-turn-steering:lost-reread')).toContain('original');
 });
