@@ -7,6 +7,7 @@ import { eventStore as startupStore } from '../chat.js';
 import { setAuthRevocationStore } from '../auth.js';
 import { TelosItemStore } from '../telos-item-store.js';
 import { createTelosSessionLaunchHost } from '../telos-session-launch-host.js';
+import { TelosSessionProposalRefusal } from '../telos-session-proposal-refusal.js';
 import { createTelosWorkRoleHost } from '../telos-work-role-host.js';
 import { createTelosAdoptionRuntime } from '../telos-adoption-runtime.js';
 import { resolveTelosRepositoryChatSelection } from '../telos-repository-chat-selection.js';
@@ -476,6 +477,37 @@ it('replaces a current owner with the proposing idle Claude chat and retains for
   expect(x.f.work.assignmentHistory('studio', x.f.actor)).toEqual(expect.arrayContaining([former]));
 }, 30_000);
 
+it('refuses owner replacement on unowned work as a definite unstarted refusal', async () => {
+  const x = await adoptionFixture();
+  const incoming = x.claudeChat({ summary: 'Opus orchestrator' });
+  const refusal = await x.host
+    .propose(
+      incoming,
+      {
+        requestId: randomUUID(),
+        title: 'Replace an absent owner',
+        prompt: 'Review the replacement.',
+        itemId: 'studio',
+        expectedRevision: x.items.read('studio').revision,
+        existingConversationId: incoming,
+        replaceOwner: true,
+        sourceSnapshotIds: [],
+        artifactRefs: [],
+      },
+      x.authority,
+    )
+    .catch((error: unknown) => error);
+  expect(refusal).toBeInstanceOf(TelosSessionProposalRefusal);
+  expect(refusal).toMatchObject({
+    code: 'conflict',
+    stage: 'proposal_scope',
+    effectStatus: 'not_started',
+    message: 'No current owner exists; use reviewed initial role setup',
+  });
+  expect(x.f.work.read('studio', x.f.actor).assignments).toEqual([]);
+  expect(x.store.forSession(incoming, 'user')).toEqual([]);
+}, 30_000);
+
 it.each(['busy', 'openshell', 'foreign operator', 'busy at approval'] as const)(
   'refuses a %s Claude chat with a named reason and no assignment',
   async (scenario) => {
@@ -522,7 +554,15 @@ it.each(['busy', 'openshell', 'foreign operator', 'busy at approval'] as const)(
       'foreign operator': /^existing_chat_foreign_operator:/,
     }[scenario];
     if (scenario !== 'busy at approval') {
-      await expect(x.adopt(orchestrator, target, feature)).rejects.toThrow(expected);
+      const refusal = await x.adopt(orchestrator, target, feature).catch((error) => error);
+      expect(refusal).toBeInstanceOf(TelosSessionProposalRefusal);
+      expect(refusal.message).toMatch(expected);
+      // Named before any write: the agent sees a definite, unstarted refusal.
+      expect(refusal).toMatchObject({
+        code: 'conflict',
+        reason: expected.source.slice(1, -1),
+        effectStatus: 'not_started',
+      });
     } else {
       const propose = x.host.propose.bind(x.host);
       vi.spyOn(x.host, 'propose').mockImplementation(async (...args) => {

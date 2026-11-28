@@ -7,15 +7,17 @@ import {
   telosSessionProposalFailure,
 } from '../telos-session-launch-adapters.js';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
+import { TelosSessionProposalRefusal } from '../telos-session-proposal-refusal.js';
 
 const mocks = vi.hoisted(() => ({
   propose: vi.fn(),
   auth: vi.fn(),
   allowed: vi.fn(() => true),
   error: vi.fn(),
+  warn: vi.fn(),
 }));
 vi.mock('../logger.js', () => ({
-  createLogger: () => ({ error: mocks.error, warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
+  createLogger: () => ({ error: mocks.error, warn: mocks.warn, info: vi.fn(), debug: vi.fn() }),
 }));
 vi.mock('../session-launch-tools.js', async (original) => ({
   ...(await original<typeof import('../session-launch-tools.js')>()),
@@ -186,6 +188,53 @@ describe('Telos work-bound session adapter contract', () => {
       requestId: disconnectedInput.requestId,
       sourceSessionId: 'claude-lead',
     });
+  });
+
+  it('returns a definite read-only refusal with its code and an unstarted effect', async () => {
+    mocks.propose.mockRejectedValueOnce(
+      new TelosSessionProposalRefusal(
+        'conflict',
+        'No current owner exists; use reviewed initial role setup',
+        409,
+      ),
+    );
+    const app = proposalApp();
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      const response = await request(app)
+        .post('/api/internal/telos/session/propose')
+        .set(init.headers as Record<string, string>)
+        .send(JSON.parse(init.body as string));
+      return { ok: response.status === 200, json: async () => response.body };
+    });
+    vi.stubGlobal('fetch', fetch);
+    const result = await executeTelosCreateSession(
+      'http://fixture',
+      'claude-client',
+      'claude-lead',
+      'synthetic-token',
+      input,
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content)).toEqual({
+      code: 'conflict',
+      stage: 'proposal_scope',
+      requestId: input.requestId,
+      sourceSessionId: 'claude-lead',
+      effectStatus: 'not_started',
+      message: 'No current owner exists; use reviewed initial role setup',
+      recovery: expect.stringMatching(/No proposal was saved/),
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.warn).toHaveBeenCalledWith('Telos session proposal refused', {
+      stage: 'proposal_scope',
+      code: 'conflict',
+      requestId: input.requestId,
+      sourceSessionId: 'claude-lead',
+      effectStatus: 'not_started',
+      message: 'No current owner exists; use reviewed initial role setup',
+    });
+    expect(telosSessionProposalFailure(input.requestId)).toBeUndefined();
   });
 
   it('exposes the same tool on local Claude and local/OpenShell Codex selection routes', () => {

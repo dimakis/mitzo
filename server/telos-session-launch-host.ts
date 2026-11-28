@@ -28,6 +28,7 @@ import type {
   TelosSessionAssignmentReceipt,
   TelosSessionLaunchPort,
 } from './session-launch-service.js';
+import { TelosSessionProposalRefusal } from './telos-session-proposal-refusal.js';
 
 export interface TelosSessionLaunchDependencies {
   store: SessionLaunchStore;
@@ -429,86 +430,18 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
     ...host,
     async propose(sourceSessionId: string, raw: unknown, authority: SessionLaunchAuthority) {
       const input = TelosCreateSessionInputSchema.parse(raw);
-      current(authority);
-      let adoption;
-      let configuration: SessionLaunchConfig | undefined;
-      if (input.existingConversationId) {
-        if (
-          (input.existingConversationId === sourceSessionId && !input.replaceOwner) ||
-          input.overrides ||
-          !deps.workspaces
-        )
-          throw new SessionLaunchError(
-            'Select a distinct compatible existing chat with its retained settings; adoption cannot override configuration.',
-          );
-        const selected = observeAdoption(input.existingConversationId, authority);
-        usingWork((work) => work.assertConversationAvailableForAdoption(selected.conversationId));
-        // Advisory at proposal; approval rechecks under the adoption hold. A chat
-        // proposing itself is necessarily mid-turn now, so only approval decides.
-        try {
-          if (selected.conversationId !== sourceSessionId)
-            deps.adoption?.assertQuiescent(selected.conversationId, input.requestId);
-        } catch (error) {
-          throw new SessionLaunchError(
-            error instanceof TelosAdoptionRefusal
-              ? error.message
-              : new TelosAdoptionRefusal('existing_chat_busy').message,
-            409,
-            { cause: error },
-          );
-        }
-        const settings = telosAdoptionSettings(deps.events, selected.conversationId);
-        if (!settings)
-          throw new SessionLaunchError(
-            new TelosAdoptionRefusal('existing_chat_incompatible').message,
-          );
-        adoption = {
-          ...selected,
-          title: deps.events.getSession(selected.conversationId)?.summary || 'Existing chat',
-        };
-        configuration = {
-          version: 1,
-          runtime: {
-            version: 1,
-            account: {
-              accountId: settings.binding.account.accountId,
-              model: settings.selection.model,
-              reasoningEffort: settings.selection.thinking,
-            },
-            accountReference: settings.binding.account,
-            agentProfile: settings.selection.agent,
-            execution: { location: 'local', targetId: settings.binding.execution.targetId },
-          },
-          mode: settings.selection.permission.mode,
-          isolation: true,
-          repositoryWorkspaceId: null,
-          contextBlocks: [],
-          extraTools: [],
-        };
+      let preflight: ReturnType<typeof proposalPreflight>;
+      try {
+        preflight = proposalPreflight(sourceSessionId, input, authority);
+      } catch (error) {
+        // These checks only read: no presentation or proposal exists yet.
+        throw TelosSessionProposalRefusal.from(error);
       }
-      const canonicalRevision = () => {
-        const items = new TelosItemStore(deps.dbPath(), { readOnly: true });
-        try {
-          return items.readGuarded(input.itemId, () => current(authority)).revision;
-        } finally {
-          items.close();
-        }
-      };
-      const itemRevision = canonicalRevision();
-      const scope = sourceScope(sourceSessionId, input.itemId, input.replaceOwner);
-      // TelosManageItem returns the canonical brief token. Retain the separate
-      // relationship token internally; older scoped callers remain valid.
-      if (
-        itemRevision !== input.expectedRevision &&
-        scope.expectedRevision !== input.expectedRevision
-      )
-        throw new SessionLaunchError(
-          'Work revision changed. Read the selected work before proposing its session.',
-        );
+      const { adoption, configuration, itemRevision, scope } = preflight;
       const assertAuthorized = () => {
         current(authority);
         if (
-          canonicalRevision() !== itemRevision ||
+          canonicalRevision(input.itemId, authority) !== itemRevision ||
           !isDeepStrictEqual(sourceScope(sourceSessionId, input.itemId, input.replaceOwner), scope)
         )
           throw new SessionLaunchError(
@@ -540,4 +473,88 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
       };
     },
   };
+  function canonicalRevision(itemId: string, authority: SessionLaunchAuthority) {
+    const items = new TelosItemStore(deps.dbPath(), { readOnly: true });
+    try {
+      return items.readGuarded(itemId, () => current(authority)).revision;
+    } finally {
+      items.close();
+    }
+  }
+  /** Read-only proposal checks. A refusal here is definite and unstarted. */
+  function proposalPreflight(
+    sourceSessionId: string,
+    input: ReturnType<typeof TelosCreateSessionInputSchema.parse>,
+    authority: SessionLaunchAuthority,
+  ) {
+    current(authority);
+    let adoption;
+    let configuration: SessionLaunchConfig | undefined;
+    if (input.existingConversationId) {
+      if (
+        (input.existingConversationId === sourceSessionId && !input.replaceOwner) ||
+        input.overrides ||
+        !deps.workspaces
+      )
+        throw new SessionLaunchError(
+          'Select a distinct compatible existing chat with its retained settings; adoption cannot override configuration.',
+        );
+      const selected = observeAdoption(input.existingConversationId, authority);
+      usingWork((work) => work.assertConversationAvailableForAdoption(selected.conversationId));
+      // Advisory at proposal; approval rechecks under the adoption hold. A chat
+      // proposing itself is necessarily mid-turn now, so only approval decides.
+      try {
+        if (selected.conversationId !== sourceSessionId)
+          deps.adoption?.assertQuiescent(selected.conversationId, input.requestId);
+      } catch (error) {
+        throw new SessionLaunchError(
+          error instanceof TelosAdoptionRefusal
+            ? error.message
+            : new TelosAdoptionRefusal('existing_chat_busy').message,
+          409,
+          { cause: error },
+        );
+      }
+      const settings = telosAdoptionSettings(deps.events, selected.conversationId);
+      if (!settings)
+        throw new SessionLaunchError(
+          new TelosAdoptionRefusal('existing_chat_incompatible').message,
+        );
+      adoption = {
+        ...selected,
+        title: deps.events.getSession(selected.conversationId)?.summary || 'Existing chat',
+      };
+      configuration = {
+        version: 1,
+        runtime: {
+          version: 1,
+          account: {
+            accountId: settings.binding.account.accountId,
+            model: settings.selection.model,
+            reasoningEffort: settings.selection.thinking,
+          },
+          accountReference: settings.binding.account,
+          agentProfile: settings.selection.agent,
+          execution: { location: 'local', targetId: settings.binding.execution.targetId },
+        },
+        mode: settings.selection.permission.mode,
+        isolation: true,
+        repositoryWorkspaceId: null,
+        contextBlocks: [],
+        extraTools: [],
+      };
+    }
+    const itemRevision = canonicalRevision(input.itemId, authority);
+    const scope = sourceScope(sourceSessionId, input.itemId, input.replaceOwner);
+    // TelosManageItem returns the canonical brief token. Retain the separate
+    // relationship token internally; older scoped callers remain valid.
+    if (
+      itemRevision !== input.expectedRevision &&
+      scope.expectedRevision !== input.expectedRevision
+    )
+      throw new SessionLaunchError(
+        'Work revision changed. Read the selected work before proposing its session.',
+      );
+    return { adoption, configuration, itemRevision, scope };
+  }
 }

@@ -8331,6 +8331,26 @@ it('discovers and executes StartSession through the actual owned native default-
     });
     expect(start).not.toHaveBeenCalled();
     expect(mocks.send).toHaveBeenCalledTimes(sourceProviderCalls);
+    const { TelosSessionProposalRefusal } = await import('../telos-session-proposal-refusal.js');
+    const refusedInput = { ...workInput, requestId: '3d1f4c2b-5a6e-4f70-8b9c-0d1e2f3a4b5c' };
+    proposeWork.mockRejectedValueOnce(
+      new TelosSessionProposalRefusal(
+        'conflict',
+        'No current owner exists; use reviewed initial role setup',
+        409,
+      ),
+    );
+    const refused = await execute('TelosCreateSession', refusedInput, signal, call);
+    expect(refused.isError).toBe(true);
+    expect(JSON.parse(refused.content)).toMatchObject({
+      code: 'conflict',
+      stage: 'proposal_scope',
+      requestId: refusedInput.requestId,
+      sourceSessionId: 'owned-session',
+      effectStatus: 'not_started',
+      message: 'No current owner exists; use reviewed initial role setup',
+    });
+    expect(mocks.proposalLogError).not.toHaveBeenCalled();
     const failedInput = { ...workInput, requestId: '6680d040-cb2c-4d1b-8c5f-617d82dbe0af' };
     const cause = Object.assign(new Error('private database path and proposal contents'), {
       code: 'SQLITE_BUSY',
