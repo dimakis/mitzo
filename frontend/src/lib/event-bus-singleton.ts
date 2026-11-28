@@ -2,8 +2,10 @@
  * Global EventBus singleton for SSE events.
  *
  * Lazily connected on first import. Hooks subscribe via eventBus.on().
- * On iOS resume, ensureConnected() is called to recover from CLOSED state.
- * On page visibility change, ensureConnected() reconnects if connection died.
+ * On native app resume, the stream is force-recreated: iOS can leave a
+ * suspended socket reporting OPEN, and otherwise recovery waits on WebKit's
+ * native EventSource retry delay. On page visibility change, a stream that is
+ * not OPEN is recreated immediately instead of waiting for that retry.
  */
 
 import { EventBus } from '@mitzo/client';
@@ -12,8 +14,8 @@ import { getEventSourceUrl, markAuthLost, AUTH_LOST_EVENT, AUTH_RESTORED_EVENT }
 export const eventBus = new EventBus();
 let authBlocked = true;
 
-export function ensureEventBusConnected(): void {
-  if (!authBlocked) eventBus.ensureConnected();
+export function ensureEventBusConnected(options: { force?: boolean } = {}): void {
+  if (!authBlocked) eventBus.ensureConnected(options);
 }
 
 eventBus.on('auth_expired', () => {

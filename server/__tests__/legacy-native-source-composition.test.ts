@@ -77,6 +77,7 @@ function fixture() {
   const ctx = {
     eventStore: {
       getSession: vi.fn(() => meta),
+      getInitialCommand: vi.fn(() => ({ messageId: null, text: meta.initialPrompt })),
       getSessionEvents: vi.fn(() => events),
       getSessionRuntimeBinding: vi.fn(() => null),
     },

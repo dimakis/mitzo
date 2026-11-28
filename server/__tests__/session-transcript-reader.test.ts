@@ -26,6 +26,7 @@ function fixture(events: StoredEvent[] = []) {
     getSessionEventsThroughCursor: vi.fn(() => events),
     getOrdinaryLocalVertexCustody: vi.fn(() => null),
     getSendCommand: vi.fn(() => null),
+    getInitialCommand: vi.fn(() => null),
     upsertSession: vi.fn(),
   };
   const dependencies = {
