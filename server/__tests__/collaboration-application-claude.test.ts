@@ -378,6 +378,8 @@ it('routes an independent specialist review across OpenAI and qualified Anthropi
     },
     async () => true,
   );
+  // Admission is now an explicit operator decision; approve the proposed route.
+  const admit = async () => true as const;
   const { recordApplicationMessagingRuntime } =
     await import('./fixtures/symposium-recording-runtime.js');
   const native = await recordApplicationMessagingRuntime(h.events);
@@ -389,7 +391,7 @@ it('routes an independent specialist review across OpenAI and qualified Anthropi
       messageIds: [],
       artifacts: [],
     };
-    await service.consult(authority, policy.policyId, input);
+    await service.consult(authority, policy.policyId, input, admit);
     await vi.waitFor(
       () =>
         expect(
@@ -408,7 +410,7 @@ it('routes an independent specialist review across OpenAI and qualified Anthropi
       assignment: 'Review independently.',
       reviewOf: input.requestId,
     };
-    const requested = await service.consult(authority, policy.policyId, review);
+    const requested = await service.consult(authority, policy.policyId, review, admit);
     expect(requested.independence).toMatchObject({ independent: true, differentFamily: true });
     await vi.waitFor(
       () =>
@@ -424,7 +426,7 @@ it('routes an independent specialist review across OpenAI and qualified Anthropi
       text: 'Personal Claude reviewed the selected design.',
     });
     const before = observed.inputs.length;
-    await service.consult(authority, policy.policyId, review);
+    await service.consult(authority, policy.policyId, review, admit);
     expect(observed.inputs).toHaveLength(before);
     expect(observed.inputs.at(-1)?.text).toContain('Reviewed the selected design.');
     expect(JSON.stringify(service.read(authority, review.requestId))).not.toContain(

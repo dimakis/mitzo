@@ -552,6 +552,7 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
     <ConversationAgents
       {...props}
       agents={agents}
+      modelPolicySessionId={host.historySource ? undefined : host.sourceConversationId}
       sharedIdentity={host.identity}
       showParticipantNames={host.active || props.showParticipantNames}
       addressedReadingOnly={host.active}

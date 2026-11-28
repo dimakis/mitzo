@@ -2060,9 +2060,10 @@ async function _startChatInner(
     });
   }
   // The user's command as typed. `prompt` below becomes the provider envelope
-  // (reply/source context, workspace preamble). Public records derive from this
-  // text (see publicCommandText) and never carry the workspace preamble. Readers
-  // identify the first command by its messageId, not by text.
+  // (reply/source context). Public records derive from this text (see
+  // publicCommandText). Neither carries the workspace preamble, which reaches
+  // providers only through the system prompt. Readers identify the first
+  // command by its messageId, not by text.
   const publicPrompt = prompt;
   if (options.ordinarySdkAuthority) {
     prompt = assembleCommandPrompt(
@@ -2076,7 +2077,9 @@ async function _startChatInner(
       },
     );
   }
-  prompt = repositoryChatContext(repositoryWorkspace) + prompt;
+  // Repository workspace context reaches every provider once, through the
+  // system prompt. Never add it to the command text: that text is the public
+  // first command, so the envelope would replay as an extra user message.
   const nativeProviderSelected = !!apiCredentialRef || !!gemini;
 
   if (
@@ -3673,8 +3676,7 @@ async function _startChatInner(
               id === initialMessageId
                 ? fullPrompt
                 : assemblePrompt(
-                    repositoryChatContext(repositoryWorkspace) +
-                      assembleCommandPrompt(eventStore, session.sessionId!, id, frozenPayload),
+                    assembleCommandPrompt(eventStore, session.sessionId!, id, frozenPayload),
                     cwd,
                     frozenPayload.images,
                     undefined,
